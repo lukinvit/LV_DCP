@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Build / dist
+build/
+dist/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+ENV/
+
+# Caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.cache/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Local databases / runtime state
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+data/
+var/
+logs/
+*.log
+
+# Qdrant / Postgres local volumes (if ever mounted into repo)
+qdrantdata/
+pgdata/
+redisdata/
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Secrets
+*.pem
+*.key
+secrets/
+
+# Local Claude state we don't share
+.claude/settings.json
