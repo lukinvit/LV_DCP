@@ -6,6 +6,7 @@ from pathlib import Path
 
 import typer
 
+from apps.cli.commands import pack as pack_module
 from apps.cli.commands import scan as scan_module
 
 # Create main app
@@ -34,3 +35,24 @@ def scan(
 ) -> None:
     """Scan a project and regenerate .context/*.md artifacts."""
     scan_module.scan(path)
+
+
+@app.command()
+def pack(
+    path: Path = typer.Argument(  # noqa: B008
+        ...,
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        resolve_path=True,
+    ),
+    query: str = typer.Argument(...),
+    mode: str = typer.Option(
+        "navigate",
+        "--mode",
+        case_sensitive=False,
+    ),
+    limit: int = typer.Option(10, "--limit"),
+) -> None:
+    """Build a context pack from a query."""
+    pack_module.pack(path, query, mode, limit)
