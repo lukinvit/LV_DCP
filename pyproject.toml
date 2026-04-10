@@ -45,6 +45,7 @@ packages = ["libs", "apps"]
 line-length = 100
 target-version = "py312"
 src = ["apps", "libs", "tests"]
+extend-exclude = ["tests/eval/fixtures"]
 
 [tool.ruff.lint]
 select = [
@@ -80,10 +81,12 @@ warn_unused_ignores = true
 no_implicit_optional = true
 warn_return_any = true
 show_error_codes = true
+exclude = ["tests/eval/fixtures/"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
+norecursedirs = ["tests/eval/fixtures"]
 asyncio_mode = "auto"
 addopts = [
     "-ra",

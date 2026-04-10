@@ -1,0 +1,10 @@
+database:
+  url: postgresql+asyncpg://localhost/sample
+  pool_size: 10
+
+auth:
+  access_ttl_minutes: 15
+  refresh_ttl_days: 30
+
+worker:
+  cleanup_interval_seconds: 3600
