@@ -41,18 +41,18 @@ class Immutable(BaseModel):
 
 
 class File(Immutable):
-    path: str                    # POSIX relative to project root
-    content_hash: str            # hex sha256
+    path: str  # POSIX relative to project root
+    content_hash: str  # hex sha256
     size_bytes: int
-    language: str                # "python" | "markdown" | "yaml" | "json" | "toml" | "text"
-    role: str                    # "source" | "test" | "docs" | "config" | "generated" | "unknown"
+    language: str  # "python" | "markdown" | "yaml" | "json" | "toml" | "text"
+    role: str  # "source" | "test" | "docs" | "config" | "generated" | "unknown"
     is_generated: bool = False
     is_binary: bool = False
 
 
 class Symbol(Immutable):
     name: str
-    fq_name: str                 # dotted fully qualified name
+    fq_name: str  # dotted fully qualified name
     symbol_type: SymbolType
     file_path: str
     start_line: int
@@ -63,8 +63,8 @@ class Symbol(Immutable):
 
 
 class Relation(Immutable):
-    src_type: str                # "file" | "symbol"
-    src_ref: str                 # path or fq_name
+    src_type: str  # "file" | "symbol"
+    src_ref: str  # path or fq_name
     dst_type: str
     dst_ref: str
     relation_type: RelationType
@@ -73,12 +73,12 @@ class Relation(Immutable):
 
 
 class Summary(Immutable):
-    entity_type: str             # "file" | "symbol" | "module" | "project"
+    entity_type: str  # "file" | "symbol" | "module" | "project"
     entity_ref: str
-    summary_type: str            # "file_summary" | "symbol_summary" | ...
+    summary_type: str  # "file_summary" | "symbol_summary" | ...
     text: str
     text_hash: str
-    model_name: str              # "deterministic" in Phase 1; LLM model in Phase 2
+    model_name: str  # "deterministic" in Phase 1; LLM model in Phase 2
     model_version: str
     confidence: float = Field(ge=0.0, le=1.0, default=1.0)
 

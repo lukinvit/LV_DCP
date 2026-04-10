@@ -75,9 +75,7 @@ def run_eval(retrieve: RetrievalFn, *, repo_path: Path = FIXTURE_REPO) -> EvalRe
             )
         )
 
-    recall_5_files = _avg(
-        recall_at_k(r.retrieved_files, r.expected_files, k=5) for r in results
-    )
+    recall_5_files = _avg(recall_at_k(r.retrieved_files, r.expected_files, k=5) for r in results)
     precision_3_files = _avg(
         precision_at_k(r.retrieved_files, r.expected_files, k=3) for r in results
     )
