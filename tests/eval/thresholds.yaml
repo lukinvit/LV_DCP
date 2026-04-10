@@ -1,0 +1,22 @@
+# Active retrieval quality thresholds. Changed only by explicit PR, never bundled
+# with retrieval pipeline changes (see ADR-002).
+active_phase: 0
+
+phases:
+  "0":
+    description: "Foundation — stub retrieval, metrics = 0 expected"
+    recall_at_5_files: 0.0
+    precision_at_3_files: 0.0
+    recall_at_5_symbols: 0.0
+
+  "1":
+    description: "Deterministic local slice"
+    recall_at_5_files: 0.70
+    precision_at_3_files: 0.55
+    recall_at_5_symbols: 0.60
+
+  "2":
+    description: "LLM enrichment + semantic retrieval"
+    recall_at_5_files: 0.85
+    precision_at_3_files: 0.70
+    recall_at_5_symbols: 0.75

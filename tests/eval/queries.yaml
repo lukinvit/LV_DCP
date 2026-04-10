@@ -1,0 +1,155 @@
+version: 1
+queries:
+  - id: q01-user-model
+    text: "where is the User model defined"
+    mode: navigate
+    expected:
+      files: [app/models/user.py]
+      symbols: [app.models.user.User]
+
+  - id: q02-session-model
+    text: "where is session token stored"
+    mode: navigate
+    expected:
+      files: [app/models/session.py]
+      symbols: [app.models.session.Session]
+
+  - id: q03-login-route
+    text: "login endpoint"
+    mode: navigate
+    expected:
+      files: [app/handlers/auth.py]
+      symbols: [app.handlers.auth.login]
+
+  - id: q04-refresh-flow
+    text: "refresh token flow"
+    mode: navigate
+    expected:
+      files:
+        - app/handlers/auth.py
+        - app/services/auth.py
+      symbols:
+        - app.services.auth.refresh_access_token
+        - app.handlers.auth.refresh
+
+  - id: q05-authenticate
+    text: "how are passwords verified"
+    mode: navigate
+    expected:
+      files: [app/services/auth.py]
+      symbols:
+        - app.services.auth.authenticate
+        - app.services.auth.hash_password
+
+  - id: q06-current-user
+    text: "which function resolves the access token to a user"
+    mode: navigate
+    expected:
+      files: [app/services/auth.py]
+      symbols: [app.services.auth.current_user]
+
+  - id: q07-profile-route
+    text: "profile endpoint"
+    mode: navigate
+    expected:
+      files: [app/handlers/profile.py]
+      symbols: [app.handlers.profile.me]
+
+  - id: q08-db-lifecycle
+    text: "database engine setup and shutdown"
+    mode: navigate
+    expected:
+      files: [app/services/db.py]
+      symbols:
+        - app.services.db.init_db
+        - app.services.db.close_db
+
+  - id: q09-session-factory
+    text: "session factory"
+    mode: navigate
+    expected:
+      files: [app/services/db.py]
+      symbols: [app.services.db.get_session]
+
+  - id: q10-cleanup-worker
+    text: "background job that deletes expired sessions"
+    mode: navigate
+    expected:
+      files: [app/workers/cleanup.py]
+      symbols: [app.workers.cleanup.cleanup_expired_sessions]
+
+  - id: q11-app-entrypoint
+    text: "FastAPI app entrypoint"
+    mode: navigate
+    expected:
+      files: [app/main.py]
+      symbols: [app.main.app, app.main.lifespan]
+
+  - id: q12-health-route
+    text: "health check route"
+    mode: navigate
+    expected:
+      files: [app/main.py]
+      symbols: [app.main.health]
+
+  - id: q13-auth-tests
+    text: "tests for authentication"
+    mode: navigate
+    expected:
+      files: [tests/test_auth.py]
+
+  - id: q14-architecture-doc
+    text: "where is the architecture described"
+    mode: navigate
+    expected:
+      files: [docs/architecture.md]
+
+  - id: q15-db-config
+    text: "database connection string configuration"
+    mode: navigate
+    expected:
+      files: [config/settings.yaml]
+
+  - id: q16-access-ttl
+    text: "access token lifetime"
+    mode: navigate
+    expected:
+      files:
+        - app/services/auth.py
+        - config/settings.yaml
+      symbols: [app.services.auth.ACCESS_TTL]
+
+  - id: q17-user-is-locked
+    text: "how to check if a user account is locked"
+    mode: navigate
+    expected:
+      files: [app/models/user.py]
+      symbols: [app.models.user.User.is_locked]
+
+  - id: q18-password-hashing
+    text: "password hashing implementation"
+    mode: navigate
+    expected:
+      files: [app/services/auth.py]
+      symbols: [app.services.auth.hash_password]
+
+  - id: q19-edit-login
+    text: "I want to change how login validates credentials"
+    mode: edit
+    expected:
+      files:
+        - app/handlers/auth.py
+        - app/services/auth.py
+        - tests/test_auth.py
+      symbols:
+        - app.handlers.auth.login
+        - app.services.auth.authenticate
+
+  - id: q20-edit-cleanup-schedule
+    text: "change the cleanup worker interval"
+    mode: edit
+    expected:
+      files:
+        - app/workers/cleanup.py
+        - config/settings.yaml
+      symbols: [app.workers.cleanup.cleanup_expired_sessions]
