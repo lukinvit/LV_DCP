@@ -55,9 +55,9 @@ def test_context_pack_size_constraint() -> None:
 
 
 def test_relation_type_enum_covers_phase_1() -> None:
-    assert RelationType.IMPORTS
-    assert RelationType.DEFINES
-    assert RelationType.SAME_FILE_CALLS
+    assert RelationType.IMPORTS.value == "imports"
+    assert RelationType.DEFINES.value == "defines"
+    assert RelationType.SAME_FILE_CALLS.value == "same_file_calls"
 
 
 def test_summary_has_confidence() -> None:

@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from libs.core.paths import is_ignored, normalize_path
 
 
@@ -11,9 +12,10 @@ def test_normalize_path_resolves_relative_to_root(tmp_path: Path) -> None:
 
 
 def test_normalize_path_rejects_path_outside_root(tmp_path: Path) -> None:
-    import pytest
+    # Sibling directory of tmp_path, guaranteed outside on any OS/filesystem.
+    outside = tmp_path.parent / "lv_dcp_sibling_fixture" / "elsewhere.py"
     with pytest.raises(ValueError, match="outside root"):
-        normalize_path(Path("/tmp/elsewhere.py"), root=tmp_path)
+        normalize_path(outside, root=tmp_path)
 
 
 def test_is_ignored_matches_default_patterns() -> None:
