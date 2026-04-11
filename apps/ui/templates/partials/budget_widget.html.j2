@@ -1,0 +1,8 @@
+{% if budget %}
+<a class="budget-widget budget-status-{{ budget.status }}" href="/settings" title="LLM budget status">
+    <span class="budget-label">LLM</span>
+    <span class="budget-value">
+        ${{ '%.2f' | format(budget.spent_30d) }} / ${{ '%.0f' | format(budget.monthly_limit) }}
+    </span>
+</a>
+{% endif %}

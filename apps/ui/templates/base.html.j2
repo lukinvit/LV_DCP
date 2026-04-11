@@ -13,7 +13,9 @@
         <a class="brand" href="/">LV_DCP</a>
         <nav>
             <a href="/">Overview</a>
+            <a href="/settings">Settings</a>
         </nav>
+        {% include "partials/budget_widget.html.j2" %}
         {% block usage_widget %}{% endblock %}
     </header>
     <main>
