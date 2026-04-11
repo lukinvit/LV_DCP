@@ -1,23 +1,244 @@
 # LV_DCP — Developer Context Platform
 
-Локально-удалённая инженерная память: превращает локальные проекты на macOS в управляемый слой контекста для Claude, IDE и человека.
+**Local-first engineering memory.** Turns Python projects on macOS into a queryable context layer for Claude, IDE agents, and humans. Reduces token cost of repeated code reading, builds a relation graph, and makes agent edits safer.
 
-**Статус:** pre-phase-0 (инициализация).
+[![Phase 2 Complete](https://img.shields.io/badge/phase-2%20complete-green)](docs/dogfood/phase-2.md)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue)](pyproject.toml)
 
-## Документы, которые обязаны быть прочитаны перед любым изменением
+## What it actually does
 
-1. [CLAUDE.md](CLAUDE.md) — стек, конвенции, правила зависимостей
-2. [docs/constitution.md](docs/constitution.md) — неизменяемые принципы проекта
-3. [docs/tz.md](docs/tz.md) — исходное ТЗ (1842 строки)
-4. [docs/adr/](docs/adr/) — Architecture Decision Records
-5. [docs/superpowers/plans/](docs/superpowers/plans/) — действующий план фазы
+You ask a question in plain language — _"where is refresh token logic?"_ or _"change login validation"_ — and LV_DCP returns a **2–20 KB markdown pack** with the 2–5 most relevant files and symbols. Your LLM agent reads that pack instead of grep-walking the whole repository.
 
-## Быстрый старт для разработки
+For edit tasks, the pack groups files by role — **target files**, **impacted tests**, **impacted configs** — and surfaces dependencies found through the relation graph, not just keyword matching. A test file gets included even if it doesn't contain the keywords, because the graph knows it imports the file you're changing.
 
 ```bash
-# (когда pyproject будет наполнен зависимостями)
-make install
-make lint typecheck test
+$ ctx pack . "refresh token rotation" --mode edit
+
+# Context pack — edit
+**Project:** my-api
+**Intent:** refresh token rotation
+**Coverage:** high
+
+## Target files
+- app/services/auth.py (score 12.34)
+- app/handlers/auth.py (score 8.21)
+
+## Impacted tests
+- tests/test_auth.py
+
+## Impacted configs
+- config/settings.yaml
+
+## Candidate symbols
+- app.services.auth.refresh_access_token
+- app.services.auth.ACCESS_TTL
+- app.handlers.auth.refresh
+
+## Reminder: edit discipline
+1. Build minimal plan before patching multiple files
+2. Never touch write_protected_paths
+3. Run lint + typecheck + tests after every change
+4. Summarize the diff when done
 ```
 
-Серверная инфраструктура (Postgres, Qdrant, Redis, backend, worker) **всегда** запускается через удалённый docker context `docker-vm`. См. [docs/deployment/docker-context.md](docs/deployment/docker-context.md).
+## Core value proposition
+
+- **10× fewer tokens** when Claude/Cursor/Cline works on a large Python codebase. The agent reads a 5 KB pack instead of 50–80 KB of raw files.
+- **Automatic invocation via MCP.** Once `ctx mcp install` is run, Claude Code (CLI and VS Code extension) calls LV_DCP automatically before answering architectural or edit questions — zero ceremony for the user.
+- **No context slips through.** Edit-mode packs include impacted tests and configs discovered via graph walk — the kind of files `grep` misses.
+- **Local-only.** No network calls, no telemetry, no SaaS. Indexes live in `.context/` next to each project. Secrets in source files are detected by regex and excluded from the search index.
+- **Deterministic and measurable.** A retrieval eval harness with 32 golden queries is a first-class citizen; every retrieval change must not regress the metrics.
+
+## Status
+
+**Phase 2 complete (2026-04-11)** — Native integration (MCP server) + retrieval completeness (graph expansion). Phase 3 (LLM summaries, vector search) in planning.
+
+| Metric | Value | Threshold |
+|---|---|---|
+| recall@5 files | 0.891 | ≥ 0.85 |
+| precision@3 files | 0.620 | ≥ 0.60 |
+| recall@5 symbols | 0.833 | ≥ 0.80 |
+| impact_recall@5 | 0.819 | ≥ 0.75 |
+
+Measured against a fixture repo with 32 queries including 12 "impact" queries that depend on graph-aware retrieval.
+
+## Prerequisites
+
+- macOS (primary target) or Linux
+- Python 3.12+
+- [uv](https://github.com/astral-sh/uv) package manager
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (CLI and/or VS Code extension) — optional but the main use case
+
+## Installation
+
+### One-time setup
+
+```bash
+git clone https://github.com/lukinvit/LV_DCP.git
+cd LV_DCP
+uv sync --all-extras
+make lint typecheck test  # verify toolchain
+```
+
+### Register with Claude Code (recommended)
+
+```bash
+# Register the MCP server so Claude Code calls it automatically
+claude mcp add --scope user lvdcp -- \
+  uv run --directory /absolute/path/to/LV_DCP python -m apps.mcp.server
+
+# Verify
+claude mcp list
+# Should show: lvdcp: ... - ✓ Connected
+```
+
+Replace `/absolute/path/to/LV_DCP` with your actual clone path.
+
+After this, restart your Claude Code session (or VS Code if using the extension). Claude will now see `lvdcp_pack`, `lvdcp_scan`, `lvdcp_inspect`, `lvdcp_explain` as available tools and will call them automatically per the behavioral rules in `~/.claude/CLAUDE.md`.
+
+## Usage
+
+### Basic workflow
+
+```bash
+# Index a project (first time)
+cd ~/dev/my-python-project
+uv run --directory /path/to/LV_DCP ctx scan .
+
+# Ask questions — get ranked file/symbol packs
+uv run --directory /path/to/LV_DCP ctx pack . "authentication middleware"
+uv run --directory /path/to/LV_DCP ctx pack . "add rate limit to login" --mode edit
+
+# Inspect the index
+uv run --directory /path/to/LV_DCP ctx inspect .
+```
+
+### Commands
+
+| Command | Purpose |
+|---|---|
+| `ctx scan <path>` | Walk, parse, index. Incremental by default (skips unchanged files by content hash). Use `--full` to force reparse. |
+| `ctx pack <path> "<query>" [--mode navigate\|edit]` | Build a retrieval pack. Navigate mode for questions, edit mode for changes. |
+| `ctx inspect <path>` | Print index statistics (file count, symbols, relations by type). |
+| `ctx mcp serve` | Run the MCP server via stdio (called by Claude Code, not humans). |
+| `ctx mcp install --scope {user\|project\|local}` | Patch `~/.claude/CLAUDE.md` with a behavioral rule (⚠ currently writes to wrong file — see Phase 3 backlog M8). Use `claude mcp add` directly for now. |
+| `ctx watch add/remove/list/start` | Manage the auto-indexing daemon (watchdog + FSEvents, incremental scan on file change). |
+
+### What gets indexed
+
+Supported languages (Phase 2):
+- **Python** — via stdlib `ast`, extracts classes, functions, methods, constants, imports, same-file calls
+- **Markdown** — heading extraction as navigation anchors
+- **YAML / JSON / TOML** — syntax validation, config role detection
+
+Automatic ignore list: `.git/`, `.venv/`, `node_modules/`, `__pycache__/`, `.mypy_cache/`, `.ruff_cache/`, `.pytest_cache/`, `dist/`, `build/`, `.context/`, `secrets/`, `credentials/`, plus `.env`, `.env.local/production/staging/development`, `credentials.json`, `secrets.json`.
+
+Other languages (TypeScript, Go, Rust, Java) are **not** supported in Phase 2 — they land in Phase 5+.
+
+### Privacy model
+
+- **All processing is local.** LV_DCP never makes network calls on its own. The only outbound data is what your LLM client (e.g. Claude Code) sends to its own API — and LV_DCP reduces that payload rather than expanding it.
+- **Secret pattern detection** — 12 regex patterns for AWS keys, OpenAI/Stripe/GitHub/Slack tokens, JWTs, PEM private key headers. Files matching these are indexed by path only; their content is excluded from the full-text index and context packs.
+- **Deny list** — env files and credentials files are ignored at the path level before any content is read.
+- **Nothing leaves the machine.** Indexes live in `.context/` directories inside each project root. Delete the directory to remove the index.
+
+## Architecture in one diagram
+
+```
+┌─────────────────────────────────────────────────┐
+│  Claude Code (CLI or VS Code extension)         │
+└─────────────────────────────────────────────────┘
+                   ↕ stdio (MCP)
+┌─────────────────────────────────────────────────┐
+│  apps/mcp/server.py — FastMCP server            │
+│  Tools: scan, pack, inspect, explain            │
+└─────────────────────────────────────────────────┘
+                   ↕
+┌─────────────────────────────────────────────────┐
+│  libs/project_index — ProjectIndex wrapper      │
+│  (consolidates cache + fts + symbols + graph)   │
+└─────────────────────────────────────────────────┘
+                   ↕
+┌─────────────────────────────────────────────────┐
+│  libs/retrieval/pipeline.py — 4-stage retrieval │
+│   1. Symbol match (token scoring)               │
+│   2. SQLite FTS5 (full-text)                    │
+│   3. Graph expansion (depth 2, decay 0.7)       │
+│   4. Score decay cutoff + final rank            │
+└─────────────────────────────────────────────────┘
+                   ↕ per-project SQLite
+┌─────────────────────────────────────────────────┐
+│  .context/cache.db   (files, symbols, relations,│
+│                       retrieval_traces)         │
+│  .context/fts.db     (FTS5 full-text index)     │
+│  .context/project.md, symbol_index.md           │
+└─────────────────────────────────────────────────┘
+
+Parallel:
+┌─────────────────────────────────────────────────┐
+│  apps/agent/daemon.py — watchdog + debounce     │
+│  Auto-rescan on FS changes (2s debounce)        │
+│  Managed by launchd on macOS (plist generator)  │
+└─────────────────────────────────────────────────┘
+```
+
+## Documentation
+
+**Start here:**
+- [docs/user-guide.md](docs/user-guide.md) — practical guide for end users (Phase 1 framing, to be updated for Phase 2)
+- [docs/constitution.md](docs/constitution.md) — 12 immutable project invariants
+- [docs/tz.md](docs/tz.md) — original 1842-line technical specification (reference, not contract)
+
+**Architecture decisions:**
+- [docs/adr/001-budgets.md](docs/adr/001-budgets.md) — cost/latency/resource budgets as hard contracts
+- [docs/adr/002-eval-harness.md](docs/adr/002-eval-harness.md) — retrieval quality as CI-gated metric
+- [docs/adr/003-single-writer-model.md](docs/adr/003-single-writer-model.md) — agent vs backend ownership protocol
+- [docs/adr/004-phase-2-pivot.md](docs/adr/004-phase-2-pivot.md) — pivot from LLM-first to native-integration-first
+- [docs/adr/005-completeness-invariant.md](docs/adr/005-completeness-invariant.md) — graph expansion as first-class invariant
+
+**Plans and specs:**
+- [docs/superpowers/specs/2026-04-11-phase-2-design.md](docs/superpowers/specs/2026-04-11-phase-2-design.md) — Phase 2 design doc
+- [docs/superpowers/plans/2026-04-11-phase-2.md](docs/superpowers/plans/2026-04-11-phase-2.md) — Phase 2 implementation plan (14 tasks)
+- [docs/dogfood/phase-2.md](docs/dogfood/phase-2.md) — Phase 2 dogfood report with real numbers
+
+## Development
+
+```bash
+make install       # uv sync --all-extras
+make lint          # ruff check + ruff format --check
+make typecheck     # mypy strict
+make test          # pytest, excluding eval and llm markers
+make eval          # retrieval evaluation harness
+```
+
+Phase 2 complete: 157 passing tests, 4 eval thresholds clear, linear git history, tagged `phase-2-complete`.
+
+### Running the daemon
+
+```bash
+# Register a project
+uv run ctx watch add /absolute/path/to/your/project
+
+# Start the daemon in foreground (for debugging)
+uv run ctx watch start
+```
+
+The daemon uses `watchdog.observers.Observer` which auto-selects `FSEventsObserver` on macOS and `InotifyObserver` on Linux. Debounce window is 2 seconds; mass changes trigger a batched incremental scan rather than N individual ones.
+
+## Roadmap
+
+- **Phase 3** (planned) — LLM summaries via Claude API with content-hash cache, vector search (sqlite-vss / pgvector), multi-stage retrieval with reranking, usage dashboard with project graph visualization, per-project cost tracking. Deferred from Phase 2 per [ADR-004](docs/adr/004-phase-2-pivot.md).
+- **Phase 4** — Cross-file call resolution via static analysis, edit pack v2 with real impact analysis, git intelligence (hotspots, co-change, diff summaries).
+- **Phase 5** — Qdrant (if metrics justify), TypeScript / Go / Rust parsers, cross-project pattern search.
+- **Phase 6** — VS Code extension (native UI, not just MCP), Obsidian vault sync, admin web UI.
+
+## Contributing
+
+This is a personal-scale project. Issues and discussion are welcome. See [CLAUDE.md](CLAUDE.md) for project conventions before sending pull requests.
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE) for the full text.
+
+Copyright 2026 Vitaly Lukin.

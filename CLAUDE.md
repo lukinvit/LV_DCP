@@ -111,7 +111,7 @@ uv run alembic revision -m "message" --autogenerate
 
 ## Deployment: remote docker context
 
-Вся серверная инфраструктура (Postgres, Qdrant, Redis, backend, worker) запускается **только** через удалённый Docker context `docker-vm` (ssh://cursor1@docker.lukinvit.tech:2222). Локальный Docker Desktop используется только для одноразовых экспериментов.
+Вся серверная инфраструктура (Postgres, Qdrant, Redis, backend, worker) запускается **только** через удалённый Docker context `docker-vm` (например `ssh://user@docker.your-host.example:2222`). Локальный Docker Desktop используется только для одноразовых экспериментов.
 
 См. [docs/deployment/docker-context.md](docs/deployment/docker-context.md) для деталей, правил портов, volumes и phase gating.
 

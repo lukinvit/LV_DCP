@@ -15,8 +15,8 @@ LV_DCP serverside (Postgres, Qdrant, Redis/Dragonfly, backend, worker) **все�
 docker context ls
 # NAME             DESCRIPTION                               DOCKER ENDPOINT
 # default          Current DOCKER_HOST based configuration   unix:///var/run/docker.sock
-# desktop-linux    Docker Desktop                            unix:///Users/v.lukin/.docker/run/docker.sock
-# docker-vm *                                                ssh://cursor1@docker.lukinvit.tech:2222
+# desktop-linux    Docker Desktop                            unix://~/.docker/run/docker.sock
+# docker-vm *                                                ssh://user@docker.your-host.example:2222
 # home                                                       ssh://docker-vm
 # test2                                                      ssh://root@test2.lukinvit.tech
 ```
