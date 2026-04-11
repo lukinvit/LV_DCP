@@ -80,13 +80,7 @@ class _SymbolCollector(ast.NodeVisitor):
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         module = node.module or ""
         for alias in node.names:
-            # If module has dots (package path), include it; otherwise just use name
-            if module and "." in module:
-                dst = f"{module}.{alias.name}"
-            elif module:
-                dst = alias.name
-            else:
-                dst = alias.name
+            dst = f"{module}.{alias.name}" if module else alias.name
             self.relations.append(
                 Relation(
                     src_type="file",

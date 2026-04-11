@@ -40,7 +40,8 @@ def test_python_records_imports_as_relations() -> None:
     result = PythonParser().parse(file_path="app/svc.py", data=SOURCE)
     imports = [r for r in result.relations if r.relation_type == RelationType.IMPORTS]
     targets = {r.dst_ref for r in imports}
-    assert "datetime" in targets
+    # `from datetime import datetime` → "datetime.datetime" (single-segment module fix I6)
+    assert "datetime.datetime" in targets
     assert "app.models.user.User" in targets
 
 
@@ -71,3 +72,16 @@ def test_python_symbol_types() -> None:
     assert by_name["helper"].symbol_type == SymbolType.FUNCTION
     assert by_name["run"].symbol_type == SymbolType.METHOD
     assert by_name["CONSTANT"].symbol_type == SymbolType.CONSTANT
+
+
+def test_python_importfrom_single_segment_module() -> None:
+    # Regression for review issue I6 — `from pathlib import Path` previously
+    # dropped the "pathlib." prefix from the relation's dst_ref.
+    source = b"from pathlib import Path\nfrom os import path\n"
+    result = PythonParser().parse(file_path="a.py", data=source)
+    imports = [
+        r for r in result.relations if r.relation_type == RelationType.IMPORTS
+    ]
+    targets = {r.dst_ref for r in imports}
+    assert "pathlib.Path" in targets
+    assert "os.path" in targets
