@@ -14,7 +14,7 @@ from libs.core.entities import File, Relation, RelationType, Symbol, SymbolType
 
 # Phase 1 has no formal migration path; bumping this constant is advisory.
 # ADR-002 Phase 2 will introduce proper migration dispatch (see review issue I2).
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS files (
@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS files (
     language      TEXT NOT NULL,
     role          TEXT NOT NULL,
     is_generated  INTEGER NOT NULL DEFAULT 0,
-    is_binary     INTEGER NOT NULL DEFAULT 0
+    is_binary     INTEGER NOT NULL DEFAULT 0,
+    has_secrets   INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS symbols (
@@ -58,6 +59,18 @@ CREATE INDEX IF NOT EXISTS idx_rel_origin ON relations(origin_file);
 CREATE INDEX IF NOT EXISTS idx_rel_src ON relations(src_ref);
 CREATE INDEX IF NOT EXISTS idx_rel_dst ON relations(dst_ref);
 CREATE INDEX IF NOT EXISTS idx_rel_type ON relations(relation_type);
+
+CREATE TABLE IF NOT EXISTS retrieval_traces (
+    trace_id    TEXT PRIMARY KEY,
+    project     TEXT NOT NULL,
+    query       TEXT NOT NULL,
+    mode        TEXT NOT NULL,
+    timestamp   REAL NOT NULL,
+    coverage    TEXT NOT NULL,
+    trace_json  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_traces_timestamp ON retrieval_traces(timestamp);
+CREATE INDEX IF NOT EXISTS idx_traces_project ON retrieval_traces(project);
 """
 
 
@@ -93,21 +106,56 @@ class SqliteCache:
     def migrate(self) -> None:
         conn = self._connect()
         current_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+
         if current_version == 0:
-            # Fresh database — apply full schema
+            # Fresh DB — apply full schema
             conn.executescript(_SCHEMA)
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             conn.commit()
-        elif current_version == SCHEMA_VERSION:
-            # Already up to date — no-op
             return
-        else:
-            # Phase 1: no migration path. Phase 2 will dispatch here.
+
+        if current_version == SCHEMA_VERSION:
+            return
+
+        if current_version == 1:
+            # Nothing to migrate at v1 — just bump to v2 (FK cascade was added
+            # via table recreate in Phase 1 cleanup; for v1 caches in the wild
+            # we don't attempt in-place migration)
             raise RuntimeError(
-                f"SqliteCache at {self.db_path} is at schema version "
-                f"{current_version}, but this binary expects {SCHEMA_VERSION}. "
-                f"Delete {self.db_path.parent} and re-run `ctx scan` to rebuild."
+                f"SqliteCache at {self.db_path} is at schema version 1; "
+                f"automatic migration is not supported. Delete {self.db_path.parent} "
+                "and re-run `ctx scan` to rebuild."
             )
+
+        if current_version == 2:
+            self._migrate_v2_to_v3(conn)
+            return
+
+        raise RuntimeError(
+            f"SqliteCache at {self.db_path} is at schema version {current_version}, "
+            f"but this binary expects {SCHEMA_VERSION}. "
+            f"Delete {self.db_path.parent} and re-run `ctx scan` to rebuild."
+        )
+
+    def _migrate_v2_to_v3(self, conn: sqlite3.Connection) -> None:
+        conn.execute("ALTER TABLE files ADD COLUMN has_secrets INTEGER NOT NULL DEFAULT 0")
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS retrieval_traces (
+                trace_id    TEXT PRIMARY KEY,
+                project     TEXT NOT NULL,
+                query       TEXT NOT NULL,
+                mode        TEXT NOT NULL,
+                timestamp   REAL NOT NULL,
+                coverage    TEXT NOT NULL,
+                trace_json  TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_traces_timestamp ON retrieval_traces(timestamp);
+            CREATE INDEX IF NOT EXISTS idx_traces_project ON retrieval_traces(project);
+            """
+        )
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        conn.commit()
 
     # --- files --------------------------------------------------------------
 
@@ -115,15 +163,16 @@ class SqliteCache:
         conn = self._connect()
         conn.execute(
             """
-            INSERT INTO files (path, content_hash, size_bytes, language, role, is_generated, is_binary)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO files (path, content_hash, size_bytes, language, role, is_generated, is_binary, has_secrets)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(path) DO UPDATE SET
                 content_hash = excluded.content_hash,
                 size_bytes = excluded.size_bytes,
                 language = excluded.language,
                 role = excluded.role,
                 is_generated = excluded.is_generated,
-                is_binary = excluded.is_binary
+                is_binary = excluded.is_binary,
+                has_secrets = excluded.has_secrets
             """,
             (
                 file.path,
@@ -133,6 +182,7 @@ class SqliteCache:
                 file.role,
                 int(file.is_generated),
                 int(file.is_binary),
+                int(file.has_secrets),
             ),
         )
         conn.commit()
@@ -140,7 +190,7 @@ class SqliteCache:
     def get_file(self, path: str) -> File | None:
         conn = self._connect()
         row = conn.execute(
-            "SELECT path, content_hash, size_bytes, language, role, is_generated, is_binary "
+            "SELECT path, content_hash, size_bytes, language, role, is_generated, is_binary, has_secrets "
             "FROM files WHERE path = ?",
             (path,),
         ).fetchone()
@@ -154,6 +204,7 @@ class SqliteCache:
             role=row[4],
             is_generated=bool(row[5]),
             is_binary=bool(row[6]),
+            has_secrets=bool(row[7]),
         )
 
     def delete_file(self, path: str) -> None:
@@ -168,7 +219,7 @@ class SqliteCache:
     def iter_files(self) -> Iterator[File]:
         conn = self._connect()
         for row in conn.execute(
-            "SELECT path, content_hash, size_bytes, language, role, is_generated, is_binary FROM files"
+            "SELECT path, content_hash, size_bytes, language, role, is_generated, is_binary, has_secrets FROM files"
         ):
             yield File(
                 path=row[0],
@@ -178,6 +229,7 @@ class SqliteCache:
                 role=row[4],
                 is_generated=bool(row[5]),
                 is_binary=bool(row[6]),
+                has_secrets=bool(row[7]),
             )
 
     # --- symbols ------------------------------------------------------------

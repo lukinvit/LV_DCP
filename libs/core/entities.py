@@ -48,6 +48,7 @@ class File(Immutable):
     role: str  # "source" | "test" | "docs" | "config" | "generated" | "unknown"
     is_generated: bool = False
     is_binary: bool = False
+    has_secrets: bool = False  # NEW in Phase 2
 
 
 class Symbol(Immutable):

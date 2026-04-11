@@ -210,3 +210,37 @@ def test_delete_file_cascades_relations(cache: SqliteCache) -> None:
 
     # After delete, relations from that file must be gone
     assert list(cache.iter_relations()) == []
+
+
+def test_put_file_persists_has_secrets_flag(cache: SqliteCache) -> None:
+    f = File(
+        path="config/production.yaml",
+        content_hash="h",
+        size_bytes=100,
+        language="yaml",
+        role="config",
+        has_secrets=True,
+    )
+    cache.put_file(f)
+    got = cache.get_file("config/production.yaml")
+    assert got is not None
+    assert got.has_secrets is True
+
+
+def test_retrieval_traces_table_exists(cache: SqliteCache) -> None:
+    # The retrieval_traces table is created by migrate(); insert and read a row
+    import json
+
+    conn = sqlite3.connect(cache.db_path)
+    conn.execute(
+        "INSERT INTO retrieval_traces (trace_id, project, query, mode, timestamp, coverage, trace_json) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("t1", "demo", "login endpoint", "navigate", 1000.0, "high", json.dumps({"stages": []})),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT trace_id, coverage FROM retrieval_traces WHERE trace_id = ?",
+        ("t1",),
+    ).fetchone()
+    conn.close()
+    assert row == ("t1", "high")
