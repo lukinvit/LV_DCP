@@ -33,6 +33,7 @@ def scan(
     typer.echo(
         f"scanned {result.files_scanned} files "
         f"({result.files_reparsed} reparsed, {result.stale_files_removed} stale removed), "
-        f"{result.symbols_extracted} symbols, {result.relations_extracted} relations "
+        f"{result.symbols_extracted} symbols, "
+        f"{result.relations_reparsed} reparsed / {result.relations_cached} total relations "
         f"in {result.elapsed_seconds:.2f}s"
     )

@@ -22,7 +22,8 @@ class ScanResultResponse(BaseModel):
     reparsed: int = Field(description="Files reparsed (others skipped via hash)")
     stale_removed: int = Field(description="Files removed from index (deleted from disk)")
     symbols: int = Field(description="Symbols extracted this scan")
-    relations: int = Field(description="Relations extracted this scan")
+    relations_reparsed: int = Field(description="Relations extracted from reparsed files this scan")
+    relations_cached: int = Field(description="Total relations in the cache DB after scan")
     timing_seconds: float = Field(description="Wall-clock elapsed seconds")
 
 
@@ -75,7 +76,8 @@ def lvdcp_scan(path: str, full: bool = False) -> ScanResultResponse:
         reparsed=result.files_reparsed,
         stale_removed=result.stale_files_removed,
         symbols=result.symbols_extracted,
-        relations=result.relations_extracted,
+        relations_reparsed=result.relations_reparsed,
+        relations_cached=result.relations_cached,
         timing_seconds=result.elapsed_seconds,
     )
 

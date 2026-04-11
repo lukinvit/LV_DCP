@@ -33,7 +33,8 @@ class ScanResult:
     files_reparsed: int
     stale_files_removed: int
     symbols_extracted: int
-    relations_extracted: int
+    relations_reparsed: int
+    relations_cached: int
     elapsed_seconds: float
 
 
@@ -200,7 +201,8 @@ def scan_project(
             files_reparsed=files_reparsed,
             stale_files_removed=stale_files_removed,
             symbols_extracted=total_symbols,
-            relations_extracted=total_relations,
+            relations_reparsed=total_relations,
+            relations_cached=total_relations_cached,
             elapsed_seconds=elapsed,
         )
     finally:

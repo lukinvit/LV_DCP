@@ -20,6 +20,7 @@ def test_scan_project_full_mode_counts_files(sample_project: Path) -> None:
     assert result.files_scanned == 3
     assert result.symbols_extracted >= 2  # entry + usage heading
     assert result.stale_files_removed == 0
+    assert result.relations_cached >= result.relations_reparsed
 
 
 def test_scan_project_returns_elapsed_seconds(sample_project: Path) -> None:
