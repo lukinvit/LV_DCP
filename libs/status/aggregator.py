@@ -9,12 +9,11 @@ import os
 import time
 from pathlib import Path
 
-from apps.agent.config import list_projects
-
 from libs.claude_usage.aggregator import TokenTotals as _UsageTotals
 from libs.claude_usage.aggregator import UsageAggregator
 from libs.claude_usage.cache import UsageCache
 from libs.claude_usage.path_encoding import encode_project_path
+from libs.core.projects_config import list_projects
 from libs.project_index.index import ProjectIndex, ProjectNotIndexedError
 from libs.retrieval.trace import query_traces_since
 from libs.scan_history.store import (

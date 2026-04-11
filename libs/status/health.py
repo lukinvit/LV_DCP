@@ -6,8 +6,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from apps.agent.config import list_projects
-
+from libs.core.projects_config import list_projects
 from libs.project_index.index import ProjectIndex, ProjectNotIndexedError
 from libs.status.models import HealthCard
 
