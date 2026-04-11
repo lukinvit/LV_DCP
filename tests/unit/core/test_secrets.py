@@ -10,7 +10,11 @@ def test_openai_key_detected() -> None:
 
 
 def test_stripe_live_key_detected() -> None:
-    assert contains_secret_pattern(b"sk_live_REDACTED")
+    # Build the test pattern at runtime so the source file itself never
+    # contains a literal `sk_live_...` string. This avoids GitHub secret
+    # scanning false-positives on our own repository.
+    pattern = b"sk_" + b"live_" + b"X" * 30
+    assert contains_secret_pattern(pattern)
 
 
 def test_jwt_detected() -> None:
