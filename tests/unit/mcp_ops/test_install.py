@@ -141,3 +141,33 @@ def test_install_result_carries_entry_point(tmp_path: Path) -> None:
     assert isinstance(result, InstallResult)
     assert result.entry_command == "/abs/bin/python"
     assert result.scope == "user"
+
+
+def test_install_recovers_from_truncated_managed_section(tmp_path: Path) -> None:
+    """If CLAUDE.md has START marker but END was manually truncated, install
+    must still succeed by treating the tail of the file as the stale block."""
+    claudemd = tmp_path / "CLAUDE.md"
+    claudemd.write_text(
+        f"# My rules\n\n{MANAGED_SECTION_START}\nstale content with no end marker\n"
+    )
+    config = tmp_path / "config.yaml"
+
+    with (
+        patch("libs.mcp_ops.install.has_claude_cli", return_value=True),
+        patch("libs.mcp_ops.install.claude_mcp_add"),
+    ):
+        install_lvdcp(
+            claudemd_path=claudemd,
+            config_path=config,
+            entry_command="/usr/bin/python",
+            entry_args=["-m", "apps.mcp.server"],
+            scope="user",
+            version="1.2.3",
+        )
+
+    content = claudemd.read_text()
+    assert content.count(MANAGED_SECTION_START) == 1
+    assert content.count(MANAGED_SECTION_END) == 1
+    assert "lvdcp-managed-version: 1.2.3" in content
+    assert "stale content" not in content
+    assert "# My rules" in content

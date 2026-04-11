@@ -98,3 +98,21 @@ def test_clean_legacy_settings_noop_if_file_missing(tmp_path: Path) -> None:
     settings = tmp_path / "nothing.json"
     result = clean_legacy_settings_json(settings)
     assert result.removed is False
+
+
+def test_uninstall_recovers_from_truncated_managed_section(tmp_path: Path) -> None:
+    """If CLAUDE.md has START marker but END was manually truncated, uninstall
+    must still strip the stale block (from marker to end of file)."""
+    from libs.mcp_ops.install import MANAGED_SECTION_END, MANAGED_SECTION_START
+
+    claudemd = tmp_path / "CLAUDE.md"
+    claudemd.write_text(f"# Keep me\n\n{MANAGED_SECTION_START}\nstale content with no end marker\n")
+
+    with patch("libs.mcp_ops.uninstall.claude_mcp_remove"):
+        uninstall_lvdcp(claudemd_path=claudemd, scope="user")
+
+    content = claudemd.read_text()
+    assert MANAGED_SECTION_START not in content
+    assert MANAGED_SECTION_END not in content
+    assert "stale content" not in content
+    assert "# Keep me" in content

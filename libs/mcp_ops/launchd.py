@@ -10,6 +10,10 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+# Layering exception: libs/ normally does not depend on apps/. We reuse the
+# existing plist generator in apps/agent/plist.py instead of duplicating it
+# here. The plist generator is a pure string builder with no runtime
+# coupling to the agent, so the inversion is safe and intentional.
 from apps.agent.plist import generate_plist
 
 LAUNCH_AGENT_LABEL = "tech.lvdcp.agent"

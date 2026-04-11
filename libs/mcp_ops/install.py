@@ -79,7 +79,13 @@ def _write_managed_section(claudemd_path: Path, version: str) -> None:
 
     if MANAGED_SECTION_START in content:
         start = content.index(MANAGED_SECTION_START)
-        end = content.index(MANAGED_SECTION_END, start) + len(MANAGED_SECTION_END)
+        try:
+            end = content.index(MANAGED_SECTION_END, start) + len(MANAGED_SECTION_END)
+        except ValueError:
+            # START marker present but END missing (truncated / hand-edited file).
+            # Treat the rest of the file from the start marker as the stale section
+            # and replace it entirely.
+            end = len(content)
         new_content = content[:start] + new_block + content[end:]
     else:
         if content and not content.endswith("\n"):

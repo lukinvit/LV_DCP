@@ -23,7 +23,12 @@ def _strip_managed_section(claudemd_path: Path) -> None:
     if MANAGED_SECTION_START not in content:
         return
     start = content.index(MANAGED_SECTION_START)
-    end = content.index(MANAGED_SECTION_END, start) + len(MANAGED_SECTION_END)
+    try:
+        end = content.index(MANAGED_SECTION_END, start) + len(MANAGED_SECTION_END)
+    except ValueError:
+        # START marker present but END missing (truncated / hand-edited file).
+        # Strip everything from the start marker to the end of file.
+        end = len(content)
     while end < len(content) and content[end] == "\n":
         end += 1
     while start > 0 and content[start - 1] == "\n":
