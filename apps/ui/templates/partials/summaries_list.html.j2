@@ -1,0 +1,29 @@
+<section class="section">
+    <h2>File summaries</h2>
+    {% if summaries %}
+        <p class="summaries-meta">
+            {{ summaries | length }} summaries
+            &middot; model: {{ summaries[0].model_name }}
+            &middot; total cost: ${{ '%.4f' | format(summaries | sum(attribute='cost_usd')) }}
+        </p>
+        <div class="summaries-list">
+            {% for s in summaries %}
+                <details>
+                    <summary><code>{{ s.file_path }}</code></summary>
+                    <p>{{ s.summary_text }}</p>
+                    <p class="summary-meta">
+                        {{ s.tokens_in }} &rarr; {{ s.tokens_out }} tokens &middot;
+                        ${{ '%.5f' | format(s.cost_usd) }} &middot;
+                        {{ s.model_name }}
+                    </p>
+                </details>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="empty">
+            No summaries yet. Run <code>ctx summarize {{ status.card.root }}</code>
+            to generate them. Enable LLM in <a href="/settings">Settings</a> first
+            if disabled.
+        </p>
+    {% endif %}
+</section>

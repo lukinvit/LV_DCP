@@ -301,3 +301,43 @@ footer a {
 
 .env-var-status.status-set { background: #e8f5e9; color: var(--ok); }
 .env-var-status.status-unset { background: #ffebee; color: var(--err); }
+
+/* P6: Summaries list */
+
+.summaries-meta {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin-top: 0;
+}
+
+.summaries-list details {
+    background: #fafafa;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.9rem;
+}
+
+.summaries-list details summary {
+    cursor: pointer;
+    font-weight: 500;
+    color: var(--accent);
+}
+
+.summaries-list details[open] {
+    background: #fff;
+    border-color: var(--accent);
+}
+
+.summaries-list details p {
+    margin: 0.5rem 0 0;
+    line-height: 1.5;
+}
+
+.summaries-list .summary-meta {
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-family: var(--mono);
+    margin-top: 0.25rem;
+}

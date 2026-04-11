@@ -10,6 +10,7 @@ from libs.core.projects_config import load_config
 from libs.status.aggregator import build_project_status, build_workspace_status, resolve_config_path
 from libs.status.budget import compute_budget_status
 from libs.status.models import WorkspaceStatus
+from libs.summaries.store import SummaryStore, resolve_default_store_path
 from starlette.templating import _TemplateResponse
 
 router = APIRouter()
@@ -32,6 +33,11 @@ def project_detail(slug: str, request: Request) -> _TemplateResponse:
     status = build_project_status(Path(root))
     config = load_config(resolve_config_path())
     budget = compute_budget_status(config.llm)
+
+    with SummaryStore(resolve_default_store_path()) as store:
+        store.migrate()
+        summaries = store.list_for_project(root)
+
     templates = request.app.state.templates
     return templates.TemplateResponse(  # type: ignore[no-any-return]
         request=request,
@@ -41,5 +47,6 @@ def project_detail(slug: str, request: Request) -> _TemplateResponse:
             "workspace": ws,
             "ws_usage_7d": ws.claude_usage_7d,
             "budget": budget,
+            "summaries": summaries,
         },
     )
