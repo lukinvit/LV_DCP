@@ -8,6 +8,7 @@ from pathlib import Path
 import typer
 from libs.core.version import LVDCP_VERSION
 from libs.mcp_ops.claude_cli import ClaudeCliError
+from libs.mcp_ops.doctor import render_json, render_table, run_doctor
 from libs.mcp_ops.install import build_dry_run_snippet, install_lvdcp
 from libs.mcp_ops.uninstall import clean_legacy_settings_json, uninstall_lvdcp
 
@@ -114,3 +115,26 @@ def uninstall(
             typer.echo(f"cleaned legacy lvdcp pollution from {settings_path}")
         else:
             typer.echo(f"no legacy pollution found in {settings_path}")
+
+
+@app.command("doctor")
+def doctor(
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit machine-readable JSON instead of the human-readable table",
+    ),
+) -> None:
+    """Run diagnostic checks on the lvdcp install state."""
+    home = Path.home()
+    report = run_doctor(
+        config_path=home / ".lvdcp" / "config.yaml",
+        claudemd_path=home / ".claude" / "CLAUDE.md",
+        settings_legacy_path=home / ".claude" / "settings.json",
+        expected_version=LVDCP_VERSION,
+    )
+    if json_output:
+        typer.echo(render_json(report))
+    else:
+        typer.echo(render_table(report))
+    raise typer.Exit(code=report.exit_code)
