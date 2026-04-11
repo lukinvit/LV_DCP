@@ -8,69 +8,13 @@ from __future__ import annotations
 import re
 
 from libs.core.entities import Symbol
+from libs.retrieval._stopwords import STOPWORDS
 
 _TOKEN_RE = re.compile(r"[a-zA-Z0-9]+")
 
 # Common English words that appear in natural-language queries but should not
-# be used to match symbol names — they cause noisy false positives.
-_QUERY_STOPWORDS: frozenset[str] = frozenset(
-    {
-        "a",
-        "an",
-        "the",
-        "is",
-        "are",
-        "was",
-        "were",
-        "be",
-        "been",
-        "being",
-        "have",
-        "has",
-        "had",
-        "do",
-        "does",
-        "did",
-        "will",
-        "would",
-        "could",
-        "should",
-        "may",
-        "might",
-        "shall",
-        "can",
-        "to",
-        "of",
-        "in",
-        "on",
-        "at",
-        "by",
-        "for",
-        "with",
-        "from",
-        "and",
-        "or",
-        "but",
-        "not",
-        "no",
-        "nor",
-        "so",
-        "yet",
-        "how",
-        "where",
-        "which",
-        "what",
-        "when",
-        "who",
-        "that",
-        "i",
-        "it",
-        "its",
-        "if",
-        "as",
-        "up",
-    }
-)
+# be used to match symbol names — shared with FtsIndex (see _stopwords.py).
+_QUERY_STOPWORDS: frozenset[str] = STOPWORDS
 
 
 def _tokenize(text: str) -> list[str]:

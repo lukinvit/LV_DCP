@@ -10,6 +10,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+from libs.retrieval._stopwords import STOPWORDS
+
 
 class FtsIndex:
     def __init__(self, db_path: Path) -> None:
@@ -74,65 +76,8 @@ class FtsIndex:
                 return [(path, float(score)) for path, score in rows]
         return []
 
-    # Common English stopwords that add noise to FTS queries
-    _STOPWORDS: frozenset[str] = frozenset(
-        {
-            "a",
-            "an",
-            "the",
-            "is",
-            "are",
-            "was",
-            "were",
-            "be",
-            "been",
-            "being",
-            "have",
-            "has",
-            "had",
-            "do",
-            "does",
-            "did",
-            "will",
-            "would",
-            "could",
-            "should",
-            "may",
-            "might",
-            "shall",
-            "can",
-            "to",
-            "of",
-            "in",
-            "on",
-            "at",
-            "by",
-            "for",
-            "with",
-            "from",
-            "and",
-            "or",
-            "but",
-            "not",
-            "no",
-            "nor",
-            "so",
-            "yet",
-            "how",
-            "where",
-            "which",
-            "what",
-            "when",
-            "who",
-            "that",
-            "i",
-            "it",
-            "its",
-            "if",
-            "as",
-            "up",
-        }
-    )
+    # Shared stopwords (see libs/retrieval/_stopwords.py)
+    _STOPWORDS: frozenset[str] = STOPWORDS
 
     @classmethod
     def _sanitize(cls, query: str) -> tuple[str, str]:
