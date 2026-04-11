@@ -6,40 +6,26 @@ import sys
 from pathlib import Path
 
 import typer
+from libs.core.version import LVDCP_VERSION
+from libs.mcp_ops.claude_cli import ClaudeCliError
+from libs.mcp_ops.install import build_dry_run_snippet, install_lvdcp
 
-from apps.mcp.install import (
-    install_claudemd_section,
-    install_mcp_settings,
-    uninstall_claudemd_section,
-    uninstall_mcp_settings,
-)
 from apps.mcp.server import run_stdio
 
 app = typer.Typer(name="mcp", help="LV_DCP MCP server commands")
 
+DEFAULT_CONFIG_PATH = Path.home() / ".lvdcp" / "config.yaml"
 
-def _resolve_claude_paths(scope: str) -> tuple[Path, Path]:
-    """Return (claudemd_path, settings_path) for the requested scope."""
+
+def _resolve_claudemd_path(scope: str) -> Path:
     home = Path.home()
     if scope == "user":
-        return (home / ".claude" / "CLAUDE.md", home / ".claude" / "settings.json")
+        return home / ".claude" / "CLAUDE.md"
     if scope == "project":
-        cwd = Path.cwd()
-        return (cwd / "CLAUDE.md", cwd / ".claude" / "settings.json")
+        return Path.cwd() / "CLAUDE.md"
     if scope == "local":
-        cwd = Path.cwd()
-        return (cwd / "CLAUDE.md", cwd / ".claude" / "settings.local.json")
+        return Path.cwd() / "CLAUDE.md"
     raise typer.BadParameter(f"unknown scope: {scope}")
-
-
-def _entry_point() -> str:
-    """Resolve the MCP server entry point for install.
-
-    Uses the current Python interpreter and runs the server as a module.
-    This survives uv venv recreation as long as sys.executable is stable.
-    """
-    python = sys.executable
-    return f"{python} -m apps.mcp.server"
 
 
 @app.command("serve")
@@ -53,20 +39,52 @@ def install(
     scope: str = typer.Option(
         "user",
         "--scope",
-        help="Where to install: user (~/.claude), project (./CLAUDE.md), or local (gitignored)",
+        help="MCP scope: user (global), project (./.mcp.json), or local (gitignored)",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Print a JSON snippet for manual copy instead of calling claude mcp add",
     ),
 ) -> None:
-    """Install the lvdcp MCP server and inject context-discipline rules into CLAUDE.md."""
-    claudemd_path, settings_path = _resolve_claude_paths(scope)
-    entry = _entry_point()
+    """Install the lvdcp MCP server via `claude mcp add`."""
+    entry_command = sys.executable
+    entry_args = ["-m", "apps.mcp.server"]
 
-    install_mcp_settings(settings_path, entry_point=entry)
-    install_claudemd_section(claudemd_path)
+    if dry_run:
+        snippet = build_dry_run_snippet(
+            server_name="lvdcp",
+            command=entry_command,
+            args=entry_args,
+            scope=scope,
+        )
+        typer.echo('# Copy the following into ~/.claude.json under "mcpServers":')
+        typer.echo(snippet)
+        return
 
-    typer.echo(f"MCP server registered at {settings_path}")
-    typer.echo(f"CLAUDE.md patched at {claudemd_path}")
-    typer.echo(f"  Scope: {scope}")
-    typer.echo(f"  Entry point: {entry}")
+    claudemd_path = _resolve_claudemd_path(scope)
+    try:
+        result = install_lvdcp(
+            claudemd_path=claudemd_path,
+            config_path=DEFAULT_CONFIG_PATH,
+            entry_command=entry_command,
+            entry_args=entry_args,
+            scope=scope,
+            version=LVDCP_VERSION,
+        )
+    except ClaudeCliError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"lvdcp MCP server registered (scope={result.scope})")
+    typer.echo(f"CLAUDE.md managed section: {result.claudemd_path}")
+    if result.config_created:
+        typer.echo(f"config bootstrapped:       {result.config_path}")
+    typer.echo(f"entry point: {result.entry_command} {' '.join(result.entry_args)}")
+    typer.echo(
+        "note: entry point contains an absolute Python path. If you sync "
+        "dotfiles across machines, re-run `ctx mcp install` on each host."
+    )
 
 
 @app.command("uninstall")
@@ -77,11 +95,12 @@ def uninstall(
         help="Scope to uninstall from (must match install scope)",
     ),
 ) -> None:
-    """Remove the lvdcp MCP server registration and CLAUDE.md managed section."""
-    claudemd_path, settings_path = _resolve_claude_paths(scope)
-
-    uninstall_claudemd_section(claudemd_path)
-    uninstall_mcp_settings(settings_path)
-
-    typer.echo(f"Removed LV_DCP managed section from {claudemd_path}")
-    typer.echo(f"Removed lvdcp entry from {settings_path}")
+    """Remove the lvdcp MCP server (stub — extended in Task 15 with --legacy-clean)."""
+    # Task 15 will properly implement this by calling libs.mcp_ops.uninstall.
+    # For this commit, delegate to old implementation if it still exists,
+    # otherwise no-op with a clear message.
+    typer.echo(
+        "ctx mcp uninstall: pending Task 15 implementation "
+        "(legacy apps.mcp.install removed in Task 14). Run `claude mcp remove --scope "
+        f"{scope} lvdcp` manually if needed."
+    )
