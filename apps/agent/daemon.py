@@ -12,6 +12,7 @@ Handles SIGTERM/SIGINT gracefully. Logs to ~/Library/Logs/lvdcp-agent/.
 from __future__ import annotations
 
 import signal
+import sqlite3
 import sys
 import time
 import typing
@@ -21,6 +22,12 @@ from threading import Event
 
 from libs.core.paths import is_ignored, normalize_path
 from libs.project_index.index import ProjectIndex
+from libs.scan_history.store import (
+    ScanEvent,
+    ScanHistoryStore,
+    append_event,
+    resolve_default_store_path,
+)
 from libs.scanning.scanner import scan_project
 from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
@@ -106,6 +113,26 @@ def process_pending_events(
                 update_last_scan(config_path, project_root, status=scan_status, ts_iso=ts)
             except OSError as cfg_exc:
                 logger(f"[warn] config.yaml update failed for {project_root}: {cfg_exc}")
+
+        # Append scan_history event (best-effort, never kill daemon)
+        try:
+            history_store = ScanHistoryStore(resolve_default_store_path())
+            history_store.migrate()
+            append_event(
+                history_store,
+                event=ScanEvent(
+                    project_root=str(project_root.resolve()),
+                    timestamp=time.time(),
+                    files_reparsed=results.get(project_root, 0),
+                    files_scanned=0,  # daemon only tracks reparsed
+                    duration_ms=0.0,  # daemon doesn't time individual projects
+                    status=scan_status,
+                    source="daemon",
+                ),
+            )
+            history_store.close()
+        except (OSError, sqlite3.DatabaseError):
+            pass
 
     return results
 

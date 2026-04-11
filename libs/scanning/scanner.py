@@ -9,6 +9,7 @@ Stale file detection (paths in cache but not on disk) runs in both modes.
 
 from __future__ import annotations
 
+import sqlite3
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +22,12 @@ from libs.core.secrets import contains_secret_pattern
 from libs.dotcontext.writer import write_project_md, write_symbol_index_md
 from libs.parsers.registry import detect_language, get_parser
 from libs.retrieval.fts import FtsIndex
+from libs.scan_history.store import (
+    ScanEvent,
+    ScanHistoryStore,
+    append_event,
+    resolve_default_store_path,
+)
 from libs.storage.sqlite_cache import SqliteCache
 
 CACHE_REL = Path(".context") / "cache.db"
@@ -196,7 +203,7 @@ def scan_project(
         write_symbol_index_md(project_root=root, symbols=all_cached_symbols)
 
         elapsed = time.perf_counter() - start
-        return ScanResult(
+        result = ScanResult(
             files_scanned=len(files_processed),
             files_reparsed=files_reparsed,
             stale_files_removed=stale_files_removed,
@@ -205,6 +212,29 @@ def scan_project(
             relations_cached=total_relations_cached,
             elapsed_seconds=elapsed,
         )
+        # Only write a history event for whole-project scans (no `only` filter).
+        # Daemon-triggered partial scans write their own event via process_pending_events.
+        if only is None:
+            try:
+                history_store = ScanHistoryStore(resolve_default_store_path())
+                history_store.migrate()
+                append_event(
+                    history_store,
+                    event=ScanEvent(
+                        project_root=str(root),
+                        timestamp=time.time(),
+                        files_reparsed=result.files_reparsed,
+                        files_scanned=result.files_scanned,
+                        duration_ms=elapsed * 1000.0,
+                        status="ok",
+                        source="manual",
+                    ),
+                )
+                history_store.close()
+            except (OSError, sqlite3.DatabaseError):
+                # Best-effort: history write must never kill a scan.
+                pass
+        return result
     finally:
         fts.close()
         cache.close()
