@@ -149,3 +149,28 @@ def test_replace_relations(cache: SqliteCache) -> None:
     got = list(cache.iter_relations())
     assert len(got) == 1
     assert got[0].dst_ref == "datetime"
+
+
+def test_delete_file_cascades_relations(cache: SqliteCache) -> None:
+    f = File(
+        path="a.py",
+        content_hash="h",
+        size_bytes=1,
+        language="python",
+        role="source",
+    )
+    cache.put_file(f)
+    r = Relation(
+        src_type="file",
+        src_ref="a.py",
+        dst_type="module",
+        dst_ref="datetime",
+        relation_type=RelationType.IMPORTS,
+    )
+    cache.replace_relations(file_path="a.py", relations=(r,))
+    assert len(list(cache.iter_relations())) == 1
+
+    cache.delete_file("a.py")
+
+    # After delete, relations from that file must be gone
+    assert list(cache.iter_relations()) == []

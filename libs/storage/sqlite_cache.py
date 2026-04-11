@@ -11,7 +11,9 @@ from pathlib import Path
 
 from libs.core.entities import File, Relation, RelationType, Symbol, SymbolType
 
-SCHEMA_VERSION = 1
+# Phase 1 has no formal migration path; bumping this constant is advisory.
+# ADR-002 Phase 2 will introduce proper migration dispatch (see review issue I2).
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS files (
@@ -48,7 +50,8 @@ CREATE TABLE IF NOT EXISTS relations (
     relation_type  TEXT NOT NULL,
     confidence     REAL NOT NULL DEFAULT 1.0,
     provenance     TEXT NOT NULL DEFAULT 'deterministic',
-    origin_file    TEXT NOT NULL
+    origin_file    TEXT NOT NULL,
+    FOREIGN KEY (origin_file) REFERENCES files(path) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_rel_origin ON relations(origin_file);
 CREATE INDEX IF NOT EXISTS idx_rel_src ON relations(src_ref);
