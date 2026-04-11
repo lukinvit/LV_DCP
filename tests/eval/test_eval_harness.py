@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.eval.run_eval import EvalReport, RetrievalFn, load_thresholds, run_eval, stub_retrieve
+from tests.eval.run_eval import EvalReport, RetrievalFn, load_thresholds, run_eval
 
 pytestmark = pytest.mark.eval
 
@@ -25,11 +25,10 @@ def _active_thresholds() -> dict[str, float]:
 
 
 def _current_retrieve() -> RetrievalFn:
-    """Wire the retrieval function used by the eval harness.
+    """Phase 1+: use the real retrieval pipeline via the adapter."""
+    from tests.eval.retrieval_adapter import retrieve_for_eval
 
-    Phase 0 uses stub_retrieve. Phase 1+ will import the real pipeline.
-    """
-    return stub_retrieve
+    return retrieve_for_eval
 
 
 def test_eval_harness_meets_thresholds() -> None:
