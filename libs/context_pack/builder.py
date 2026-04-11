@@ -10,7 +10,7 @@ from libs.core.entities import ContextPack, PackMode
 from libs.core.paths import is_test_path
 from libs.retrieval.pipeline import RetrievalResult
 
-PIPELINE_VERSION = "phase-1-v0"
+PIPELINE_VERSION = "phase-2-v0"
 
 
 def build_navigate_pack(
@@ -24,8 +24,16 @@ def build_navigate_pack(
     lines.append("")
     lines.append(f"**Project:** `{project_slug}`")
     lines.append(f"**Query:** {query}")
+    lines.append(f"**Coverage:** {result.coverage}")
     lines.append(f"**Pipeline:** `{PIPELINE_VERSION}`")
     lines.append("")
+
+    if result.coverage == "ambiguous":
+        lines.append(
+            "> ⚠ **Ambiguous coverage** — many files scored similarly. "
+            "Consider re-querying with more specific keywords or expanding `--limit`."
+        )
+        lines.append("")
 
     lines.append("## Top files")
     lines.append("")
@@ -56,10 +64,12 @@ def build_navigate_pack(
         retrieved_files=tuple(result.files),
         retrieved_symbols=tuple(result.symbols),
         pipeline_version=PIPELINE_VERSION,
+        trace_id=result.trace.trace_id,
+        coverage=result.coverage,
     )
 
 
-def build_edit_pack(
+def build_edit_pack(  # noqa: PLR0912, PLR0915
     *,
     project_slug: str,
     query: str,
@@ -82,13 +92,23 @@ def build_edit_pack(
     lines.append("")
     lines.append(f"**Project:** `{project_slug}`")
     lines.append(f"**Intent:** {query}")
+    lines.append(f"**Coverage:** {result.coverage}")
     lines.append(f"**Pipeline:** `{PIPELINE_VERSION}`")
     lines.append("")
-    lines.append(
-        "> This is an **edit pack**: files grouped by role so the executor can "
-        "plan a minimal, reversible patch. Run validation after every change."
-    )
-    lines.append("")
+
+    if result.coverage == "ambiguous":
+        lines.append(
+            "> ⚠ **Ambiguous coverage on an edit task.** Do not proceed with "
+            "these results alone. Re-query with more specific keywords, expand "
+            "`--limit`, or ask the user for clarification before making changes."
+        )
+        lines.append("")
+    else:
+        lines.append(
+            "> This is an **edit pack**: files grouped by role so the executor can "
+            "plan a minimal, reversible patch. Run validation after every change."
+        )
+        lines.append("")
 
     lines.append("## Target files")
     lines.append("")
@@ -142,4 +162,6 @@ def build_edit_pack(
         retrieved_files=tuple(result.files),
         retrieved_symbols=tuple(result.symbols),
         pipeline_version=PIPELINE_VERSION,
+        trace_id=result.trace.trace_id,
+        coverage=result.coverage,
     )

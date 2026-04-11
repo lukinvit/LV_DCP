@@ -100,4 +100,6 @@ class ContextPack(Immutable):
     size_bytes: int
     retrieved_files: tuple[str, ...] = ()
     retrieved_symbols: tuple[str, ...] = ()
-    pipeline_version: str = "phase-1-v0"
+    pipeline_version: str = "phase-2-v0"
+    trace_id: str | None = None
+    coverage: str | None = None

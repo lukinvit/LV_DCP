@@ -55,3 +55,54 @@ def test_edit_pack_flags_impacted_sections() -> None:
     md = pack.assembled_markdown
     assert "Target files" in md or "target" in md.lower()
     assert "Impacted tests" in md or "tests/test_auth.py" in md
+
+
+def test_navigate_pack_includes_coverage_and_trace_id() -> None:
+    trace = RetrievalTrace(
+        trace_id="abc-123",
+        project="sample",
+        query="login",
+        mode="navigate",
+        timestamp=0.0,
+        coverage="medium",
+    )
+    result = RetrievalResult(
+        files=["app/handlers/auth.py"],
+        symbols=["app.handlers.auth.login"],
+        scores={"app/handlers/auth.py": 10.0},
+        trace=trace,
+        coverage="medium",
+    )
+    pack = build_navigate_pack(
+        project_slug="sample",
+        query="login",
+        result=result,
+    )
+    assert pack.trace_id == "abc-123"
+    assert pack.coverage == "medium"
+    assert (
+        "medium" in pack.assembled_markdown.lower() or "coverage" in pack.assembled_markdown.lower()
+    )
+
+
+def test_edit_pack_warns_on_ambiguous_coverage() -> None:
+    trace = RetrievalTrace(
+        trace_id="abc",
+        project="sample",
+        query="refactor",
+        mode="edit",
+        timestamp=0.0,
+        coverage="ambiguous",
+    )
+    result = RetrievalResult(
+        files=["a.py", "b.py"],
+        symbols=[],
+        scores={"a.py": 5.0, "b.py": 4.5},
+        trace=trace,
+        coverage="ambiguous",
+    )
+    pack = build_edit_pack(project_slug="sample", query="refactor", result=result)
+    assert pack.coverage == "ambiguous"
+    # Must include a warning pointing at re-query / expand limit
+    md_lower = pack.assembled_markdown.lower()
+    assert "ambiguous" in md_lower or "re-query" in md_lower or "expand" in md_lower
