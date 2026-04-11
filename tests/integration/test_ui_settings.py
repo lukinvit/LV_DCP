@@ -75,5 +75,34 @@ async def test_test_connection_endpoint(isolated: Path) -> None:
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post("/api/settings/test-connection")
     assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "ok"
+    # Now returns HTML fragment, not JSON
+    assert "test-ok" in response.text
+    assert "Connected" in response.text
+
+
+async def test_settings_post_redirects_with_saved_flag(isolated: Path) -> None:
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/settings",
+            data={
+                "provider": "openai",
+                "summary_model": "gpt-4o-mini",
+                "rerank_model": "gpt-4o-mini",
+                "api_key_env_var": "OPENAI_API_KEY",
+                "monthly_budget_usd": "25",
+            },
+            follow_redirects=False,
+        )
+    assert response.status_code == 303
+    assert "saved=1" in response.headers["location"]
+
+
+async def test_settings_page_shows_flash_when_saved(isolated: Path) -> None:
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/settings?saved=1")
+    assert response.status_code == 200
+    assert "Settings saved" in response.text or "flash-success" in response.text

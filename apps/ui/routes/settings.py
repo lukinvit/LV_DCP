@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import os
 
-from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi import APIRouter, Form, Query, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 from libs.core.projects_config import LLMConfig, load_config
 from libs.llm.errors import LLMConfigError, LLMProviderError
 from libs.llm.registry import create_client
@@ -32,7 +32,10 @@ def _api_key_status(llm: LLMConfig) -> str:
 
 
 @router.get("/settings", response_class=HTMLResponse)
-def settings_page(request: Request) -> _TemplateResponse:
+def settings_page(
+    request: Request,
+    saved: bool = Query(False),
+) -> _TemplateResponse:
     config = load_config(resolve_config_path())
     budget = compute_budget_status(config.llm)
     templates = request.app.state.templates
@@ -46,6 +49,7 @@ def settings_page(request: Request) -> _TemplateResponse:
             "budget": budget,
             "ws_usage_7d": None,  # base template expects this
             "api_key_status": _api_key_status(config.llm),
+            "saved": saved,
         },
     )
 
@@ -68,22 +72,23 @@ def save_settings(  # noqa: PLR0913
         monthly_budget_usd=monthly_budget_usd,
         enabled=enabled == "on",
         prompt_version=config.llm.prompt_version,
+        summarize_roles=config.llm.summarize_roles,
     )
     save_config(resolve_config_path(), config)
-    return RedirectResponse(url="/settings", status_code=303)
+    return RedirectResponse(url="/settings?saved=1", status_code=303)
 
 
-@router.post("/api/settings/test-connection")
-async def test_connection() -> JSONResponse:
+@router.post("/api/settings/test-connection", response_class=HTMLResponse)
+async def test_connection() -> HTMLResponse:
     config = load_config(resolve_config_path())
     try:
         client = create_client(config.llm)
         await client.test_connection()
-        return JSONResponse(
-            {
-                "status": "ok",
-                "detail": f"Connected to {config.llm.provider}/{config.llm.summary_model}",
-            }
+        return HTMLResponse(
+            f'<span class="test-result test-ok">&#10003; Connected to '
+            f"{config.llm.provider}/{config.llm.summary_model}</span>"
         )
     except (LLMConfigError, LLMProviderError) as exc:
-        return JSONResponse({"status": "error", "detail": str(exc)[:200]})
+        return HTMLResponse(
+            f'<span class="test-result test-error">&#10007; {str(exc)[:200]}</span>'
+        )

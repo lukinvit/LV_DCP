@@ -341,3 +341,39 @@ footer a {
     font-family: var(--mono);
     margin-top: 0.25rem;
 }
+
+/* P7: settings page polish */
+
+.test-result {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    margin-left: 0.5rem;
+}
+
+.test-result.test-ok {
+    background: #e8f5e9;
+    color: var(--ok);
+    border: 1px solid var(--ok);
+}
+
+.test-result.test-error {
+    background: #ffebee;
+    color: var(--err);
+    border: 1px solid var(--err);
+}
+
+.flash {
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+    font-weight: 500;
+}
+
+.flash-success {
+    background: #e8f5e9;
+    color: var(--ok);
+    border: 1px solid var(--ok);
+}

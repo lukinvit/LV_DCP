@@ -6,6 +6,9 @@
 
 <section class="section">
     <h2>LLM Provider</h2>
+    {% if saved %}
+    <div class="flash flash-success">&#10003; Settings saved</div>
+    {% endif %}
     <form class="settings-form" method="POST" action="/settings">
         <div class="form-row">
             <label>Provider</label>
