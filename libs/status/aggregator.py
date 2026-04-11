@@ -38,7 +38,7 @@ DEFAULT_CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
 DEFAULT_USAGE_CACHE_PATH = Path.home() / ".lvdcp" / "claude_usage.db"
 
 
-def _resolve_config_path() -> Path:
+def resolve_config_path() -> Path:
     override = os.environ.get("LVDCP_CONFIG_PATH")
     return Path(override) if override else DEFAULT_CONFIG_PATH
 
@@ -84,7 +84,7 @@ def _role_for_file(path: str) -> str:
 
 
 def build_workspace_status() -> WorkspaceStatus:
-    config_path = _resolve_config_path()
+    config_path = resolve_config_path()
     claude_dir = _resolve_claude_projects_dir()
     cache_path = _resolve_usage_cache_path()
 
@@ -124,7 +124,7 @@ def build_workspace_status() -> WorkspaceStatus:
 
 def build_project_status(project_root: Path) -> ProjectStatus:
     root = project_root.resolve()
-    config_path = _resolve_config_path()
+    config_path = resolve_config_path()
     claude_dir = _resolve_claude_projects_dir()
     cache_path = _resolve_usage_cache_path()
 

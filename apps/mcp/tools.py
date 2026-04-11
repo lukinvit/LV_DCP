@@ -12,10 +12,12 @@ from pathlib import Path
 from typing import Literal
 
 from libs.context_pack.builder import build_edit_pack, build_navigate_pack
+from libs.core.projects_config import load_config
 from libs.project_index.index import ProjectIndex, ProjectNotIndexedError
 from libs.scanning.scanner import scan_project
-from libs.status.aggregator import build_project_status, build_workspace_status
-from libs.status.models import ProjectStatus, WorkspaceStatus
+from libs.status.aggregator import build_project_status, build_workspace_status, resolve_config_path
+from libs.status.budget import compute_budget_status
+from libs.status.models import BudgetInfo, ProjectStatus, WorkspaceStatus
 from pydantic import BaseModel, Field
 
 
@@ -168,6 +170,7 @@ def lvdcp_inspect(path: str) -> InspectResult:
 class StatusResponse(BaseModel):
     workspace: WorkspaceStatus | None = None
     project: ProjectStatus | None = None
+    budget: BudgetInfo | None = None
 
 
 def lvdcp_status(path: str | None = None) -> StatusResponse:
@@ -182,9 +185,14 @@ def lvdcp_status(path: str | None = None) -> StatusResponse:
     DO NOT CALL FOR:
     - Replacing `lvdcp_pack` (use pack for code context, status for meta-level state)
     """
+    config = load_config(resolve_config_path())
+    budget = compute_budget_status(config.llm)
     if path is None:
-        return StatusResponse(workspace=build_workspace_status())
-    return StatusResponse(project=build_project_status(Path(path).resolve()))
+        return StatusResponse(workspace=build_workspace_status(), budget=budget)
+    return StatusResponse(
+        project=build_project_status(Path(path).resolve()),
+        budget=budget,
+    )
 
 
 def lvdcp_explain(path: str, trace_id: str) -> ExplainResult:
