@@ -39,6 +39,7 @@ async def summarize_project(  # noqa: PLR0913
     store: SummaryStore,
     concurrency: int = 10,
     progress_callback: Callable[[int, int], None] | None = None,
+    allowed_roles: list[str] | None = None,
 ) -> SummarizeResult:
     """Summarize every file in a scanned project.
 
@@ -52,6 +53,9 @@ async def summarize_project(  # noqa: PLR0913
 
     with ProjectIndex.open(root) as idx:
         files = list(idx.iter_files())
+
+    if allowed_roles is not None:
+        files = [f for f in files if f.role in allowed_roles]
 
     total = len(files)
     semaphore = asyncio.Semaphore(concurrency)

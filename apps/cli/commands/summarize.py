@@ -79,6 +79,7 @@ def summarize(
                     store=store,
                     concurrency=concurrency,
                     progress_callback=_callback,
+                    allowed_roles=config.llm.summarize_roles,
                 )
             )
 

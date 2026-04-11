@@ -141,3 +141,36 @@ async def test_pipeline_continues_on_single_file_error(
     )
     assert result.files_summarized == 1  # one succeeded
     assert len(result.errors) == 1
+
+
+async def test_role_filter_skips_docs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LVDCP_SCAN_HISTORY_DB", str(tmp_path / "history.db"))
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "code.py").write_text("def f() -> None: return None\n")
+    (project / "README.md").write_text("# doc file\n")
+    (project / "config.yaml").write_text("key: value\n")
+    scan_project(project, mode="full")
+
+    mock_client = AsyncMock()
+    mock_client.summarize = AsyncMock(return_value=_fake_summary())
+
+    store = SummaryStore(tmp_path / "summaries.db")
+    store.migrate()
+
+    result = await summarize_project(
+        project.resolve(),
+        client=mock_client,
+        model="gpt-4o-mini",
+        prompt_version="v2",
+        store=store,
+        concurrency=1,
+        allowed_roles=["source"],
+    )
+
+    # Only code.py (role="source") should be summarized; README.md (docs) and config.yaml (config) skipped
+    assert result.files_summarized == 1
+    assert mock_client.summarize.await_count == 1

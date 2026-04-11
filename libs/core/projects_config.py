@@ -27,6 +27,7 @@ class LLMConfig(BaseModel):
     monthly_budget_usd: float = 25.0
     prompt_version: str = "v2"
     enabled: bool = False
+    summarize_roles: list[str] = Field(default_factory=lambda: ["source", "test"])
 
 
 class DaemonConfig(BaseModel):

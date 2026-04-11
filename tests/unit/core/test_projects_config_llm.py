@@ -54,3 +54,8 @@ def test_load_config_with_explicit_llm_section(tmp_path: Path) -> None:
     assert cfg.llm.enabled is True
     assert cfg.llm.monthly_budget_usd == 50.0
     assert cfg.llm.api_key_env_var == "OPENAI_API_KEY"  # default still applied
+
+
+def test_llm_config_default_summarize_roles() -> None:
+    cfg = LLMConfig()
+    assert cfg.summarize_roles == ["source", "test"]
