@@ -1,6 +1,17 @@
 from libs.context_pack.builder import build_edit_pack, build_navigate_pack
 from libs.core.entities import PackMode
 from libs.retrieval.pipeline import RetrievalResult
+from libs.retrieval.trace import RetrievalTrace
+
+
+def _make_trace(query: str = "q", mode: str = "navigate") -> RetrievalTrace:
+    return RetrievalTrace(
+        trace_id="test-trace",
+        project="sample",
+        query=query,
+        mode=mode,
+        timestamp=0.0,
+    )
 
 
 def test_navigate_pack_contains_query_and_files() -> None:
@@ -8,6 +19,8 @@ def test_navigate_pack_contains_query_and_files() -> None:
         files=["app/main.py", "app/handlers/auth.py"],
         symbols=["app.main.app", "app.handlers.auth.login"],
         scores={"app/main.py": 5.0, "app/handlers/auth.py": 3.0},
+        trace=_make_trace("login endpoint"),
+        coverage="medium",
     )
     pack = build_navigate_pack(
         project_slug="sample",
@@ -30,6 +43,8 @@ def test_edit_pack_flags_impacted_sections() -> None:
             "app/services/auth.py": 5.0,
             "tests/test_auth.py": 3.0,
         },
+        trace=_make_trace("change login validation", "edit"),
+        coverage="high",
     )
     pack = build_edit_pack(
         project_slug="sample",

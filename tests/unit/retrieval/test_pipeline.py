@@ -65,6 +65,8 @@ def test_pipeline_finds_file_by_symbol_query(pipeline: RetrievalPipeline) -> Non
     result: RetrievalResult = pipeline.retrieve("User", mode="navigate", limit=5)
     assert "app/models/user.py" in result.files
     assert "app.models.user.User" in result.symbols
+    assert result.coverage in ("high", "medium", "ambiguous")
+    assert result.trace is not None
 
 
 def test_pipeline_finds_file_by_fts(pipeline: RetrievalPipeline) -> None:
