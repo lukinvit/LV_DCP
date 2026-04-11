@@ -54,3 +54,27 @@ def test_env_files_are_ignored_except_example() -> None:
 def test_credentials_json_ignored() -> None:
     assert is_ignored("credentials.json")
     assert is_ignored("app/secrets.json")
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ".env",
+        ".env.local",
+        ".env.production",
+        ".env.staging",
+        ".env.development",
+        ".env.test",
+        ".env.backup",
+        ".env.prod",
+        ".env.custom.override",
+        "sub/dir/.env.dev",
+    ],
+)
+def test_env_variants_are_ignored(path: str) -> None:
+    assert is_ignored(path) is True
+
+
+def test_env_example_is_not_ignored() -> None:
+    assert is_ignored(".env.example") is False
+    assert is_ignored("sub/.env.example") is False

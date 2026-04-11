@@ -27,14 +27,12 @@ DEFAULT_IGNORE_PREFIXES: tuple[str, ...] = (
 )
 
 DEFAULT_IGNORE_FILENAME_EXACT: tuple[str, ...] = (
-    ".env",
-    ".env.local",
-    ".env.production",
-    ".env.staging",
-    ".env.development",
     "credentials.json",
     "secrets.json",
 )
+
+# Explicit allow-list for .env.* variants that are safe to index.
+ENV_FILENAME_ALLOW: frozenset[str] = frozenset({".env.example"})
 
 DEFAULT_IGNORE_SUFFIXES: tuple[str, ...] = (
     ".pyc",
@@ -86,8 +84,12 @@ def is_ignored(relative_posix: str) -> bool:
             return True
         if f"/{prefix}" in relative_posix:
             return True
-    # Exact filename match (basename)
     basename = relative_posix.rsplit("/", 1)[-1]
     if basename in DEFAULT_IGNORE_FILENAME_EXACT:
+        return True
+    # Any .env or .env.* file is ignored UNLESS explicitly allow-listed.
+    if basename == ".env" or (
+        basename.startswith(".env.") and basename not in ENV_FILENAME_ALLOW
+    ):
         return True
     return any(relative_posix.endswith(suffix) for suffix in DEFAULT_IGNORE_SUFFIXES)
