@@ -15,6 +15,7 @@ import signal
 import sys
 import time
 import typing
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event
 
@@ -24,7 +25,7 @@ from libs.scanning.scanner import scan_project
 from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
 
-from apps.agent.config import list_projects
+from apps.agent.config import list_projects, update_last_scan
 from apps.agent.handler import DebounceBuffer
 
 DEFAULT_CONFIG_PATH = Path.home() / ".lvdcp" / "config.yaml"
@@ -64,6 +65,8 @@ class DaemonEventHandler(PatternMatchingEventHandler):
 def process_pending_events(
     buffer: DebounceBuffer,
     logger: typing.Callable[[str], None] = lambda msg: None,
+    *,
+    config_path: Path | None = None,
 ) -> dict[Path, int]:
     """Flush buffer and process each project.
 
@@ -71,11 +74,15 @@ def process_pending_events(
     1. Deletes stale cache entries for files reported as deleted.
     2. Runs an incremental scan limited to the modified/created paths.
 
+    If *config_path* is given, updates last_scan_at_iso / last_scan_status in
+    that config.yaml after each project's scan pass.
+
     Returns the reparse count per project.
     """
     pending = buffer.flush_all()
     results: dict[Path, int] = {}
     for project_root, (modified, deleted) in pending.items():
+        scan_status = "ok"
         try:
             if deleted:
                 with ProjectIndex.open(project_root) as idx:
@@ -90,7 +97,16 @@ def process_pending_events(
             else:
                 results[project_root] = 0
         except Exception as exc:
+            scan_status = "error"
             logger(f"[error] processing failed for {project_root}: {exc}")
+
+        if config_path is not None:
+            try:
+                ts = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+                update_last_scan(config_path, project_root, status=scan_status, ts_iso=ts)
+            except OSError as cfg_exc:
+                logger(f"[warn] config.yaml update failed for {project_root}: {cfg_exc}")
+
     return results
 
 
@@ -128,7 +144,7 @@ def run_daemon(
     try:
         while not stop_event.is_set():
             time.sleep(buffer.debounce_seconds)
-            process_pending_events(buffer, logger=print)
+            process_pending_events(buffer, logger=print, config_path=config_path)
     finally:
         observer.stop()
         observer.join()

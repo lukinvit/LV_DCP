@@ -58,5 +58,30 @@ def remove_project(config_path: Path, root: Path) -> None:
     save_config(config_path, cfg)
 
 
+def update_last_scan(
+    config_path: Path,
+    root: Path,
+    *,
+    status: str,
+    ts_iso: str,
+) -> None:
+    """Update last_scan_at_iso and last_scan_status for a registered project.
+
+    No-op if the project is not registered (graceful for races where the user
+    unregistered between scan-start and scan-complete).
+    """
+    cfg = load_config(config_path)
+    root_resolved = root.resolve()
+    updated = False
+    for entry in cfg.projects:
+        if entry.root == root_resolved:
+            entry.last_scan_at_iso = ts_iso
+            entry.last_scan_status = status
+            updated = True
+            break
+    if updated:
+        save_config(config_path, cfg)
+
+
 def list_projects(config_path: Path) -> list[ProjectEntry]:
     return load_config(config_path).projects

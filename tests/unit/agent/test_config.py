@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from pathlib import Path
 
 from apps.agent.config import (
@@ -8,6 +9,7 @@ from apps.agent.config import (
     load_config,
     remove_project,
     save_config,
+    update_last_scan,
 )
 
 
@@ -63,3 +65,30 @@ def test_remove_project(tmp_path: Path) -> None:
 def test_remove_missing_project_no_error(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
     remove_project(config_path, Path("/abs/nonexistent"))  # should not raise
+
+
+def test_update_last_scan_writes_iso_timestamp(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    project_root = tmp_path / "proj"
+    project_root.mkdir()
+
+    add_project(config_path, project_root)
+    ts = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    update_last_scan(config_path, project_root, status="ok", ts_iso=ts)
+
+    projects = list_projects(config_path)
+    assert len(projects) == 1
+    entry = projects[0]
+    assert entry.last_scan_at_iso == ts
+    assert entry.last_scan_status == "ok"
+
+
+def test_update_last_scan_noop_for_unknown_project(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    project_root = tmp_path / "proj"
+
+    ts = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    update_last_scan(config_path, project_root, status="ok", ts_iso=ts)
+
+    projects = list_projects(config_path)
+    assert projects == []
