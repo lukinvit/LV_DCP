@@ -1,3 +1,4 @@
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -169,6 +170,22 @@ def test_sqlite_cache_is_context_manager(tmp_path: Path) -> None:
     cache2.migrate()
     assert cache2.get_file("a.py") is not None
     cache2.close()
+
+
+def test_migrate_rejects_future_version(tmp_path: Path) -> None:
+    db = tmp_path / "cache.db"
+    with SqliteCache(db) as cache:
+        cache.migrate()
+        # Simulate a future-version DB by manually bumping user_version
+        conn = sqlite3.connect(db)
+        conn.execute("PRAGMA user_version = 99")
+        conn.commit()
+        conn.close()
+
+    # Reopening with the same binary must refuse to migrate
+    with pytest.raises(RuntimeError, match="schema version 99"):
+        with SqliteCache(db) as cache2:
+            cache2.migrate()
 
 
 def test_delete_file_cascades_relations(cache: SqliteCache) -> None:

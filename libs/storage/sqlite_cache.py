@@ -92,9 +92,22 @@ class SqliteCache:
 
     def migrate(self) -> None:
         conn = self._connect()
-        conn.executescript(_SCHEMA)
-        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-        conn.commit()
+        current_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+        if current_version == 0:
+            # Fresh database — apply full schema
+            conn.executescript(_SCHEMA)
+            conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            conn.commit()
+        elif current_version == SCHEMA_VERSION:
+            # Already up to date — no-op
+            return
+        else:
+            # Phase 1: no migration path. Phase 2 will dispatch here.
+            raise RuntimeError(
+                f"SqliteCache at {self.db_path} is at schema version "
+                f"{current_version}, but this binary expects {SCHEMA_VERSION}. "
+                f"Delete {self.db_path.parent} and re-run `ctx scan` to rebuild."
+            )
 
     # --- files --------------------------------------------------------------
 
