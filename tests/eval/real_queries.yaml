@@ -1,0 +1,140 @@
+version: 1
+description: |
+  Real-world queries against LV_DCP itself (not the synthetic sample_repo).
+  Used for Phase 3c.2 failure analysis and design. These exercise semantic
+  intent, paraphrase, and long-tail code search that users would actually
+  issue when working on LV_DCP.
+
+queries:
+  - id: r01-mcp-server-registration
+    text: "where is the MCP server registered with tools"
+    mode: navigate
+    expected:
+      files:
+        - apps/mcp/server.py
+      symbols:
+        - apps.mcp.server.mcp
+
+  - id: r02-openai-rate-limit-handling
+    text: "how does OpenAI client handle rate limiting"
+    mode: navigate
+    expected:
+      files:
+        - libs/llm/openai_client.py
+      symbols:
+        - libs.llm.openai_client._complete_with_retries
+
+  - id: r03-summary-cache-storage
+    text: "where are LLM summaries cached in sqlite"
+    mode: navigate
+    expected:
+      files:
+        - libs/summaries/store.py
+      symbols:
+        - libs.summaries.store.SummaryStore
+
+  - id: r04-budget-widget-ui
+    text: "budget widget rendering in dashboard topbar"
+    mode: navigate
+    expected:
+      files:
+        - apps/ui/templates/partials/budget_widget.html.j2
+        - libs/status/budget.py
+
+  - id: r05-doctor-checks
+    text: "health checks for the install state"
+    mode: navigate
+    expected:
+      files:
+        - libs/mcp_ops/doctor.py
+      symbols:
+        - libs.mcp_ops.doctor.run_doctor
+
+  - id: r06-graph-expansion-walk
+    text: "how does graph expansion walk discover dependent files"
+    mode: navigate
+    expected:
+      files:
+        - libs/retrieval/graph_expansion.py
+      symbols:
+        - libs.retrieval.graph_expansion._walk_mixed
+
+  - id: r07-daemon-debounce
+    text: "filesystem watcher debounce buffer"
+    mode: navigate
+    expected:
+      files:
+        - apps/agent/handler.py
+      symbols:
+        - apps.agent.handler.DebounceBuffer
+
+  - id: r08-fts-index-persistence
+    text: "full text search SQLite FTS5 index"
+    mode: navigate
+    expected:
+      files:
+        - libs/retrieval/fts.py
+      symbols:
+        - libs.retrieval.fts.FtsIndex
+
+  - id: r09-content-hash-cache-key
+    text: "content hash used as cache invalidation key"
+    mode: navigate
+    expected:
+      files:
+        - libs/core/hashing.py
+      symbols:
+        - libs.core.hashing.content_hash
+
+  - id: r10-cost-pricing-table
+    text: "LLM model pricing and cost calculation"
+    mode: navigate
+    expected:
+      files:
+        - libs/llm/cost.py
+      symbols:
+        - libs.llm.cost.calculate_cost
+
+  - id: r11-edit-rate-limit-adapter
+    text: "add exponential backoff to the anthropic client"
+    mode: edit
+    expected:
+      files:
+        - libs/llm/anthropic_client.py
+        - libs/llm/openai_client.py
+        - tests/unit/llm/test_anthropic_client.py
+
+  - id: r12-edit-new-mcp-tool
+    text: "add a new MCP tool for listing recent traces"
+    mode: edit
+    expected:
+      files:
+        - apps/mcp/tools.py
+        - apps/mcp/server.py
+        - libs/retrieval/trace.py
+
+  - id: r13-edit-extend-sparklines
+    text: "add a new sparkline metric for LLM cost per day"
+    mode: edit
+    expected:
+      files:
+        - libs/status/aggregator.py
+        - apps/ui/templates/partials/sparkline_row.html.j2
+        - apps/ui/static/js/dashboard.js
+
+  - id: r14-claude-usage-aggregation
+    text: "how are Claude Code token counts aggregated from JSONL"
+    mode: navigate
+    expected:
+      files:
+        - libs/claude_usage/aggregator.py
+        - libs/claude_usage/reader.py
+
+  - id: r15-mcp-install-manages-claudemd
+    text: "managed section in CLAUDE.md written by install"
+    mode: navigate
+    expected:
+      files:
+        - libs/mcp_ops/install.py
+      symbols:
+        - libs.mcp_ops.install._write_managed_section
