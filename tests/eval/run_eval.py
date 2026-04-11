@@ -19,6 +19,7 @@ from tests.eval.metrics import mean_reciprocal_rank, precision_at_k, recall_at_k
 EVAL_DIR = Path(__file__).resolve().parent
 FIXTURE_REPO = EVAL_DIR / "fixtures" / "sample_repo"
 QUERIES_YAML = EVAL_DIR / "queries.yaml"
+IMPACT_QUERIES_YAML = EVAL_DIR / "impact_queries.yaml"
 THRESHOLDS_YAML = EVAL_DIR / "thresholds.yaml"
 
 
@@ -39,6 +40,7 @@ class EvalReport:
     precision_at_3_files: float
     recall_at_5_symbols: float
     mrr_files: float
+    impact_recall_at_5: float
 
 
 RetrievalFn = Callable[[str, str, Path], tuple[list[str], list[str]]]
@@ -52,6 +54,15 @@ def load_queries() -> list[dict[str, Any]]:
     return queries
 
 
+def load_impact_queries() -> list[dict[str, Any]]:
+    if not IMPACT_QUERIES_YAML.exists():
+        return []
+    data = yaml.safe_load(IMPACT_QUERIES_YAML.read_text(encoding="utf-8"))
+    queries = data.get("queries", [])
+    assert isinstance(queries, list)
+    return queries
+
+
 def load_thresholds() -> dict[str, Any]:
     data = yaml.safe_load(THRESHOLDS_YAML.read_text(encoding="utf-8"))
     assert isinstance(data, dict)
@@ -59,7 +70,8 @@ def load_thresholds() -> dict[str, Any]:
 
 
 def run_eval(retrieve: RetrievalFn, *, repo_path: Path = FIXTURE_REPO) -> EvalReport:
-    queries = load_queries()
+    queries = load_queries() + load_impact_queries()
+    impact_ids = {q["id"] for q in load_impact_queries()}
     results: list[QueryResult] = []
     for q in queries:
         retrieved_files, retrieved_symbols = retrieve(q["text"], q["mode"], repo_path)
@@ -87,12 +99,19 @@ def run_eval(retrieve: RetrievalFn, *, repo_path: Path = FIXTURE_REPO) -> EvalRe
         [r.expected_files for r in results],
     )
 
+    # New: impact_recall computed ONLY over impact queries
+    impact_results = [r for r in results if r.query_id in impact_ids]
+    impact_recall_5 = _avg(
+        recall_at_k(r.retrieved_files, r.expected_files, k=5) for r in impact_results
+    )
+
     return EvalReport(
         query_results=results,
         recall_at_5_files=recall_5_files,
         precision_at_3_files=precision_3_files,
         recall_at_5_symbols=recall_5_symbols,
         mrr_files=mrr_f,
+        impact_recall_at_5=impact_recall_5,
     )
 
 
@@ -114,3 +133,4 @@ if __name__ == "__main__":
     print(f"precision@3 files: {report.precision_at_3_files:.3f}")
     print(f"recall@5 symbols : {report.recall_at_5_symbols:.3f}")
     print(f"MRR (files)      : {report.mrr_files:.3f}")
+    print(f"impact_recall@5  : {report.impact_recall_at_5:.3f}")

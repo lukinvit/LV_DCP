@@ -62,3 +62,12 @@ def mean_reciprocal_rank(
                 break
         total += reciprocal
     return total / len(retrieved_lists)
+
+
+def impact_recall_at_k(retrieved: Sequence[str], expected: Sequence[str], *, k: int) -> float:
+    """Alias of recall_at_k for impact queries.
+
+    Separate name exists so thresholds can distinguish keyword-first and
+    graph-aware retrieval quality (see ADR-005).
+    """
+    return recall_at_k(retrieved, expected, k=k)

@@ -21,6 +21,7 @@ def _active_thresholds() -> dict[str, float]:
         "recall_at_5_files": float(thresholds["recall_at_5_files"]),
         "precision_at_3_files": float(thresholds["precision_at_3_files"]),
         "recall_at_5_symbols": float(thresholds["recall_at_5_symbols"]),
+        "impact_recall_at_5": float(thresholds.get("impact_recall_at_5", 0.0)),
     }
 
 
@@ -50,6 +51,11 @@ def test_eval_harness_meets_thresholds() -> None:
         failures.append(
             f"recall@5 symbols = {report.recall_at_5_symbols:.3f} "
             f"< threshold {thresholds['recall_at_5_symbols']:.3f}"
+        )
+    if report.impact_recall_at_5 < thresholds["impact_recall_at_5"]:
+        failures.append(
+            f"impact_recall@5 = {report.impact_recall_at_5:.3f} "
+            f"< threshold {thresholds['impact_recall_at_5']:.3f}"
         )
 
     if failures:

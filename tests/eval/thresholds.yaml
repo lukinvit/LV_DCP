@@ -1,6 +1,6 @@
 # Active retrieval quality thresholds. Changed only by explicit PR, never bundled
 # with retrieval pipeline changes (see ADR-002).
-active_phase: 1
+active_phase: 1  # flipped to 2 in Task 2.14
 
 phases:
   "0":
@@ -8,15 +8,18 @@ phases:
     recall_at_5_files: 0.0
     precision_at_3_files: 0.0
     recall_at_5_symbols: 0.0
+    impact_recall_at_5: 0.0
 
   "1":
     description: "Deterministic local slice"
     recall_at_5_files: 0.70
     precision_at_3_files: 0.55
     recall_at_5_symbols: 0.60
+    impact_recall_at_5: 0.0   # not enforced in Phase 1
 
   "2":
-    description: "LLM enrichment + semantic retrieval"
+    description: "Native integration + graph expansion + completeness"
     recall_at_5_files: 0.85
-    precision_at_3_files: 0.70
-    recall_at_5_symbols: 0.75
+    precision_at_3_files: 0.60
+    recall_at_5_symbols: 0.80
+    impact_recall_at_5: 0.75

@@ -1,0 +1,135 @@
+version: 1
+queries:
+  - id: i01-session-storage-change
+    text: "change how session tokens are stored"
+    mode: edit
+    expected:
+      files:
+        - app/models/session.py
+        - app/services/auth.py
+        - app/workers/cleanup.py
+        - tests/test_cleanup.py
+      symbols:
+        - app.models.session.Session
+        - app.services.auth.issue_tokens
+        - app.workers.cleanup.cleanup_expired_sessions
+
+  - id: i02-password-hash-tighten
+    text: "tighten password hashing requirements"
+    mode: edit
+    expected:
+      files:
+        - app/services/auth.py
+        - app/handlers/auth.py
+        - tests/test_auth.py
+      symbols:
+        - app.services.auth.hash_password
+        - app.services.auth.authenticate
+
+  - id: i03-login-response-shape
+    text: "change login response format"
+    mode: edit
+    expected:
+      files:
+        - app/handlers/auth.py
+        - app/services/auth.py
+      symbols:
+        - app.handlers.auth.login
+        - app.services.auth.issue_tokens
+
+  - id: i04-access-ttl-reduction
+    text: "reduce access token lifetime"
+    mode: edit
+    expected:
+      files:
+        - app/services/auth.py
+        - config/settings.yaml
+      symbols:
+        - app.services.auth.ACCESS_TTL
+
+  - id: i05-cleanup-schedule-change
+    text: "change cleanup worker schedule"
+    mode: edit
+    expected:
+      files:
+        - app/workers/cleanup.py
+        - config/settings.yaml
+      symbols:
+        - app.workers.cleanup.cleanup_expired_sessions
+
+  - id: i06-db-connection-migration
+    text: "migrate database connection to read-replica"
+    mode: edit
+    expected:
+      files:
+        - app/services/db.py
+        - app/main.py
+        - config/settings.yaml
+      symbols:
+        - app.services.db.init_db
+        - app.services.db.get_session
+
+  - id: i07-current-user-auth-upgrade
+    text: "add expiry check to current_user resolver"
+    mode: edit
+    expected:
+      files:
+        - app/services/auth.py
+        - app/handlers/profile.py
+      symbols:
+        - app.services.auth.current_user
+        - app.handlers.profile.me
+
+  - id: i08-user-model-email-uniqueness
+    text: "enforce email uniqueness on user model"
+    mode: edit
+    expected:
+      files:
+        - app/models/user.py
+        - app/services/auth.py
+      symbols:
+        - app.models.user.User
+        - app.services.auth.authenticate
+
+  - id: i09-session-table-index
+    text: "add index on session refresh_token"
+    mode: edit
+    expected:
+      files:
+        - app/models/session.py
+        - app/services/auth.py
+      symbols:
+        - app.models.session.Session
+        - app.services.auth.refresh_access_token
+
+  - id: i10-lifespan-init-order
+    text: "change database init order in lifespan"
+    mode: edit
+    expected:
+      files:
+        - app/main.py
+        - app/services/db.py
+      symbols:
+        - app.main.lifespan
+        - app.services.db.init_db
+
+  - id: i11-is-locked-add-reason
+    text: "add reason field to User.is_locked"
+    mode: edit
+    expected:
+      files:
+        - app/models/user.py
+      symbols:
+        - app.models.user.User
+        - app.models.user.User.is_locked
+
+  - id: i12-profile-endpoint-fields
+    text: "add created_at to profile response"
+    mode: edit
+    expected:
+      files:
+        - app/handlers/profile.py
+        - app/models/user.py
+      symbols:
+        - app.handlers.profile.me
+        - app.models.user.User
