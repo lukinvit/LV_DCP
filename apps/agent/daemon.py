@@ -113,7 +113,6 @@ def process_pending_events(
 def run_daemon(
     *,
     config_path: Path = DEFAULT_CONFIG_PATH,
-    foreground: bool = True,
 ) -> None:
     """Main daemon entry point."""
     buffer = DebounceBuffer(debounce_seconds=2.0)
@@ -151,4 +150,4 @@ def run_daemon(
 
 
 if __name__ == "__main__":
-    run_daemon(foreground=True)
+    run_daemon()

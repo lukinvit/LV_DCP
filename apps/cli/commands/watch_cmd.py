@@ -51,13 +51,11 @@ def list_cmd() -> None:
 
 
 @app.command("start")
-def start(
-    foreground: bool = typer.Option(
-        True,
-        "--foreground/--background",
-        help="Run in foreground (for debugging) or fork to background",
-    ),
-) -> None:
-    """Start the daemon main loop."""
+def start() -> None:
+    """Start the daemon main loop in the foreground (Ctrl+C to stop).
+
+    For a permanent background service, use `ctx watch install-service`
+    to register with launchd.
+    """
     typer.echo("starting lvdcp-agent daemon (Ctrl+C to stop)")
-    run_daemon(foreground=foreground)
+    run_daemon()
