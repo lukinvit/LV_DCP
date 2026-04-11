@@ -8,6 +8,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Iterable, Iterator
 from pathlib import Path
+from types import TracebackType
 
 from libs.core.entities import File, Relation, RelationType, Symbol, SymbolType
 
@@ -72,6 +73,17 @@ class SqliteCache:
             self._conn.execute("PRAGMA foreign_keys = ON")
             self._conn.execute("PRAGMA journal_mode = WAL")
         return self._conn
+
+    def __enter__(self) -> "SqliteCache":
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        self.close()
 
     def close(self) -> None:
         if self._conn is not None:

@@ -37,38 +37,37 @@ def pack(
         )
         raise typer.Exit(code=1)
 
-    cache = SqliteCache(cache_path)
-    cache.migrate()
+    with SqliteCache(cache_path) as cache:
+        cache.migrate()
 
-    fts = FtsIndex(path / ".context" / "fts.db")
-    fts.create()
+        fts = FtsIndex(path / ".context" / "fts.db")
+        fts.create()
 
-    # Rebuild FTS from cache (Phase 1 — no persistent FTS between runs)
-    for f in cache.iter_files():
-        try:
-            content = (path / f.path).read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            content = ""
-        fts.index_file(f.path, f"{f.path}\n{content}")
+        # Rebuild FTS from cache (Phase 1 — no persistent FTS between runs)
+        for f in cache.iter_files():
+            try:
+                content = (path / f.path).read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                content = ""
+            fts.index_file(f.path, f"{f.path}\n{content}")
 
-    sym_idx = SymbolIndex()
-    sym_idx.extend(list(cache.iter_symbols()))
+        sym_idx = SymbolIndex()
+        sym_idx.extend(list(cache.iter_symbols()))
 
-    pipeline = RetrievalPipeline(cache=cache, fts=fts, symbols=sym_idx)
-    result = pipeline.retrieve(query, mode=pack_mode.value, limit=limit)
+        pipeline = RetrievalPipeline(cache=cache, fts=fts, symbols=sym_idx)
+        result = pipeline.retrieve(query, mode=pack_mode.value, limit=limit)
 
-    if pack_mode == PackMode.EDIT:
-        pack_obj = build_edit_pack(
-            project_slug=path.name,
-            query=query,
-            result=result,
-        )
-    else:
-        pack_obj = build_navigate_pack(
-            project_slug=path.name,
-            query=query,
-            result=result,
-        )
+        if pack_mode == PackMode.EDIT:
+            pack_obj = build_edit_pack(
+                project_slug=path.name,
+                query=query,
+                result=result,
+            )
+        else:
+            pack_obj = build_navigate_pack(
+                project_slug=path.name,
+                query=query,
+                result=result,
+            )
 
-    typer.echo(pack_obj.assembled_markdown)
-    cache.close()
+        typer.echo(pack_obj.assembled_markdown)

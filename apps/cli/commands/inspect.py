@@ -25,12 +25,12 @@ def inspect(
         typer.echo(f"no cache at {cache_path}. Run `ctx scan {path}` first.", err=True)
         raise typer.Exit(code=1)
 
-    cache = SqliteCache(cache_path)
-    cache.migrate()
+    with SqliteCache(cache_path) as cache:
+        cache.migrate()
 
-    files = list(cache.iter_files())
-    symbols = list(cache.iter_symbols())
-    relations = list(cache.iter_relations())
+        files = list(cache.iter_files())
+        symbols = list(cache.iter_symbols())
+        relations = list(cache.iter_relations())
 
     lang_counts = Counter(f.language for f in files)
     sym_type_counts = Counter(s.symbol_type.value for s in symbols)
@@ -46,5 +46,3 @@ def inspect(
     typer.echo(f"relations: {len(relations)}")
     for t, c in rel_type_counts.most_common():
         typer.echo(f"  {t}: {c}")
-
-    cache.close()

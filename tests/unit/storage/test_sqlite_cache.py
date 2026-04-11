@@ -151,6 +151,26 @@ def test_replace_relations(cache: SqliteCache) -> None:
     assert got[0].dst_ref == "datetime"
 
 
+def test_sqlite_cache_is_context_manager(tmp_path: Path) -> None:
+    db = tmp_path / "cache.db"
+    with SqliteCache(db) as cache:
+        cache.migrate()
+        cache.put_file(
+            File(
+                path="a.py",
+                content_hash="h",
+                size_bytes=1,
+                language="python",
+                role="source",
+            )
+        )
+    # After context exit, cache is closed — reconnecting should work
+    cache2 = SqliteCache(db)
+    cache2.migrate()
+    assert cache2.get_file("a.py") is not None
+    cache2.close()
+
+
 def test_delete_file_cascades_relations(cache: SqliteCache) -> None:
     f = File(
         path="a.py",

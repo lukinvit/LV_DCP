@@ -7,6 +7,7 @@ across all 20 queries in a single eval run, so we build once per run.
 
 from __future__ import annotations
 
+import atexit
 import tempfile
 from pathlib import Path
 
@@ -77,6 +78,9 @@ def _build_pipeline_for(repo: Path) -> RetrievalPipeline:
 
     pipeline = RetrievalPipeline(cache=cache, fts=fts, symbols=sym_idx)
     _cached = (repo, pipeline, cache)
+    # The cache lifetime spans multiple eval queries in one run, so we can't
+    # use `with`; register close() to run at interpreter shutdown instead.
+    atexit.register(cache.close)
     return pipeline
 
 
