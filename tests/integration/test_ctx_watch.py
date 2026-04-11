@@ -35,6 +35,35 @@ def test_process_pending_events_runs_incremental_scan(tmp_path: Path) -> None:
     assert results[project] >= 1  # at least b.py reparsed
 
 
+def test_process_pending_events_removes_deleted_files(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "a.py").write_text("def alpha() -> None: pass\n")
+    (project / "b.py").write_text("def beta() -> None: pass\n")
+
+    scan_project(project, mode="full")
+
+    # Verify both files are in cache after the initial scan
+    with SqliteCache(project / CACHE_REL) as cache:
+        cache.migrate()
+        files_before = {f.path for f in cache.iter_files()}
+    assert "b.py" in files_before
+
+    # Delete b.py on disk and signal it to the buffer as deleted
+    (project / "b.py").unlink()
+    buffer = DebounceBuffer(debounce_seconds=0.01)
+    buffer.add(project, "b.py", "deleted")
+
+    process_pending_events(buffer)
+
+    with SqliteCache(project / CACHE_REL) as cache:
+        cache.migrate()
+        files_after = {f.path for f in cache.iter_files()}
+
+    assert "a.py" in files_after
+    assert "b.py" not in files_after
+
+
 def test_observer_emits_events_to_buffer(tmp_path: Path) -> None:
     from watchdog.observers import Observer
 
@@ -60,4 +89,6 @@ def test_observer_emits_events_to_buffer(tmp_path: Path) -> None:
 
     pending = buffer.flush_all()
     assert project in pending
-    assert "new.py" in pending[project]
+    # modified set contains new.py
+    modified, _deleted = pending[project]
+    assert "new.py" in modified

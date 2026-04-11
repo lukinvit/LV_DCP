@@ -95,6 +95,11 @@ class ProjectIndex:
     def file_count(self) -> int:
         return self._cache.file_count()
 
+    def delete_file(self, path: str) -> None:
+        """Remove a single file from the index (used by the daemon on deletion events)."""
+        self._cache.delete_file(path)
+        self._fts.delete_file(path)
+
     def close(self) -> None:
         self._fts.close()
         self._cache.close()

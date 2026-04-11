@@ -19,6 +19,7 @@ from pathlib import Path
 from threading import Event
 
 from libs.core.paths import is_ignored, normalize_path
+from libs.project_index.index import ProjectIndex
 from libs.scanning.scanner import scan_project
 from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
@@ -64,16 +65,32 @@ def process_pending_events(
     buffer: DebounceBuffer,
     logger: typing.Callable[[str], None] = lambda msg: None,
 ) -> dict[Path, int]:
-    """Flush buffer and scan each project once. Returns reparse count per project."""
+    """Flush buffer and process each project.
+
+    For each project:
+    1. Deletes stale cache entries for files reported as deleted.
+    2. Runs an incremental scan limited to the modified/created paths.
+
+    Returns the reparse count per project.
+    """
     pending = buffer.flush_all()
     results: dict[Path, int] = {}
-    for project_root, changed_paths in pending.items():
+    for project_root, (modified, deleted) in pending.items():
         try:
-            result = scan_project(project_root, mode="incremental", only=changed_paths)
-            results[project_root] = result.files_reparsed
-            logger(f"[scan] {project_root.name}: {result.files_reparsed} reparsed")
+            if deleted:
+                with ProjectIndex.open(project_root) as idx:
+                    for rel in deleted:
+                        idx.delete_file(rel)
+                logger(f"[delete] {project_root.name}: {len(deleted)} removed")
+
+            if modified:
+                result = scan_project(project_root, mode="incremental", only=modified)
+                results[project_root] = result.files_reparsed
+                logger(f"[scan] {project_root.name}: {result.files_reparsed} reparsed")
+            else:
+                results[project_root] = 0
         except Exception as exc:
-            logger(f"[error] scan failed for {project_root}: {exc}")
+            logger(f"[error] processing failed for {project_root}: {exc}")
     return results
 
 
