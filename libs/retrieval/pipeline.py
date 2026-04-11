@@ -79,7 +79,7 @@ class RetrievalPipeline:
         # Stage 3: graph expansion (Phase 2)
         expanded_candidates: list[Candidate] = []
         if self._graph is not None and file_scores:
-            stage, expanded_candidates = self._stage_graph(file_scores, mode)
+            stage, expanded_candidates = self._stage_graph(self._graph, file_scores, mode)
             stages.append(stage)
 
         # Stage 4: score decay cutoff + final rank
@@ -160,17 +160,17 @@ class RetrievalPipeline:
 
     def _stage_graph(
         self,
+        graph: Graph,
         file_scores: dict[str, float],
         mode: str,
     ) -> tuple[StageResult, list[Candidate]]:
-        assert self._graph is not None
         t0 = time.perf_counter()
         top_seeds = dict(sorted(file_scores.items(), key=lambda kv: -kv[1])[:GRAPH_SEED_COUNT])
         expansion_weight = 1.0 if mode == "edit" else 0.5
         expanded_candidates: list[Candidate] = []
         for expanded in expand_via_graph(
             top_seeds,
-            self._graph,
+            graph,
             depth=GRAPH_EXPANSION_DEPTH,
             decay=GRAPH_EXPANSION_DECAY,
         ):
