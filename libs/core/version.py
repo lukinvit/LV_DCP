@@ -1,8 +1,4 @@
-"""Single source of truth for the LV_DCP package version.
-
-Read via importlib.metadata so it works both in a local editable install
-(pyproject.toml version) and in a wheel-installed deployment.
-"""
+"""Package version read from `lv-dcp` (hyphen) metadata, falls back to 'unknown'."""
 
 from __future__ import annotations
 
@@ -16,4 +12,4 @@ def _load_version() -> str:
         return "unknown"
 
 
-LVDCP_VERSION: str = _load_version()
+LVDCP_VERSION = _load_version()
