@@ -1,0 +1,215 @@
+:root {
+    --bg: #fafafa;
+    --fg: #222;
+    --muted: #666;
+    --border: #ddd;
+    --accent: #2a5caa;
+    --ok: #2e7d32;
+    --warn: #f57c00;
+    --err: #c62828;
+    --stale: #fbc02d;
+    --mono: 'SF Mono', Monaco, Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    margin: 0;
+    padding: 0;
+    line-height: 1.4;
+}
+
+code {
+    font-family: var(--mono);
+}
+
+.topbar {
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    padding: 1rem 2rem;
+    border-bottom: 1px solid var(--border);
+    background: #fff;
+}
+
+.brand {
+    font-weight: 700;
+    font-size: 1.2rem;
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.topbar nav a {
+    color: var(--fg);
+    text-decoration: none;
+    margin-right: 1rem;
+}
+
+main {
+    padding: 2rem;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+h1 {
+    margin: 0 0 1rem;
+}
+
+.subtitle code {
+    color: var(--muted);
+}
+
+.section {
+    margin: 2rem 0;
+    padding: 1rem;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.project-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+}
+
+.health-card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.health-card.stale {
+    border-color: var(--stale);
+}
+
+.health-card .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.health-card h3 {
+    margin: 0;
+}
+
+.health-card h3 a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.daemon-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--muted);
+    display: inline-block;
+}
+
+.daemon-dot.daemon-running { background: var(--ok); }
+.daemon-dot.daemon-not_loaded { background: var(--muted); }
+.daemon-dot.daemon-error { background: var(--err); }
+
+.card-metrics {
+    display: flex;
+    gap: 1rem;
+    margin: 0.5rem 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
+.card-scan {
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+
+.status-ok { color: var(--ok); }
+.status-error { color: var(--err); }
+.status-pending { color: var(--muted); }
+
+.stale-banner {
+    margin-top: 0.5rem;
+    padding: 0.25rem 0.5rem;
+    background: var(--stale);
+    color: #333;
+    border-radius: 4px;
+    font-size: 0.8rem;
+}
+
+.usage-widget {
+    margin-left: auto;
+    text-align: right;
+    font-family: var(--mono);
+    font-size: 0.85rem;
+}
+
+.usage-label {
+    display: block;
+    color: var(--muted);
+}
+
+.sparkline-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1rem;
+}
+
+.sparkline-item {
+    padding: 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: #fff;
+}
+
+.sparkline-item .label {
+    display: block;
+    color: var(--muted);
+    font-size: 0.8rem;
+    margin-bottom: 0.25rem;
+}
+
+#dep-graph {
+    position: relative;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
+    overflow: hidden;
+}
+
+#dep-graph-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.graph-info {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    background: rgba(255, 255, 255, 0.9);
+    padding: 0.5rem;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    border-radius: 4px;
+}
+
+.empty {
+    color: var(--muted);
+}
+
+footer {
+    display: flex;
+    justify-content: space-between;
+    padding: 1rem 2rem;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+    margin-top: 3rem;
+}
+
+footer a {
+    color: var(--accent);
+    text-decoration: none;
+}
