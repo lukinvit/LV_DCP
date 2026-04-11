@@ -18,7 +18,7 @@ def test_exact_name_match_ranks_first() -> None:
     idx.add(_sym("login", "app.handlers.auth.login"))
     idx.add(_sym("logout", "app.handlers.auth.logout"))
     results = idx.lookup("login", limit=5)
-    assert results[0].name == "login"
+    assert results[0][0].name == "login"
 
 
 def test_fq_substring_match() -> None:
@@ -26,17 +26,28 @@ def test_fq_substring_match() -> None:
     idx.add(_sym("User", "app.models.user.User"))
     idx.add(_sym("UserService", "app.services.user.UserService"))
     results = idx.lookup("models.user", limit=5)
-    assert any(s.fq_name == "app.models.user.User" for s in results)
+    assert any(s.fq_name == "app.models.user.User" for s, _score in results)
 
 
 def test_tokens_match_name_case_insensitive() -> None:
     idx = SymbolIndex()
     idx.add(_sym("refresh_access_token", "app.services.auth.refresh_access_token"))
     results = idx.lookup("refresh token", limit=5)
-    assert any(s.name == "refresh_access_token" for s in results)
+    assert any(s.name == "refresh_access_token" for s, _score in results)
 
 
 def test_empty_query_returns_empty() -> None:
     idx = SymbolIndex()
     idx.add(_sym("x", "x"))
     assert idx.lookup("", limit=5) == []
+
+
+def test_lookup_returns_scores() -> None:
+    """lookup() must return (Symbol, float) tuples with the score > 0."""
+    idx = SymbolIndex()
+    idx.add(_sym("login", "app.handlers.auth.login"))
+    results = idx.lookup("login", limit=5)
+    assert len(results) == 1
+    sym, score = results[0]
+    assert sym.name == "login"
+    assert score > 0.0

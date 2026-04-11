@@ -64,9 +64,8 @@ class RetrievalPipeline:
         # every symbol's fq_name prefix). Instead, track the best individual
         # symbol score per file and contribute SYMBOL_WEIGHT once.
         best_sym_score: dict[str, float] = {}
-        for sym in self._symbols.lookup(query, limit=limit * 2):
+        for sym, score in self._symbols.lookup(query, limit=limit * 2):
             symbol_hits.append(sym)
-            score = self._symbols._score_sym(sym, query)
             if score > best_sym_score.get(sym.file_path, 0.0):
                 best_sym_score[sym.file_path] = score
         for file_path, sym_score in best_sym_score.items():

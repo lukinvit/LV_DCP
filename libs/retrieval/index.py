@@ -47,7 +47,8 @@ class SymbolIndex:
     def clear(self) -> None:
         self._symbols.clear()
 
-    def lookup(self, query: str, *, limit: int = 10) -> list[Symbol]:
+    def lookup(self, query: str, *, limit: int = 10) -> list[tuple[Symbol, float]]:
+        """Return (symbol, score) pairs sorted by descending score."""
         query_tokens = _tokenize_query(query)
         if not query_tokens:
             return []
@@ -59,11 +60,7 @@ class SymbolIndex:
                 scored.append((score, sym))
 
         scored.sort(key=lambda x: x[0], reverse=True)
-        return [s for _score, s in scored[:limit]]
-
-    def _score_sym(self, sym: Symbol, query: str) -> float:
-        """Return the score for a single symbol given a query string."""
-        return self._score(sym, _tokenize_query(query), raw_query=query.lower())
+        return [(s, sc) for sc, s in scored[:limit]]
 
     @staticmethod
     def _score(sym: Symbol, query_tokens: list[str], *, raw_query: str) -> float:
