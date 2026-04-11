@@ -1,0 +1,71 @@
+"""Pydantic DTOs for the status layer."""
+
+from __future__ import annotations
+
+from pydantic import BaseModel, Field
+
+
+class TokenTotals(BaseModel):
+    input_tokens: int = 0
+    cache_creation_input_tokens: int = 0
+    cache_read_input_tokens: int = 0
+    output_tokens: int = 0
+
+
+class DaemonStatus(BaseModel):
+    state: str  # "running" | "not_loaded" | "error"
+    detail: str = ""
+
+
+class HealthCard(BaseModel):
+    root: str
+    name: str
+    slug: str
+    files: int
+    symbols: int
+    relations: int
+    last_scan_at_iso: str | None = None
+    last_scan_status: str = "pending"
+    stale: bool = False
+
+
+class SparklineSeries(BaseModel):
+    metric: str  # "queries" | "scans" | "latency_p95_ms" | "coverage"
+    window: str  # "7d" | "30d"
+    buckets: list[float] = Field(default_factory=list)
+    bucket_labels: list[str] = Field(default_factory=list)
+
+
+class GraphNode(BaseModel):
+    id: str
+    label: str
+    role: str = "code"  # "code" | "test" | "config" | "docs"
+
+
+class GraphEdge(BaseModel):
+    src: str
+    dst: str
+
+
+class GraphDump(BaseModel):
+    nodes: list[GraphNode] = Field(default_factory=list)
+    edges: list[GraphEdge] = Field(default_factory=list)
+
+
+class ProjectStatus(BaseModel):
+    card: HealthCard
+    claude_usage_7d: TokenTotals
+    claude_usage_30d: TokenTotals
+    sparklines: list[SparklineSeries] = Field(default_factory=list)
+    graph: GraphDump | None = None
+
+
+class WorkspaceStatus(BaseModel):
+    projects_count: int
+    total_files: int
+    total_symbols: int
+    total_relations: int
+    daemon: DaemonStatus
+    claude_usage_7d: TokenTotals
+    claude_usage_30d: TokenTotals
+    projects: list[HealthCard] = Field(default_factory=list)
