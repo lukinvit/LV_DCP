@@ -1,0 +1,22 @@
+<div class="health-card{% if card.stale %} stale{% endif %}">
+    <div class="card-header">
+        <h3><a href="/project/{{ card.slug }}">{{ card.name }}</a></h3>
+        <span class="daemon-dot daemon-{{ workspace.daemon.state if workspace is defined else 'unknown' }}"></span>
+    </div>
+    <div class="card-metrics">
+        <span>{{ card.files }} files</span>
+        <span>{{ card.symbols }} symbols</span>
+        <span>{{ card.relations }} relations</span>
+    </div>
+    <div class="card-scan">
+        {% if card.last_scan_at_iso %}
+            last scan: <time datetime="{{ card.last_scan_at_iso }}">{{ card.last_scan_at_iso }}</time>
+        {% else %}
+            never scanned
+        {% endif %}
+        &mdash; status: <span class="status-{{ card.last_scan_status }}">{{ card.last_scan_status }}</span>
+    </div>
+    {% if card.stale %}
+        <div class="stale-banner">stale (&gt;24h)</div>
+    {% endif %}
+</div>

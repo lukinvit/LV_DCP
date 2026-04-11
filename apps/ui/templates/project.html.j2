@@ -1,0 +1,28 @@
+{% extends "base.html.j2" %}
+{% block title %}{{ status.card.name }} &mdash; LV_DCP{% endblock %}
+
+{% block usage_widget %}
+    {% include "partials/usage_widget.html.j2" %}
+{% endblock %}
+
+{% block content %}
+    <h1>{{ status.card.name }}</h1>
+    <p class="subtitle"><code>{{ status.card.root }}</code></p>
+
+    <section class="section">
+        <h2>Health</h2>
+        {% with card=status.card %}
+            {% include "partials/health_card.html.j2" %}
+        {% endwith %}
+    </section>
+
+    <section class="section">
+        <h2>Dependency graph</h2>
+        {% include "partials/graph_panel.html.j2" %}
+    </section>
+
+    <section class="section">
+        <h2>Sparklines (rolling 7d)</h2>
+        {% include "partials/sparkline_row.html.j2" %}
+    </section>
+{% endblock %}

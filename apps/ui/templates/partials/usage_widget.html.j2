@@ -1,0 +1,8 @@
+<div class="usage-widget">
+    <span class="usage-label">Claude (7d)</span>
+    <span class="usage-tokens">
+        {{ '{:,}'.format(ws_usage_7d.input_tokens) }} in /
+        {{ '{:,}'.format(ws_usage_7d.output_tokens) }} out /
+        {{ '{:,}'.format(ws_usage_7d.cache_read_input_tokens) }} cache
+    </span>
+</div>

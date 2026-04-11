@@ -1,0 +1,17 @@
+{% extends "base.html.j2" %}
+{% block title %}LV_DCP &mdash; Projects Overview{% endblock %}
+
+{% block usage_widget %}
+    {% include "partials/usage_widget.html.j2" %}
+{% endblock %}
+
+{% block content %}
+    <h1>Projects ({{ workspace.projects_count }})</h1>
+    <div class="project-grid">
+        {% for card in workspace.projects %}
+            {% include "partials/health_card.html.j2" %}
+        {% else %}
+            <p class="empty">No projects registered. Run <code>ctx watch add &lt;path&gt;</code>.</p>
+        {% endfor %}
+    </div>
+{% endblock %}
