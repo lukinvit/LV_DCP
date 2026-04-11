@@ -52,6 +52,11 @@ class FtsIndex:
         conn.execute("DELETE FROM fts_files WHERE path = ?", (path,))
         conn.commit()
 
+    def close(self) -> None:
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
+
     def search(self, query: str, *, limit: int = 20) -> list[tuple[str, float]]:
         conn = self._connect()
         and_query, or_query = self._sanitize(query)
