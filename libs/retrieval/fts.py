@@ -52,23 +52,96 @@ class FtsIndex:
 
     def search(self, query: str, *, limit: int = 20) -> list[tuple[str, float]]:
         conn = self._connect()
-        safe_query = self._sanitize(query)
-        if not safe_query:
+        and_query, or_query = self._sanitize(query)
+        if not and_query and not or_query:
             return []
-        rows = conn.execute(
-            """
-            SELECT path, -bm25(fts_files) AS score
-            FROM fts_files
-            WHERE fts_files MATCH ?
-            ORDER BY score DESC
-            LIMIT ?
-            """,
-            (safe_query, limit),
-        ).fetchall()
-        return [(path, float(score)) for path, score in rows]
+        # Try strict AND first; fall back to OR if no results
+        for fts_query in filter(None, [and_query, or_query]):
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT path, -bm25(fts_files) AS score
+                    FROM fts_files
+                    WHERE fts_files MATCH ?
+                    ORDER BY score DESC
+                    LIMIT ?
+                    """,
+                    (fts_query, limit),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                rows = []
+            if rows:
+                return [(path, float(score)) for path, score in rows]
+        return []
 
-    @staticmethod
-    def _sanitize(query: str) -> str:
+    # Common English stopwords that add noise to FTS queries
+    _STOPWORDS: frozenset[str] = frozenset(
+        {
+            "a",
+            "an",
+            "the",
+            "is",
+            "are",
+            "was",
+            "were",
+            "be",
+            "been",
+            "being",
+            "have",
+            "has",
+            "had",
+            "do",
+            "does",
+            "did",
+            "will",
+            "would",
+            "could",
+            "should",
+            "may",
+            "might",
+            "shall",
+            "can",
+            "to",
+            "of",
+            "in",
+            "on",
+            "at",
+            "by",
+            "for",
+            "with",
+            "from",
+            "and",
+            "or",
+            "but",
+            "not",
+            "no",
+            "nor",
+            "so",
+            "yet",
+            "how",
+            "where",
+            "which",
+            "what",
+            "when",
+            "who",
+            "that",
+            "i",
+            "it",
+            "its",
+            "if",
+            "as",
+            "up",
+        }
+    )
+
+    @classmethod
+    def _sanitize(cls, query: str) -> tuple[str, str]:
+        """Return (and_query, or_query) pair.
+
+        ``and_query`` — significant tokens joined with AND (empty string if ≤1 token).
+        ``or_query``  — all tokens ≥2 chars joined with OR (always non-empty if query has content).
+        Caller should try AND first, fall back to OR if AND returns no results.
+        """
         # Strip FTS5 special characters except alphanumerics, underscores, dots, spaces
         allowed = []
         for ch in query:
@@ -78,7 +151,15 @@ class FtsIndex:
                 allowed.append(" ")
         cleaned = " ".join("".join(allowed).split())
         if not cleaned:
-            return ""
-        # Wrap each token as prefix search for lenient matching
-        tokens = [f'"{t}"*' for t in cleaned.split() if len(t) >= 2]
-        return " OR ".join(tokens)
+            return "", ""
+        all_tokens = cleaned.split()
+        # OR query: all tokens ≥2 chars
+        or_tokens = [f'"{t}"*' for t in all_tokens if len(t) >= 2]
+        or_query = " OR ".join(or_tokens) if or_tokens else ""
+        # AND query: meaningful tokens only (≥3 chars, not stopwords)
+        and_tokens = [
+            f'"{t}"*' for t in all_tokens if len(t) >= 3 and t.lower() not in cls._STOPWORDS
+        ]
+        # Only use AND if we have 2+ meaningful tokens (single token AND == OR)
+        and_query = " AND ".join(and_tokens) if len(and_tokens) >= 2 else ""
+        return and_query, or_query

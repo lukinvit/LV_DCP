@@ -11,6 +11,67 @@ from libs.core.entities import Symbol
 
 _TOKEN_RE = re.compile(r"[a-zA-Z0-9]+")
 
+# Common English words that appear in natural-language queries but should not
+# be used to match symbol names — they cause noisy false positives.
+_QUERY_STOPWORDS: frozenset[str] = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "shall",
+        "can",
+        "to",
+        "of",
+        "in",
+        "on",
+        "at",
+        "by",
+        "for",
+        "with",
+        "from",
+        "and",
+        "or",
+        "but",
+        "not",
+        "no",
+        "nor",
+        "so",
+        "yet",
+        "how",
+        "where",
+        "which",
+        "what",
+        "when",
+        "who",
+        "that",
+        "i",
+        "it",
+        "its",
+        "if",
+        "as",
+        "up",
+    }
+)
+
 
 def _tokenize(text: str) -> list[str]:
     parts = _TOKEN_RE.findall(text)
@@ -22,6 +83,11 @@ def _tokenize(text: str) -> list[str]:
             chunks = re.split(r"(?<=[a-z])(?=[A-Z])", s)
             out.extend(c.lower() for c in chunks if c)
     return out
+
+
+def _tokenize_query(text: str) -> list[str]:
+    """Tokenize a natural-language query, filtering common English stopwords."""
+    return [t for t in _tokenize(text) if t not in _QUERY_STOPWORDS]
 
 
 class SymbolIndex:
@@ -38,7 +104,7 @@ class SymbolIndex:
         self._symbols.clear()
 
     def lookup(self, query: str, *, limit: int = 10) -> list[Symbol]:
-        query_tokens = _tokenize(query)
+        query_tokens = _tokenize_query(query)
         if not query_tokens:
             return []
 
@@ -51,8 +117,17 @@ class SymbolIndex:
         scored.sort(key=lambda x: x[0], reverse=True)
         return [s for _score, s in scored[:limit]]
 
+    def _score_sym(self, sym: Symbol, query: str) -> float:
+        """Return the score for a single symbol given a query string."""
+        return self._score(sym, _tokenize_query(query), raw_query=query.lower())
+
     @staticmethod
     def _score(sym: Symbol, query_tokens: list[str], *, raw_query: str) -> float:
+        # Skip document heading symbols (markdown h1/h2/... headings emit fq_names
+        # like "path/to/file.md#h1-Title") — they are not code and add noise.
+        if "#" in sym.fq_name:
+            return 0.0
+
         name_tokens = _tokenize(sym.name)
         fq_tokens = _tokenize(sym.fq_name)
 

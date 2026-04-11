@@ -22,6 +22,12 @@ from libs.storage.sqlite_cache import SqliteCache
 SYMBOL_WEIGHT = 3.0
 FTS_WEIGHT = 1.0
 
+# Files scoring below this fraction of the top file score are excluded from
+# results. This improves precision for single-file queries (noise files with
+# much lower scores are dropped) while keeping closely-ranked alternatives for
+# multi-file queries. Tuned for Phase 1 thresholds (precision@3 ≥ 0.55).
+SCORE_DECAY_THRESHOLD = 0.4
+
 
 @dataclass(frozen=True)
 class RetrievalResult:
@@ -52,17 +58,32 @@ class RetrievalPipeline:
         file_scores: dict[str, float] = defaultdict(float)
         symbol_hits: list[Symbol] = []
 
-        # Stage 1: symbol match
+        # Stage 1: symbol match — use per-file best symbol score, not cumulative.
+        # Accumulating all symbol hits per file inflates scores for files with
+        # many symbols when the query contains generic tokens (e.g. "app" matching
+        # every symbol's fq_name prefix). Instead, track the best individual
+        # symbol score per file and contribute SYMBOL_WEIGHT once.
+        best_sym_score: dict[str, float] = {}
         for sym in self._symbols.lookup(query, limit=limit * 2):
             symbol_hits.append(sym)
-            file_scores[sym.file_path] += SYMBOL_WEIGHT
+            score = self._symbols._score_sym(sym, query)
+            if score > best_sym_score.get(sym.file_path, 0.0):
+                best_sym_score[sym.file_path] = score
+        for file_path, sym_score in best_sym_score.items():
+            file_scores[file_path] += SYMBOL_WEIGHT * sym_score
 
         # Stage 2: FTS
         for path, score in self._fts.search(query, limit=limit * 2):
             file_scores[path] += FTS_WEIGHT * score
 
-        # Rank files
+        # Rank files, applying a relative score decay cutoff to suppress noise.
+        # Files scoring below SCORE_DECAY_THRESHOLD * max_score are dropped so
+        # that single-file queries return a tight, high-precision list.
         ordered_files = sorted(file_scores.items(), key=lambda kv: (-kv[1], kv[0]))
+        if ordered_files:
+            max_score = ordered_files[0][1]
+            cutoff = max_score * SCORE_DECAY_THRESHOLD
+            ordered_files = [(p, s) for p, s in ordered_files if s >= cutoff]
         files = [p for p, _ in ordered_files[:limit]]
 
         # Deduplicate symbols by fq_name, keep insertion order
