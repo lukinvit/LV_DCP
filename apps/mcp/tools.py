@@ -13,7 +13,6 @@ from typing import Literal
 
 from libs.context_pack.builder import build_edit_pack, build_navigate_pack
 from libs.project_index.index import ProjectIndex, ProjectNotIndexedError
-from libs.retrieval.trace import load_trace, save_trace
 from libs.scanning.scanner import scan_project
 from pydantic import BaseModel, Field
 
@@ -124,7 +123,7 @@ def lvdcp_pack(
         # Persist the trace so lvdcp_explain can look it up.
         # Use dataclasses.replace to set project field (trace.project is "" by default).
         trace_with_project = dataclasses.replace(result.trace, project=root.name)
-        save_trace(idx._cache, trace_with_project)
+        idx.save_trace(trace_with_project)
 
     return PackResult(
         markdown=pack.assembled_markdown,
@@ -149,9 +148,9 @@ def lvdcp_inspect(path: str) -> InspectResult:
         raise ValueError(f"not_indexed: {exc}. Call lvdcp_scan(path={path!r}) first.") from exc
 
     with idx:
-        files = list(idx._cache.iter_files())
-        symbols = list(idx._cache.iter_symbols())
-        relations = list(idx._cache.iter_relations())
+        files = list(idx.iter_files())
+        symbols = list(idx.iter_symbols())
+        relations = list(idx.iter_relations())
         lang_counts = Counter(f.language for f in files)
         return InspectResult(
             project_name=root.name,
@@ -178,7 +177,7 @@ def lvdcp_explain(path: str, trace_id: str) -> ExplainResult:
         raise ValueError(f"not_indexed: {exc}. Call lvdcp_scan(path={path!r}) first.") from exc
 
     with idx:
-        trace = load_trace(idx._cache, trace_id)
+        trace = idx.load_trace(trace_id)
         if trace is None:
             raise ValueError(f"no trace with id {trace_id!r} in project {path!r}")
         return ExplainResult(

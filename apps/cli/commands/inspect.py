@@ -25,9 +25,9 @@ def inspect(
         raise typer.Exit(code=1) from exc
 
     with idx:
-        files = list(idx._cache.iter_files())
-        symbols = list(idx._cache.iter_symbols())
-        relations = list(idx._cache.iter_relations())
+        files = list(idx.iter_files())
+        symbols = list(idx.iter_symbols())
+        relations = list(idx.iter_relations())
 
         lang_counts = Counter(f.language for f in files)
         sym_type_counts = Counter(s.symbol_type.value for s in symbols)

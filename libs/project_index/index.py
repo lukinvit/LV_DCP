@@ -13,14 +13,17 @@ Plus the new Phase 2 consumers:
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 from types import TracebackType
 from typing import Self
 
+from libs.core.entities import File, Relation, Symbol
 from libs.graph.builder import Graph
 from libs.retrieval.fts import FtsIndex
 from libs.retrieval.index import SymbolIndex
 from libs.retrieval.pipeline import RetrievalPipeline, RetrievalResult
+from libs.retrieval.trace import RetrievalTrace, load_trace, save_trace
 from libs.scanning.scanner import CACHE_REL, FTS_REL
 from libs.storage.sqlite_cache import SqliteCache
 
@@ -99,6 +102,25 @@ class ProjectIndex:
         """Remove a single file from the index (used by the daemon on deletion events)."""
         self._cache.delete_file(path)
         self._fts.delete_file(path)
+
+    # ------------------------------------------------------------------
+    # Public accessors — keep callers off private _cache / _fts handles.
+    # ------------------------------------------------------------------
+
+    def iter_files(self) -> Iterator[File]:
+        return self._cache.iter_files()
+
+    def iter_symbols(self) -> Iterator[Symbol]:
+        return self._cache.iter_symbols()
+
+    def iter_relations(self) -> Iterator[Relation]:
+        return self._cache.iter_relations()
+
+    def save_trace(self, trace: RetrievalTrace) -> None:
+        save_trace(self._cache, trace)
+
+    def load_trace(self, trace_id: str) -> RetrievalTrace | None:
+        return load_trace(self._cache, trace_id)
 
     def close(self) -> None:
         self._fts.close()
