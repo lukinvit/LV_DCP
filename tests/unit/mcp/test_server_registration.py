@@ -6,7 +6,13 @@ def test_server_exposes_all_four_tools() -> None:
 
     tools = asyncio.run(mcp.list_tools())
     tool_names = {t.name for t in tools}
-    assert tool_names == {"lvdcp_scan", "lvdcp_pack", "lvdcp_inspect", "lvdcp_explain", "lvdcp_status"}
+    assert tool_names == {
+        "lvdcp_scan",
+        "lvdcp_pack",
+        "lvdcp_inspect",
+        "lvdcp_explain",
+        "lvdcp_status",
+    }
 
 
 def test_server_tool_descriptions_contain_call_triggers() -> None:

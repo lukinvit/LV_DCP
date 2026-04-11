@@ -42,7 +42,12 @@ def test_workspace_status_serializes() -> None:
         total_symbols=500,
         total_relations=1000,
         daemon=DaemonStatus(state="running", detail=""),
-        claude_usage_7d=TokenTotals(input_tokens=10, cache_creation_input_tokens=20, cache_read_input_tokens=30, output_tokens=40),
+        claude_usage_7d=TokenTotals(
+            input_tokens=10,
+            cache_creation_input_tokens=20,
+            cache_read_input_tokens=30,
+            output_tokens=40,
+        ),
         claude_usage_30d=TokenTotals(),
         projects=[],
     )
@@ -54,8 +59,12 @@ def test_workspace_status_serializes() -> None:
 
 def test_project_status_with_graph() -> None:
     card = HealthCard(
-        root="/x", name="x", slug="x",
-        files=1, symbols=2, relations=3,
+        root="/x",
+        name="x",
+        slug="x",
+        files=1,
+        symbols=2,
+        relations=3,
     )
     graph = GraphDump(
         nodes=[GraphNode(id="a.py", label="a.py", role="code")],

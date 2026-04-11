@@ -18,9 +18,7 @@ def isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return config
 
 
-def test_lvdcp_status_without_path_returns_workspace(
-    tmp_path: Path, isolated_env: Path
-) -> None:
+def test_lvdcp_status_without_path_returns_workspace(tmp_path: Path, isolated_env: Path) -> None:
     project = tmp_path / "proj"
     project.mkdir()
     (project / "x.py").write_text("x = 1\n")
@@ -33,9 +31,7 @@ def test_lvdcp_status_without_path_returns_workspace(
     assert result.project is None
 
 
-def test_lvdcp_status_with_path_returns_project(
-    tmp_path: Path, isolated_env: Path
-) -> None:
+def test_lvdcp_status_with_path_returns_project(tmp_path: Path, isolated_env: Path) -> None:
     project = tmp_path / "proj"
     project.mkdir()
     (project / "x.py").write_text("def f() -> None: return None\n")

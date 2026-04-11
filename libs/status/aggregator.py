@@ -222,6 +222,8 @@ def _build_sparklines(root: Path, *, now: float) -> list[SparklineSeries]:
     return [
         SparklineSeries(metric="queries", window="7d", buckets=queries, bucket_labels=labels),
         SparklineSeries(metric="scans", window="7d", buckets=scans, bucket_labels=labels),
-        SparklineSeries(metric="latency_p95_ms", window="7d", buckets=latency, bucket_labels=labels),
+        SparklineSeries(
+            metric="latency_p95_ms", window="7d", buckets=latency, bucket_labels=labels
+        ),
         SparklineSeries(metric="coverage", window="7d", buckets=coverage_avg, bucket_labels=labels),
     ]

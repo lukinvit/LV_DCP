@@ -17,7 +17,9 @@ def test_probe_running() -> None:
 
 def test_probe_not_loaded() -> None:
     with patch("libs.status.daemon_probe.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=113, stdout="", stderr="Could not find service")
+        mock_run.return_value = MagicMock(
+            returncode=113, stdout="", stderr="Could not find service"
+        )
         status = probe_daemon()
     assert status.state == "not_loaded"
 

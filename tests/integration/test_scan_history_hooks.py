@@ -8,9 +8,7 @@ from libs.scan_history.store import ScanHistoryStore, events_since
 from libs.scanning.scanner import scan_project
 
 
-def test_manual_scan_appends_scan_history(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_manual_scan_appends_scan_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     project = tmp_path / "proj"
     project.mkdir()
     (project / "hello.py").write_text("def hi() -> None:\n    return None\n")
@@ -34,9 +32,7 @@ def test_manual_scan_appends_scan_history(
     assert events[0].files_scanned >= 1
 
 
-def test_daemon_scan_appends_scan_history(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_daemon_scan_appends_scan_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from apps.agent.config import add_project
     from apps.agent.daemon import process_pending_events
     from apps.agent.handler import DebounceBuffer

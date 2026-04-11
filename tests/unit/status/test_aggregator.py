@@ -43,9 +43,7 @@ def test_build_workspace_status_empty(isolated_env: Path) -> None:
     assert ws.projects == []
 
 
-def test_build_project_status_includes_graph(
-    tmp_path: Path, isolated_env: Path
-) -> None:
+def test_build_project_status_includes_graph(tmp_path: Path, isolated_env: Path) -> None:
     project = tmp_path / "proj"
     project.mkdir()
     (project / "a.py").write_text("from b import f\n")
@@ -60,9 +58,7 @@ def test_build_project_status_includes_graph(
     assert len(status.graph.nodes) >= 2
 
 
-def test_build_project_status_has_four_sparklines(
-    tmp_path: Path, isolated_env: Path
-) -> None:
+def test_build_project_status_has_four_sparklines(tmp_path: Path, isolated_env: Path) -> None:
     project = tmp_path / "proj"
     project.mkdir()
     (project / "x.py").write_text("x = 1\n")

@@ -9,9 +9,7 @@ from libs.scanning.scanner import scan_project
 from libs.status.health import build_health_card
 
 
-def test_build_health_card_happy_path(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_build_health_card_happy_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Isolate scan_history write for this test
     monkeypatch.setenv("LVDCP_SCAN_HISTORY_DB", str(tmp_path / "history.db"))
 
@@ -46,9 +44,7 @@ def test_build_health_card_marks_stale_after_24h(
 
     config_path = tmp_path / "config.yaml"
     add_project(config_path, project)
-    stale_iso = (
-        (datetime.now(UTC) - timedelta(hours=48)).isoformat().replace("+00:00", "Z")
-    )
+    stale_iso = (datetime.now(UTC) - timedelta(hours=48)).isoformat().replace("+00:00", "Z")
     update_last_scan(config_path, project, status="ok", ts_iso=stale_iso)
 
     card = build_health_card(project.resolve(), config_path=config_path)
