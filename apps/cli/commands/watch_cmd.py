@@ -2,12 +2,24 @@
 
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 
 import typer
+from libs.mcp_ops.launchd import (
+    LAUNCH_AGENT_LABEL,
+    LaunchctlError,
+    bootout_agent,
+    bootstrap_agent,
+    write_plist,
+)
 
 from apps.agent.config import add_project, list_projects, remove_project
 from apps.agent.daemon import DEFAULT_CONFIG_PATH, run_daemon
+
+LAUNCH_AGENT_DIR = Path.home() / "Library" / "LaunchAgents"
+AGENT_LOG_DIR = Path.home() / "Library" / "Logs" / "lvdcp-agent"
 
 app = typer.Typer(name="watch", help="Auto-indexing daemon management")
 
@@ -59,3 +71,42 @@ def start() -> None:
     """
     typer.echo("starting lvdcp-agent daemon (Ctrl+C to stop)")
     run_daemon()
+
+
+@app.command("install-service")
+def install_service() -> None:
+    """Install LV_DCP agent as a launchd LaunchAgent (persistent background service)."""
+    plist_path = LAUNCH_AGENT_DIR / f"{LAUNCH_AGENT_LABEL}.plist"
+    program_arguments = [sys.executable, "-m", "apps.agent.daemon"]
+    write_plist(
+        target_path=plist_path,
+        program_arguments=program_arguments,
+        log_dir=AGENT_LOG_DIR,
+    )
+    try:
+        bootstrap_agent(plist_path=plist_path, uid=os.getuid())
+    except LaunchctlError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        typer.echo(
+            "note: launchctl bootstrap requires an active GUI session — "
+            "run from Terminal.app on the desktop, not from SSH.",
+            err=True,
+        )
+        raise typer.Exit(code=3) from exc
+    typer.echo(f"plist written: {plist_path}")
+    typer.echo(f"launchctl bootstrap gui/{os.getuid()} succeeded")
+
+
+@app.command("uninstall-service")
+def uninstall_service() -> None:
+    """Remove LV_DCP agent launchd LaunchAgent."""
+    plist_path = LAUNCH_AGENT_DIR / f"{LAUNCH_AGENT_LABEL}.plist"
+    try:
+        bootout_agent(uid=os.getuid())
+    except LaunchctlError as exc:
+        typer.echo(f"note: {exc}", err=True)
+    if plist_path.exists():
+        plist_path.unlink()
+        typer.echo(f"removed plist: {plist_path}")
+    else:
+        typer.echo(f"no plist at {plist_path}")
