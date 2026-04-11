@@ -74,7 +74,7 @@ class SqliteCache:
             self._conn.execute("PRAGMA journal_mode = WAL")
         return self._conn
 
-    def __enter__(self) -> "SqliteCache":
+    def __enter__(self) -> SqliteCache:
         return self
 
     def __exit__(

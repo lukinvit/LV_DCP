@@ -183,9 +183,8 @@ def test_migrate_rejects_future_version(tmp_path: Path) -> None:
         conn.close()
 
     # Reopening with the same binary must refuse to migrate
-    with pytest.raises(RuntimeError, match="schema version 99"):
-        with SqliteCache(db) as cache2:
-            cache2.migrate()
+    with pytest.raises(RuntimeError, match="schema version 99"), SqliteCache(db) as cache2:
+        cache2.migrate()
 
 
 def test_delete_file_cascades_relations(cache: SqliteCache) -> None:

@@ -63,10 +63,7 @@ def is_test_path(relative_posix: str) -> bool:
     """
     p = relative_posix.replace("\\", "/")
     return (
-        "/tests/" in p
-        or p.startswith("tests/")
-        or p.endswith("_test.py")
-        or p.startswith("test_")
+        "/tests/" in p or p.startswith("tests/") or p.endswith("_test.py") or p.startswith("test_")
     )
 
 
