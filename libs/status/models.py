@@ -69,3 +69,10 @@ class WorkspaceStatus(BaseModel):
     claude_usage_7d: TokenTotals
     claude_usage_30d: TokenTotals
     projects: list[HealthCard] = Field(default_factory=list)
+
+
+class BudgetInfo(BaseModel):
+    spent_7d: float = 0.0
+    spent_30d: float = 0.0
+    monthly_limit: float = 25.0
+    status: str = "disabled"  # "ok" | "warning" | "exceeded" | "disabled"
