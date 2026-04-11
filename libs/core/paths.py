@@ -88,8 +88,6 @@ def is_ignored(relative_posix: str) -> bool:
     if basename in DEFAULT_IGNORE_FILENAME_EXACT:
         return True
     # Any .env or .env.* file is ignored UNLESS explicitly allow-listed.
-    if basename == ".env" or (
-        basename.startswith(".env.") and basename not in ENV_FILENAME_ALLOW
-    ):
+    if basename == ".env" or (basename.startswith(".env.") and basename not in ENV_FILENAME_ALLOW):
         return True
     return any(relative_posix.endswith(suffix) for suffix in DEFAULT_IGNORE_SUFFIXES)

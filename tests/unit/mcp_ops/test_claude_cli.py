@@ -56,7 +56,10 @@ def test_claude_mcp_add_raises_on_non_zero_exit() -> None:
 
 
 def test_claude_mcp_add_raises_on_missing_binary() -> None:
-    with patch("libs.mcp_ops.claude_cli.subprocess.run", side_effect=FileNotFoundError), pytest.raises(ClaudeCliError, match="not found"):
+    with (
+        patch("libs.mcp_ops.claude_cli.subprocess.run", side_effect=FileNotFoundError),
+        pytest.raises(ClaudeCliError, match="not found"),
+    ):
         claude_mcp_add(
             server_name="lvdcp",
             command="python",
@@ -85,5 +88,8 @@ def test_claude_mcp_list_returns_stdout() -> None:
 
 
 def test_claude_mcp_list_raises_on_missing_binary() -> None:
-    with patch("libs.mcp_ops.claude_cli.subprocess.run", side_effect=FileNotFoundError), pytest.raises(ClaudeCliError, match="not found"):
+    with (
+        patch("libs.mcp_ops.claude_cli.subprocess.run", side_effect=FileNotFoundError),
+        pytest.raises(ClaudeCliError, match="not found"),
+    ):
         claude_mcp_list()

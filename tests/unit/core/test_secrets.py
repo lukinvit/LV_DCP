@@ -26,10 +26,14 @@ def test_jwt_detected() -> None:
     # token. JWT tokens are base64(JSON) starting with "eyJ". Split aggressively
     # to avoid any contiguous "eyJ" substring in source.
     token = (
-        b"e" + b"y" + b"J" +
-        b"hbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9." +
-        b"e" + b"y" + b"J" +
-        b"zdWIiOiIxMjM0NTY3ODkwIn0.abc"
+        b"e"
+        + b"y"
+        + b"J"
+        + b"hbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+        + b"e"
+        + b"y"
+        + b"J"
+        + b"zdWIiOiIxMjM0NTY3ODkwIn0.abc"
     )
     assert contains_secret_pattern(token)
 

@@ -15,9 +15,7 @@ def test_uninstall_removes_managed_section(tmp_path: Path) -> None:
     from libs.mcp_ops.install import MANAGED_SECTION_END, MANAGED_SECTION_START
 
     claudemd = tmp_path / "CLAUDE.md"
-    claudemd.write_text(
-        f"# Keep me\n\n{MANAGED_SECTION_START}\nstuff\n{MANAGED_SECTION_END}\n"
-    )
+    claudemd.write_text(f"# Keep me\n\n{MANAGED_SECTION_START}\nstuff\n{MANAGED_SECTION_END}\n")
 
     with patch("libs.mcp_ops.uninstall.claude_mcp_remove"):
         uninstall_lvdcp(claudemd_path=claudemd, scope="user")

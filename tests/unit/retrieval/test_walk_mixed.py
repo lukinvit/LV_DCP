@@ -65,9 +65,7 @@ def test_sub_walk_A_ignores_external_symbols_owned_by_seed() -> None:
     """A symbol whose FQ name does NOT start with the seed's module prefix
     must not be treated as 'own' symbol."""
     g = Graph()
-    g.add_relation(
-        _rel("app/handlers/login.py", "fastapi.APIRouter", RelationType.IMPORTS)
-    )
+    g.add_relation(_rel("app/handlers/login.py", "fastapi.APIRouter", RelationType.IMPORTS))
     seeds = {"app/handlers/login.py": 10.0}
 
     expanded = expand_via_graph(seeds, g, depth=2, decay=0.5)
@@ -105,9 +103,7 @@ def test_sub_walk_B_skips_external_libraries() -> None:
     """Symbols from external libs (fastapi.*, …) must not generate file candidates
     because the derived path is not present in the graph."""
     g = Graph()
-    g.add_relation(
-        _rel("app/handlers/login.py", "fastapi.APIRouter", RelationType.IMPORTS)
-    )
+    g.add_relation(_rel("app/handlers/login.py", "fastapi.APIRouter", RelationType.IMPORTS))
     seeds = {"app/handlers/login.py": 10.0}
 
     expanded = expand_via_graph(seeds, g, depth=2, decay=0.5)
@@ -119,9 +115,7 @@ def test_sub_walk_B_skips_external_libraries() -> None:
 def test_sub_walk_B_skips_single_component_symbols() -> None:
     """`datetime` has no module prefix and cannot be mapped to a project file."""
     g = Graph()
-    g.add_relation(
-        _rel("app/handlers/login.py", "datetime", RelationType.IMPORTS)
-    )
+    g.add_relation(_rel("app/handlers/login.py", "datetime", RelationType.IMPORTS))
     seeds = {"app/handlers/login.py": 10.0}
 
     expanded = expand_via_graph(seeds, g, depth=2, decay=0.5)
