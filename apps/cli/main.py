@@ -7,6 +7,7 @@ from pathlib import Path
 import typer
 
 from apps.cli.commands import inspect as inspect_module
+from apps.cli.commands import mcp_cmd
 from apps.cli.commands import pack as pack_module
 from apps.cli.commands import scan as scan_module
 
@@ -53,3 +54,5 @@ def inspect(
 
 
 app.command()(pack_module.pack)
+
+app.add_typer(mcp_cmd.app, name="mcp")
