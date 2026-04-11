@@ -53,6 +53,8 @@ def test_public_iter_methods(indexed_project: Path) -> None:
 
 def test_save_and_load_trace(indexed_project: Path) -> None:
     """save_trace / load_trace round-trip through the public API."""
+    import time
+
     from libs.retrieval.trace import RetrievalTrace
 
     trace = RetrievalTrace(
@@ -60,7 +62,7 @@ def test_save_and_load_trace(indexed_project: Path) -> None:
         project="test_project",
         query="run",
         mode="navigate",
-        timestamp=0.0,
+        timestamp=time.time(),
         coverage="high",
     )
     with ProjectIndex.open(indexed_project) as idx:
