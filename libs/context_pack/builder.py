@@ -7,6 +7,7 @@ markdown with the top files, symbols, and for EDIT mode a tests/configs split.
 from __future__ import annotations
 
 from libs.core.entities import ContextPack, PackMode
+from libs.core.paths import is_test_path
 from libs.retrieval.pipeline import RetrievalResult
 
 PIPELINE_VERSION = "phase-1-v0"
@@ -69,12 +70,7 @@ def build_edit_pack(
     impacted_tests: list[str] = []
     impacted_configs: list[str] = []
     for p in result.files:
-        if (
-            "/tests/" in p
-            or p.startswith("tests/")
-            or p.endswith("_test.py")
-            or p.startswith("test_")
-        ):
+        if is_test_path(p):
             impacted_tests.append(p)
         elif p.endswith((".yaml", ".yml", ".json", ".toml")) or "/config/" in p:
             impacted_configs.append(p)

@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 
 from libs.core.entities import Relation, RelationType, Symbol, SymbolType
+from libs.core.paths import is_test_path
 from libs.parsers.base import ParseResult
 
 
@@ -50,15 +51,7 @@ class PythonParser:
 
     @staticmethod
     def _role(file_path: str) -> str:
-        p = file_path.replace("\\", "/")
-        if (
-            "/tests/" in p
-            or p.startswith("tests/")
-            or p.endswith("_test.py")
-            or p.startswith("test_")
-        ):
-            return "test"
-        return "source"
+        return "test" if is_test_path(file_path) else "source"
 
 
 class _SymbolCollector(ast.NodeVisitor):

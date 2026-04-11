@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from libs.core.paths import is_ignored, normalize_path
+from libs.core.paths import is_ignored, is_test_path, normalize_path
 
 
 def test_normalize_path_resolves_relative_to_root(tmp_path: Path) -> None:
@@ -29,3 +29,15 @@ def test_is_ignored_allows_source_files() -> None:
     assert not is_ignored("libs/core/paths.py")
     assert not is_ignored("docs/constitution.md")
     assert not is_ignored("apps/cli/main.py")
+
+
+def test_is_test_path_true_cases() -> None:
+    assert is_test_path("tests/test_foo.py")
+    assert is_test_path("app/tests/helper.py")
+    assert is_test_path("foo_test.py")
+    assert is_test_path("test_bar.py")
+
+
+def test_is_test_path_false_cases() -> None:
+    assert not is_test_path("app/main.py")
+    assert not is_test_path("docs/test.md")

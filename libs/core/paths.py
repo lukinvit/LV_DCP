@@ -49,6 +49,27 @@ def normalize_path(absolute: Path, *, root: Path) -> str:
     return rel.as_posix()
 
 
+def is_test_path(relative_posix: str) -> bool:
+    """Return True if the path belongs to a test file.
+
+    Heuristic covers common test layouts:
+    - Any path segment ``tests/`` in the middle or start (e.g. ``app/tests/helper.py``)
+    - Path rooted at ``tests/`` (e.g. ``tests/test_foo.py``)
+    - File name suffix ``_test.py`` (pytest naming)
+    - File name prefix ``test_`` at the root segment (e.g. ``test_bar.py``)
+
+    Note: ``docs/test.md`` returns False because the *file name* ``test.md``
+    does not start with ``test_`` and the path does not start with ``tests/``.
+    """
+    p = relative_posix.replace("\\", "/")
+    return (
+        "/tests/" in p
+        or p.startswith("tests/")
+        or p.endswith("_test.py")
+        or p.startswith("test_")
+    )
+
+
 def is_ignored(relative_posix: str) -> bool:
     """Return True if a path should be excluded from scanning."""
     for prefix in DEFAULT_IGNORE_PREFIXES:
