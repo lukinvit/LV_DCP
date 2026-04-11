@@ -29,7 +29,7 @@ SYMBOL_WEIGHT = 3.0
 FTS_WEIGHT = 1.0
 SCORE_DECAY_THRESHOLD = 0.4
 GRAPH_EXPANSION_DEPTH = 2
-GRAPH_EXPANSION_DECAY = 0.5
+GRAPH_EXPANSION_DECAY = 0.7
 GRAPH_SEED_COUNT = 5  # how many top candidates seed graph expansion
 
 
@@ -69,94 +69,28 @@ class RetrievalPipeline:
         initial_candidates: list[Candidate] = []
 
         # Stage 1: symbol match
-        t0 = time.perf_counter()
-        symbol_results = self._symbols.lookup(query, limit=limit * 2)
-        for sym, score in symbol_results:
-            symbol_hits.append(sym)
-            file_scores[sym.file_path] = max(file_scores[sym.file_path], SYMBOL_WEIGHT * score)
-            initial_candidates.append(
-                Candidate(path=sym.file_path, score=SYMBOL_WEIGHT * score, source="symbol")
-            )
         stages.append(
-            StageResult(
-                name="symbol_match",
-                candidate_count=len(symbol_results),
-                elapsed_ms=(time.perf_counter() - t0) * 1000,
-            )
+            self._stage_symbol(query, limit, file_scores, symbol_hits, initial_candidates)
         )
 
         # Stage 2: FTS
-        t0 = time.perf_counter()
-        fts_results = self._fts.search(query, limit=limit * 2)
-        for path, score in fts_results:
-            file_scores[path] += FTS_WEIGHT * score
-            initial_candidates.append(Candidate(path=path, score=FTS_WEIGHT * score, source="fts"))
-        stages.append(
-            StageResult(
-                name="fts",
-                candidate_count=len(fts_results),
-                elapsed_ms=(time.perf_counter() - t0) * 1000,
-            )
-        )
+        stages.append(self._stage_fts(query, limit, file_scores, initial_candidates))
 
         # Stage 3: graph expansion (Phase 2)
         expanded_candidates: list[Candidate] = []
         if self._graph is not None and file_scores:
-            t0 = time.perf_counter()
-            # Take top-K seeds for expansion
-            top_seeds = dict(sorted(file_scores.items(), key=lambda kv: -kv[1])[:GRAPH_SEED_COUNT])
-            expansion_weight = 1.0 if mode == "edit" else 0.5
-            for expanded in expand_via_graph(
-                top_seeds,
-                self._graph,
-                depth=GRAPH_EXPANSION_DEPTH,
-                decay=GRAPH_EXPANSION_DECAY,
-            ):
-                boosted_score = expanded.score * expansion_weight
-                if expanded.path not in file_scores:
-                    file_scores[expanded.path] = boosted_score
-                else:
-                    file_scores[expanded.path] = max(file_scores[expanded.path], boosted_score)
-                source = f"graph_{expanded.via}"
-                expanded_candidates.append(
-                    Candidate(path=expanded.path, score=boosted_score, source=source)
-                )
-            stages.append(
-                StageResult(
-                    name="graph_expansion",
-                    candidate_count=len(expanded_candidates),
-                    elapsed_ms=(time.perf_counter() - t0) * 1000,
-                )
-            )
+            stage, expanded_candidates = self._stage_graph(file_scores, mode)
+            stages.append(stage)
 
         # Stage 4: score decay cutoff + final rank
-        ordered = sorted(file_scores.items(), key=lambda kv: (-kv[1], kv[0]))
-        dropped: list[Candidate] = []
-        if ordered:
-            top_score = ordered[0][1]
-            floor = top_score * SCORE_DECAY_THRESHOLD
-            kept: list[tuple[str, float]] = []
-            for p, s in ordered:
-                if s >= floor:
-                    kept.append((p, s))
-                else:
-                    dropped.append(Candidate(path=p, score=s, source="decayed"))
-            ordered = kept
+        ordered, dropped = _apply_score_decay(file_scores)
 
         final_files = [p for p, _ in ordered[:limit]]
         final_scores = dict(ordered[:limit])
 
-        # Deduplicate symbols by fq_name, keep insertion order
-        seen: set[str] = set()
-        symbol_fqs: list[str] = []
-        for sym in symbol_hits:
-            if sym.fq_name not in seen:
-                seen.add(sym.fq_name)
-                symbol_fqs.append(sym.fq_name)
-        symbol_fqs = symbol_fqs[:limit]
+        symbol_fqs = self._build_symbol_list(symbol_hits, final_files, limit)
 
         coverage: Coverage = compute_coverage(final_scores)
-
         final_ranking = [Candidate(path=p, score=s, source="final") for p, s in ordered[:limit]]
 
         trace = RetrievalTrace(
@@ -180,3 +114,122 @@ class RetrievalPipeline:
             trace=trace,
             coverage=coverage,
         )
+
+    # ------------------------------------------------------------------
+    # Private stage helpers
+    # ------------------------------------------------------------------
+
+    def _stage_symbol(
+        self,
+        query: str,
+        limit: int,
+        file_scores: dict[str, float],
+        symbol_hits: list[Symbol],
+        initial_candidates: list[Candidate],
+    ) -> StageResult:
+        t0 = time.perf_counter()
+        symbol_results = self._symbols.lookup(query, limit=limit * 2)
+        for sym, score in symbol_results:
+            symbol_hits.append(sym)
+            boosted = SYMBOL_WEIGHT * score
+            file_scores[sym.file_path] = max(file_scores[sym.file_path], boosted)
+            initial_candidates.append(Candidate(path=sym.file_path, score=boosted, source="symbol"))
+        return StageResult(
+            name="symbol_match",
+            candidate_count=len(symbol_results),
+            elapsed_ms=(time.perf_counter() - t0) * 1000,
+        )
+
+    def _stage_fts(
+        self,
+        query: str,
+        limit: int,
+        file_scores: dict[str, float],
+        initial_candidates: list[Candidate],
+    ) -> StageResult:
+        t0 = time.perf_counter()
+        fts_results = self._fts.search(query, limit=limit * 2)
+        for path, score in fts_results:
+            file_scores[path] += FTS_WEIGHT * score
+            initial_candidates.append(Candidate(path=path, score=FTS_WEIGHT * score, source="fts"))
+        return StageResult(
+            name="fts",
+            candidate_count=len(fts_results),
+            elapsed_ms=(time.perf_counter() - t0) * 1000,
+        )
+
+    def _stage_graph(
+        self,
+        file_scores: dict[str, float],
+        mode: str,
+    ) -> tuple[StageResult, list[Candidate]]:
+        assert self._graph is not None
+        t0 = time.perf_counter()
+        top_seeds = dict(sorted(file_scores.items(), key=lambda kv: -kv[1])[:GRAPH_SEED_COUNT])
+        expansion_weight = 1.0 if mode == "edit" else 0.5
+        expanded_candidates: list[Candidate] = []
+        for expanded in expand_via_graph(
+            top_seeds,
+            self._graph,
+            depth=GRAPH_EXPANSION_DEPTH,
+            decay=GRAPH_EXPANSION_DECAY,
+        ):
+            boosted_score = expanded.score * expansion_weight
+            file_scores[expanded.path] = max(file_scores.get(expanded.path, 0.0), boosted_score)
+            expanded_candidates.append(
+                Candidate(path=expanded.path, score=boosted_score, source=f"graph_{expanded.via}")
+            )
+        stage = StageResult(
+            name="graph_expansion",
+            candidate_count=len(expanded_candidates),
+            elapsed_ms=(time.perf_counter() - t0) * 1000,
+        )
+        return stage, expanded_candidates
+
+    def _build_symbol_list(
+        self,
+        symbol_hits: list[Symbol],
+        final_files: list[str],
+        limit: int,
+    ) -> list[str]:
+        """Build ordered, deduplicated symbol FQ-name list.
+
+        Starts with symbols from Stage-1 direct matching, then supplements
+        with all symbols from top-ranked files that produced no Stage-1 hits.
+        This ensures graph-expanded files also contribute their key symbols.
+        """
+        seen: set[str] = set()
+        symbol_fqs: list[str] = []
+        for sym in symbol_hits:
+            if sym.fq_name not in seen:
+                seen.add(sym.fq_name)
+                symbol_fqs.append(sym.fq_name)
+
+        files_with_direct_symbols: set[str] = {sym.file_path for sym in symbol_hits}
+        supplement_files = set(f for f in final_files[:2] if f not in files_with_direct_symbols)
+        for sym in self._symbols._symbols:
+            if sym.fq_name in seen or "#" in sym.fq_name:
+                continue
+            if sym.file_path in supplement_files:
+                seen.add(sym.fq_name)
+                symbol_fqs.append(sym.fq_name)
+
+        return symbol_fqs[:limit]
+
+
+def _apply_score_decay(
+    file_scores: dict[str, float],
+) -> tuple[list[tuple[str, float]], list[Candidate]]:
+    """Sort by score, drop entries below SCORE_DECAY_THRESHOLD x top score."""
+    ordered = sorted(file_scores.items(), key=lambda kv: (-kv[1], kv[0]))
+    dropped: list[Candidate] = []
+    if not ordered:
+        return ordered, dropped
+    floor = ordered[0][1] * SCORE_DECAY_THRESHOLD
+    kept: list[tuple[str, float]] = []
+    for p, s in ordered:
+        if s >= floor:
+            kept.append((p, s))
+        else:
+            dropped.append(Candidate(path=p, score=s, source="decayed"))
+    return kept, dropped
