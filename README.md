@@ -88,6 +88,39 @@ lvdcp_status(path="/abs/p")     # single project detail including dependency gra
 
 Upgrading from Phase 3a: `git pull && uv sync && ctx mcp install` (doctor will prompt on version mismatch).
 
+## Phase 3c.1 — LLM Summaries (new in 0.3.2)
+
+Pluggable LLM provider with file-level summaries:
+
+```bash
+# Configure provider (default: OpenAI)
+export OPENAI_API_KEY=sk-...                  # or ANTHROPIC_API_KEY, etc.
+uv run ctx ui                                  # open http://127.0.0.1:8787/settings
+# toggle "Enable LLM summaries", save
+
+# Generate summaries for a project
+uv run ctx summarize /path/to/project
+```
+
+Summaries are cached in `~/.lvdcp/summaries.db` keyed on file content hash + prompt version + model name, so re-running on unchanged files has zero cost.
+
+Supported providers out of the box:
+- **OpenAI** (default): `gpt-4o-mini`, `gpt-5-mini`, `gpt-5`
+- **Anthropic**: `claude-haiku-4-5`, `claude-sonnet-4-6`
+- **Ollama** (local, zero-cost): `qwen2.5-coder:7b`, `qwen2.5-coder:32b`, `llama3.3:70b`
+
+### Cost tracking
+
+Dashboard topbar shows `$X.XX / $25 monthly` budget usage. `ctx mcp doctor` now runs 9 checks (was 7) — the new check 8 verifies provider connectivity, check 9 warns at 80% and fails at 100% of monthly budget.
+
+### Settings UI
+
+`/settings` page lets you switch provider, model, and budget without editing config files. API keys are stored as environment variables only — the UI displays the env var *name* and its set/unset status, never the key value itself.
+
+See [docs/adr/006-llm-provider-abstraction.md](docs/adr/006-llm-provider-abstraction.md) for the pluggable design rationale.
+
+Upgrading from Phase 3b: `git pull && uv sync --all-extras && ctx mcp install` (doctor will prompt on version mismatch).
+
 ## Prerequisites
 
 - macOS (primary target) or Linux
