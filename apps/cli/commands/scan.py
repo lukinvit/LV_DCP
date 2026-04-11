@@ -28,10 +28,11 @@ def scan(
 ) -> None:
     """Scan a project and regenerate .context/*.md artifacts."""
     mode: Literal["full", "incremental"] = "full" if full else "incremental"
-    result = scan_project(path, mode=mode)
+    resolved = path.resolve()
+    result = scan_project(resolved, mode=mode)
 
     typer.echo(
-        f"scanned {result.files_scanned} files "
+        f"scanned {result.files_scanned} files in {resolved} "
         f"({result.files_reparsed} reparsed, {result.stale_files_removed} stale removed), "
         f"{result.symbols_extracted} symbols, "
         f"{result.relations_reparsed} reparsed / {result.relations_cached} total relations "

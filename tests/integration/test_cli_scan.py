@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from apps.cli.main import app
 from typer.testing import CliRunner
 
@@ -39,3 +40,16 @@ def test_scan_populates_fts_index(sample_repo_path: Path) -> None:
     # Must find content from our known fixture
     results = fts.search("refresh token", limit=5)
     assert any("auth" in path.lower() for path, _score in results)
+
+
+def test_scan_output_contains_absolute_path(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    (tmp_path / "hello.py").write_text("def hi() -> None:\n    return None\n")
+    from apps.cli.commands.scan import scan as scan_cmd
+
+    scan_cmd(path=tmp_path, full=False)
+
+    captured = capsys.readouterr()
+    assert str(tmp_path.resolve()) in captured.out, captured.out
