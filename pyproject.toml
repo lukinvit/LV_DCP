@@ -103,9 +103,11 @@ addopts = [
     "-ra",
     "--strict-markers",
     "--strict-config",
+    "-m", "not requires_claude_cli",
 ]
 markers = [
     "eval: retrieval evaluation harness tests",
     "slow: long-running tests",
     "llm: tests that call a real LLM (skipped by default)",
+    "requires_claude_cli: integration tests that require the `claude` binary on PATH (manual run)",
 ]
