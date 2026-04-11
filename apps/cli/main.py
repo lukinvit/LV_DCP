@@ -34,9 +34,14 @@ def scan(
         resolve_path=True,
         help="Path to project root directory",
     ),
+    full: bool = typer.Option(
+        False,
+        "--full",
+        help="Force a full re-parse of every file, ignoring content hashes.",
+    ),
 ) -> None:
     """Scan a project and regenerate .context/*.md artifacts."""
-    scan_module.scan(path)
+    scan_module.scan(path, full=full)
 
 
 @app.command()

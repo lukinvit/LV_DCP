@@ -1,6 +1,6 @@
 # Active retrieval quality thresholds. Changed only by explicit PR, never bundled
 # with retrieval pipeline changes (see ADR-002).
-active_phase: 1  # flipped to 2 in Task 2.14
+active_phase: 2  # flipped to 2 in Task 2.14
 
 phases:
   "0":
