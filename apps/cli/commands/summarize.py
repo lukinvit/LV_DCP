@@ -25,7 +25,15 @@ def summarize(
         help="Project root to summarize",
     ),
     model: str | None = typer.Option(None, "--model", help="Override summary_model from config"),
-    concurrency: int = typer.Option(10, "--concurrency", help="Parallel LLM calls"),
+    concurrency: int = typer.Option(
+        4,
+        "--concurrency",
+        help=(
+            "Parallel LLM calls. Default 4 is safe for OpenAI tier-1 "
+            "(200K TPM). Tier-2+ users can use --concurrency 10 for "
+            "faster cold scans."
+        ),
+    ),
 ) -> None:
     """Generate LLM summaries for every file in a scanned project.
 

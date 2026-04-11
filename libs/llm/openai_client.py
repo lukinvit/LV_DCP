@@ -2,15 +2,53 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
+from typing import Any
 
-from openai import AsyncOpenAI, AuthenticationError, OpenAIError
+from openai import AsyncOpenAI, AuthenticationError, OpenAIError, RateLimitError
 
 from libs.llm.base import RerankCandidate, RerankResult, SummaryResult
 from libs.llm.cost import calculate_cost
 from libs.llm.errors import LLMProviderError
 from libs.llm.models import UsageRecord
 from libs.summaries.prompts import get_prompt
+
+_MAX_RETRIES = 3
+_DEFAULT_RETRY_AFTER_SECONDS = 5.0
+
+
+async def _complete_with_retries(
+    client: AsyncOpenAI,
+    *,
+    model: str,
+    messages: list[Any],
+) -> Any:
+    """Call chat.completions.create with Retry-After-aware retry on 429."""
+    last_exc: Exception | None = None
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            return await client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0.0,
+            )
+        except RateLimitError as exc:
+            last_exc = exc
+            if attempt >= _MAX_RETRIES:
+                break
+            retry_after = _DEFAULT_RETRY_AFTER_SECONDS
+            try:
+                header_value = exc.response.headers.get("retry-after")
+                if header_value is not None:
+                    retry_after = float(header_value)
+            except (AttributeError, ValueError):
+                pass
+            await asyncio.sleep(min(retry_after, 60.0))
+    assert last_exc is not None
+    raise LLMProviderError(
+        f"openai rate limit exceeded after {_MAX_RETRIES} retries: {last_exc}"
+    ) from last_exc
 
 
 class OpenAIClient:
@@ -31,14 +69,16 @@ class OpenAIClient:
             raise LLMProviderError(f"unsupported prompt_version: {prompt_version}") from exc
         user_msg = prompt["user_template"].format(file_path=file_path, content=content)
         try:
-            resp = await self._client.chat.completions.create(
+            resp = await _complete_with_retries(
+                self._client,
                 model=model,
                 messages=[
                     {"role": "system", "content": prompt["system"]},
                     {"role": "user", "content": user_msg},
                 ],
-                temperature=0.0,
             )
+        except LLMProviderError:
+            raise  # propagate our typed error
         except OpenAIError as exc:
             raise LLMProviderError(f"openai summarize failed: {exc}") from exc
 

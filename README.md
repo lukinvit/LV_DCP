@@ -109,6 +109,17 @@ Supported providers out of the box:
 - **Anthropic**: `claude-haiku-4-5`, `claude-sonnet-4-6`
 - **Ollama** (local, zero-cost): `qwen2.5-coder:7b`, `qwen2.5-coder:32b`, `llama3.3:70b`
 
+### Rate limits on OpenAI tier-1
+
+OpenAI tier-1 accounts have a 200K TPM (tokens per minute) limit. Cold-scanning a
+large project with the default concurrency (4) stays under this limit for most
+projects. If you hit HTTP 429 errors, re-run `ctx summarize` — already-completed
+files will be cached and only the failed ones will retry. Tier-2+ users can use
+`--concurrency 10` for faster cold scans.
+
+The `openai_client` adapter honors `Retry-After` headers automatically and retries
+up to 3 times per file before giving up.
+
 ### Cost tracking
 
 Dashboard topbar shows `$X.XX / $25 monthly` budget usage. `ctx mcp doctor` now runs 9 checks (was 7) — the new check 8 verifies provider connectivity, check 9 warns at 80% and fails at 100% of monthly budget.

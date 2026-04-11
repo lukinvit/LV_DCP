@@ -83,3 +83,90 @@ async def test_rerank_raises_not_implemented() -> None:
     client = OpenAIClient(api_key="sk-test")
     with pytest.raises(NotImplementedError, match=r"rerank is Phase 3c\.2"):
         await client.rerank(query="test", candidates=[], model="gpt-4o-mini")
+
+
+async def test_summarize_retries_on_rate_limit_with_retry_after(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When OpenAI returns 429 with Retry-After header, client should wait and retry."""
+    from openai import RateLimitError
+
+    success_response = MagicMock()
+    success_response.choices = [MagicMock(message=MagicMock(content="Retried ok."))]
+    success_response.model = "gpt-4o-mini"
+    success_response.usage = MagicMock(
+        prompt_tokens=100,
+        completion_tokens=50,
+        prompt_tokens_details=MagicMock(cached_tokens=0),
+    )
+
+    # Build a RateLimitError with a mock response having Retry-After header
+    rate_limit_response = MagicMock()
+    rate_limit_response.status_code = 429
+    rate_limit_response.headers = {"retry-after": "0.01"}
+
+    call_count = 0
+    async def mock_create(**kwargs: object) -> MagicMock:
+        nonlocal call_count
+        call_count += 1
+        if call_count < 2:
+            raise RateLimitError(
+                message="rate limit exceeded",
+                response=rate_limit_response,
+                body=None,
+            )
+        return success_response
+
+    # Capture sleep calls to verify we honored Retry-After
+    sleeps: list[float] = []
+    async def mock_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr("libs.llm.openai_client.asyncio.sleep", mock_sleep)
+
+    client = OpenAIClient(api_key="sk-test")
+    mock = MagicMock()
+    mock.chat.completions.create = mock_create
+    client._client = mock
+
+    result = await client.summarize(
+        content="x", model="gpt-4o-mini", prompt_version="v2", file_path="x.py"
+    )
+    assert result.text == "Retried ok."
+    assert call_count == 2  # one failure + one retry
+    # Sleep should have been called with value close to 0.01 (Retry-After)
+    assert len(sleeps) >= 1
+    assert 0.01 <= sleeps[0] <= 1.0  # small sleep from Retry-After header
+
+
+async def test_summarize_gives_up_after_max_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After 3 retries all failing with 429, client should raise LLMProviderError."""
+    from openai import RateLimitError
+
+    rate_limit_response = MagicMock()
+    rate_limit_response.status_code = 429
+    rate_limit_response.headers = {"retry-after": "0.01"}
+
+    async def always_rate_limited(**kwargs: object) -> None:
+        raise RateLimitError(
+            message="rate limit exceeded",
+            response=rate_limit_response,
+            body=None,
+        )
+
+    async def mock_sleep(seconds: float) -> None:
+        return
+
+    monkeypatch.setattr("libs.llm.openai_client.asyncio.sleep", mock_sleep)
+
+    client = OpenAIClient(api_key="sk-test")
+    mock = MagicMock()
+    mock.chat.completions.create = always_rate_limited
+    client._client = mock
+
+    with pytest.raises(LLMProviderError, match="rate limit"):
+        await client.summarize(
+            content="x", model="gpt-4o-mini", prompt_version="v2", file_path="x.py"
+        )
