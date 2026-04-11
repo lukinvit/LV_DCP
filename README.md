@@ -63,6 +63,31 @@ $ ctx pack . "refresh token rotation" --mode edit
 
 Measured against a fixture repo with 32 queries including 12 "impact" queries that depend on graph-aware retrieval.
 
+## Phase 3b — Dashboard (new in 0.3.1)
+
+Local project status dashboard:
+
+```bash
+uv run ctx ui                      # multi-project overview at http://127.0.0.1:8787
+uv run ctx ui /path/to/project     # open a specific project detail view
+```
+
+Features:
+- Multi-project grid with file/symbol/relation counts, last scan status, daemon health
+- Dependency graph visualization (D3 force-directed, up to 200 nodes)
+- Sparklines: queries/day, scans/day, pack latency p95, average retrieval coverage (rolling 7 days)
+- Claude Code token usage totals (rolling 7d + 30d) aggregated from `~/.claude/projects/`
+
+The same data is available programmatically via the new `lvdcp_status` MCP resource:
+
+```python
+# From Claude Code:
+lvdcp_status()                  # workspace summary across all registered projects
+lvdcp_status(path="/abs/p")     # single project detail including dependency graph
+```
+
+Upgrading from Phase 3a: `git pull && uv sync && ctx mcp install` (doctor will prompt on version mismatch).
+
 ## Prerequisites
 
 - macOS (primary target) or Linux
