@@ -21,6 +21,7 @@ DEFAULT_IGNORE_PREFIXES: tuple[str, ...] = (
     ".next/",
     ".cache/",
     "coverage/",
+    ".context/",
 )
 
 DEFAULT_IGNORE_SUFFIXES: tuple[str, ...] = (

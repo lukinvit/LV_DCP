@@ -26,6 +26,9 @@ def scan(path: Path) -> None:
     total_relations = 0
     all_symbols: list[Symbol] = []
 
+    existing_paths = {f.path for f in cache.iter_files()}
+    visited_paths: set[str] = set()
+
     for abs_path in _walk(root):
         try:
             rel = normalize_path(abs_path, root=root)
@@ -63,11 +66,16 @@ def scan(path: Path) -> None:
         cache.put_file(file_entity)
         cache.replace_symbols(file_path=rel, symbols=parse_result.symbols)
         cache.replace_relations(file_path=rel, relations=parse_result.relations)
+        visited_paths.add(rel)
 
         files_processed.append(file_entity)
         all_symbols.extend(parse_result.symbols)
         total_symbols += len(parse_result.symbols)
         total_relations += len(parse_result.relations)
+
+    stale = existing_paths - visited_paths
+    for stale_path in stale:
+        cache.delete_file(stale_path)
 
     write_project_md(
         project_root=root,
