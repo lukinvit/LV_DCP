@@ -10,14 +10,19 @@ from libs.core.hashing import content_hash
 from libs.core.paths import is_ignored, normalize_path
 from libs.dotcontext.writer import write_project_md, write_symbol_index_md
 from libs.parsers.registry import detect_language, get_parser
+from libs.retrieval.fts import FtsIndex
 from libs.storage.sqlite_cache import SqliteCache
 
 CACHE_REL = Path(".context") / "cache.db"
+FTS_REL = Path(".context") / "fts.db"
 
 
 def scan(path: Path) -> None:
     """Scan a project and regenerate .context/*.md artifacts."""
     root = path
+    fts = FtsIndex(root / FTS_REL)
+    fts.create()
+
     with SqliteCache(root / CACHE_REL) as cache:
         cache.migrate()
 
@@ -56,6 +61,9 @@ def scan(path: Path) -> None:
                 for err in parse_result.errors:
                     typer.echo(f"warn {rel}: {err}", err=True)
 
+            text = data.decode("utf-8", errors="replace")
+            fts.index_file(rel, f"{rel}\n{text}")
+
             file_entity = File(
                 path=rel,
                 content_hash=content_hash(data),
@@ -76,6 +84,7 @@ def scan(path: Path) -> None:
         stale = existing_paths - visited_paths
         for stale_path in stale:
             cache.delete_file(stale_path)
+            fts.delete_file(stale_path)
 
         write_project_md(
             project_root=root,

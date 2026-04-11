@@ -23,3 +23,19 @@ def test_scan_reports_counts(sample_repo_path: Path) -> None:
     assert result.exit_code == 0
     assert "files" in result.output.lower()
     assert "symbols" in result.output.lower()
+
+
+def test_scan_populates_fts_index(sample_repo_path: Path) -> None:
+    """After ctx scan, the FTS index at .context/fts.db must be populated."""
+    result = runner.invoke(app, ["scan", str(sample_repo_path)])
+    assert result.exit_code == 0
+    fts_path = sample_repo_path / ".context" / "fts.db"
+    assert fts_path.exists()
+
+    from libs.retrieval.fts import FtsIndex
+
+    fts = FtsIndex(fts_path)
+    fts.create()
+    # Must find content from our known fixture
+    results = fts.search("refresh token", limit=5)
+    assert any("auth" in path.lower() for path, _score in results)

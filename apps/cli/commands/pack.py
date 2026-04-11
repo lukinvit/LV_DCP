@@ -12,7 +12,7 @@ from libs.retrieval.index import SymbolIndex
 from libs.retrieval.pipeline import RetrievalPipeline
 from libs.storage.sqlite_cache import SqliteCache
 
-from apps.cli.commands.scan import CACHE_REL
+from apps.cli.commands.scan import CACHE_REL, FTS_REL
 
 
 def pack(
@@ -37,19 +37,19 @@ def pack(
         )
         raise typer.Exit(code=1)
 
+    fts_path = path / FTS_REL
+    if not fts_path.exists():
+        typer.echo(
+            f"no FTS index at {fts_path}. Run `ctx scan {path}` first.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
     with SqliteCache(cache_path) as cache:
         cache.migrate()
 
-        fts = FtsIndex(path / ".context" / "fts.db")
-        fts.create()
-
-        # Rebuild FTS from cache (Phase 1 — no persistent FTS between runs)
-        for f in cache.iter_files():
-            try:
-                content = (path / f.path).read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                content = ""
-            fts.index_file(f.path, f"{f.path}\n{content}")
+        fts = FtsIndex(fts_path)
+        fts.create()  # idempotent: CREATE VIRTUAL TABLE IF NOT EXISTS
 
         sym_idx = SymbolIndex()
         sym_idx.extend(list(cache.iter_symbols()))
