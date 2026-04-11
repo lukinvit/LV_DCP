@@ -9,6 +9,7 @@ import typer
 from libs.core.version import LVDCP_VERSION
 from libs.mcp_ops.claude_cli import ClaudeCliError
 from libs.mcp_ops.install import build_dry_run_snippet, install_lvdcp
+from libs.mcp_ops.uninstall import clean_legacy_settings_json, uninstall_lvdcp
 
 from apps.mcp.server import run_stdio
 
@@ -94,13 +95,22 @@ def uninstall(
         "--scope",
         help="Scope to uninstall from (must match install scope)",
     ),
+    legacy_clean: bool = typer.Option(
+        False,
+        "--legacy-clean",
+        help="Also scrub stray lvdcp entry from ~/.claude/settings.json (old broken install)",
+    ),
 ) -> None:
-    """Remove the lvdcp MCP server (stub — extended in Task 15 with --legacy-clean)."""
-    # Task 15 will properly implement this by calling libs.mcp_ops.uninstall.
-    # For this commit, delegate to old implementation if it still exists,
-    # otherwise no-op with a clear message.
-    typer.echo(
-        "ctx mcp uninstall: pending Task 15 implementation "
-        "(legacy apps.mcp.install removed in Task 14). Run `claude mcp remove --scope "
-        f"{scope} lvdcp` manually if needed."
-    )
+    """Remove the lvdcp MCP server and CLAUDE.md managed section."""
+    claudemd_path = _resolve_claudemd_path(scope)
+    uninstall_lvdcp(claudemd_path=claudemd_path, scope=scope)
+    typer.echo(f"removed managed section from {claudemd_path}")
+    typer.echo(f"removed lvdcp MCP registration (scope={scope})")
+
+    if legacy_clean:
+        settings_path = Path.home() / ".claude" / "settings.json"
+        result = clean_legacy_settings_json(settings_path)
+        if result.removed:
+            typer.echo(f"cleaned legacy lvdcp pollution from {settings_path}")
+        else:
+            typer.echo(f"no legacy pollution found in {settings_path}")
