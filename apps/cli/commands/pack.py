@@ -29,7 +29,15 @@ def pack(
         typer.echo(f"Invalid mode: {mode}. Use 'navigate' or 'edit'.", err=True)
         raise typer.Exit(1) from err
 
-    cache = SqliteCache(path / CACHE_REL)
+    cache_path = path / CACHE_REL
+    if not cache_path.exists():
+        typer.echo(
+            f"no cache at {cache_path}. Run `ctx scan {path}` first.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    cache = SqliteCache(cache_path)
     cache.migrate()
 
     fts = FtsIndex(path / ".context" / "fts.db")

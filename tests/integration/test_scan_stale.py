@@ -2,11 +2,10 @@
 
 from pathlib import Path
 
-from typer.testing import CliRunner
-
 from apps.cli.commands.scan import CACHE_REL
 from apps.cli.main import app
 from libs.storage.sqlite_cache import SqliteCache
+from typer.testing import CliRunner
 
 runner = CliRunner()
 

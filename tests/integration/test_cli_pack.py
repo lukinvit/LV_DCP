@@ -26,3 +26,13 @@ def test_pack_edit_mode(sample_repo_path: Path) -> None:
     )
     assert result.exit_code == 0
     assert "Target files" in result.output or "target" in result.output.lower()
+
+
+def test_pack_exits_with_error_when_cache_missing(tmp_path: Path) -> None:
+    """ctx pack on a never-scanned directory must fail cleanly."""
+    (tmp_path / "hello.py").write_text("def hi():\n    pass\n")
+    result = runner.invoke(app, ["pack", str(tmp_path), "hello"])
+    assert result.exit_code != 0
+    # Error message should tell the user to run scan first
+    combined = result.output + (result.stderr or "")
+    assert "scan" in combined.lower()
