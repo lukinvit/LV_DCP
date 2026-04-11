@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+from libs.core.projects_config import DaemonConfig, LLMConfig
 from libs.mcp_ops.doctor import (
     CheckStatus,
     DoctorReport,
@@ -11,6 +14,8 @@ from libs.mcp_ops.doctor import (
     check_claudemd_managed_section,
     check_config_yaml_valid,
     check_legacy_pollution,
+    check_llm_budget,
+    check_llm_provider,
     check_mcp_list_contains_lvdcp,
     check_project_caches,
     render_json,
@@ -149,7 +154,10 @@ def _fresh_paths(tmp_path: Path) -> tuple[Path, Path, Path]:
     return tmp_path / "config.yaml", tmp_path / "CLAUDE.md", tmp_path / "settings.json"
 
 
-def test_run_doctor_returns_report_with_7_checks(tmp_path: Path) -> None:
+def test_run_doctor_returns_report_with_9_checks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LVDCP_SUMMARIES_DB", str(tmp_path / "summaries.db"))
     config, claudemd, settings = _fresh_paths(tmp_path)
     with (
         patch("libs.mcp_ops.doctor.has_claude_cli", return_value=True),
@@ -163,7 +171,7 @@ def test_run_doctor_returns_report_with_7_checks(tmp_path: Path) -> None:
             expected_version="0.0.0",
         )
     assert isinstance(report, DoctorReport)
-    assert len(report.checks) == 7
+    assert len(report.checks) == 9
 
 
 def test_report_exit_code_zero_when_all_pass(tmp_path: Path) -> None:
@@ -231,7 +239,8 @@ def test_render_table_contains_status(tmp_path: Path) -> None:
     assert "Result:" in text
 
 
-def test_render_json_parses(tmp_path: Path) -> None:
+def test_render_json_parses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LVDCP_SUMMARIES_DB", str(tmp_path / "summaries.db"))
     config, claudemd, settings = _fresh_paths(tmp_path)
     with (
         patch("libs.mcp_ops.doctor.has_claude_cli", return_value=True),
@@ -247,4 +256,66 @@ def test_render_json_parses(tmp_path: Path) -> None:
     rendered = render_json(report)
     parsed = json.loads(rendered)
     assert parsed["exit_code"] == report.exit_code
-    assert len(parsed["checks"]) == 7
+    assert len(parsed["checks"]) == 9
+
+
+# ---------- LLM provider check tests ----------
+
+
+def test_check_llm_provider_disabled_passes() -> None:
+    config = DaemonConfig(llm=LLMConfig(enabled=False))
+    check = check_llm_provider(config)
+    assert check.status == CheckStatus.PASS
+    assert "disabled" in check.detail
+
+
+def test_check_llm_provider_warns_if_env_var_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    config = DaemonConfig(llm=LLMConfig(enabled=True, api_key_env_var="OPENAI_API_KEY"))
+    check = check_llm_provider(config)
+    assert check.status == CheckStatus.WARN
+    assert "OPENAI_API_KEY" in check.detail
+
+
+# ---------- LLM budget check tests ----------
+
+
+def test_check_llm_budget_disabled_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LVDCP_SUMMARIES_DB", str(tmp_path / "summaries.db"))
+    config = DaemonConfig(llm=LLMConfig(enabled=False))
+    check = check_llm_budget(config)
+    assert check.status == CheckStatus.PASS
+
+
+def test_check_llm_budget_fails_at_100_percent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from libs.summaries.store import SummaryRow, SummaryStore
+
+    monkeypatch.setenv("LVDCP_SUMMARIES_DB", str(tmp_path / "summaries.db"))
+    store = SummaryStore(tmp_path / "summaries.db")
+    store.migrate()
+    store.persist(
+        SummaryRow(
+            content_hash="h",
+            prompt_version="v1",
+            model_name="gpt-4o-mini",
+            project_root="/p",
+            file_path="f.py",
+            summary_text="t",
+            cost_usd=30.0,
+            tokens_in=1,
+            tokens_out=1,
+            tokens_cached=0,
+            created_at=time.time() - 86400,
+        )
+    )
+    store.close()
+
+    config = DaemonConfig(llm=LLMConfig(enabled=True, monthly_budget_usd=25.0))
+    check = check_llm_budget(config)
+    assert check.status == CheckStatus.FAIL

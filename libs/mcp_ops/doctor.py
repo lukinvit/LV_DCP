@@ -1,6 +1,6 @@
 """`ctx mcp doctor` checks.
 
-Runs 7 independent checks:
+Runs 9 independent checks:
 1. claude CLI present                         (WARN if missing)
 2. claude mcp list contains lvdcp              (FAIL if missing)
 3. MCP stdio handshake responds in < 3s        (FAIL if no response)
@@ -8,6 +8,8 @@ Runs 7 independent checks:
 5. Registered projects have .context/cache.db  (WARN per missing)
 6. CLAUDE.md managed section + version match   (WARN if missing or mismatch)
 7. No legacy pollution in settings.json        (WARN if found)
+8. LLM provider reachable + API key present    (WARN if unreachable)
+9. LLM monthly budget not exceeded             (FAIL if exceeded, WARN if >=80%)
 
 Exit codes: 0 = all PASS, 1 = any WARN, 2 = any FAIL.
 """
@@ -25,11 +27,15 @@ from pathlib import Path
 
 import yaml
 
+from libs.core.projects_config import DaemonConfig, load_config
+from libs.llm.errors import LLMConfigError, LLMProviderError
+from libs.llm.registry import create_client
 from libs.mcp_ops.claude_cli import (
     ClaudeCliError,
     claude_mcp_list,
     has_claude_cli,
 )
+from libs.status.budget import compute_budget_status
 
 HANDSHAKE_TIMEOUT_SECONDS = 3.0
 
@@ -296,6 +302,70 @@ def check_legacy_pollution(settings_path: Path) -> CheckResult:
     )
 
 
+def check_llm_provider(config: DaemonConfig) -> CheckResult:
+    llm = config.llm
+    if not llm.enabled:
+        return CheckResult(
+            name="LLM provider",
+            status=CheckStatus.PASS,
+            detail="disabled (llm.enabled: false)",
+        )
+    if llm.provider != "ollama":
+        key = os.environ.get(llm.api_key_env_var)
+        if not key:
+            return CheckResult(
+                name="LLM provider",
+                status=CheckStatus.WARN,
+                detail=f"{llm.api_key_env_var} env var not set",
+                hint=f"export {llm.api_key_env_var}=...",
+            )
+    try:
+        client = create_client(llm)
+        asyncio.run(asyncio.wait_for(client.test_connection(), timeout=5.0))
+        return CheckResult(
+            name="LLM provider",
+            status=CheckStatus.PASS,
+            detail=f"{llm.provider}/{llm.summary_model}",
+        )
+    except (LLMConfigError, LLMProviderError, TimeoutError) as exc:
+        return CheckResult(
+            name="LLM provider",
+            status=CheckStatus.WARN,
+            detail=str(exc)[:100],
+            hint="check API key and network",
+        )
+
+
+def check_llm_budget(config: DaemonConfig) -> CheckResult:
+    if not config.llm.enabled:
+        return CheckResult(
+            name="LLM budget",
+            status=CheckStatus.PASS,
+            detail="N/A (llm disabled)",
+        )
+    budget = compute_budget_status(config.llm)
+    detail = f"${budget.spent_30d:.2f} / ${budget.monthly_limit:.0f}"
+    if budget.status == "exceeded":
+        return CheckResult(
+            name="LLM budget",
+            status=CheckStatus.FAIL,
+            detail=detail + " (exceeded)",
+            hint="raise monthly_budget_usd or disable LLM",
+        )
+    if budget.status == "warning":
+        return CheckResult(
+            name="LLM budget",
+            status=CheckStatus.WARN,
+            detail=detail + " (>=80%)",
+            hint="approaching monthly limit",
+        )
+    return CheckResult(
+        name="LLM budget",
+        status=CheckStatus.PASS,
+        detail=detail,
+    )
+
+
 def run_doctor(
     *,
     config_path: Path,
@@ -303,6 +373,10 @@ def run_doctor(
     settings_legacy_path: Path,
     expected_version: str,
 ) -> DoctorReport:
+    try:
+        daemon_cfg = load_config(config_path)
+    except Exception:  # broad-catch: corrupt YAML, missing file, etc.
+        daemon_cfg = DaemonConfig()
     checks: list[CheckResult] = [
         check_claude_cli_present(),
         check_mcp_list_contains_lvdcp(),
@@ -311,6 +385,8 @@ def run_doctor(
         check_project_caches(config_path),
         check_claudemd_managed_section(claudemd_path, expected_version),
         check_legacy_pollution(settings_legacy_path),
+        check_llm_provider(daemon_cfg),
+        check_llm_budget(daemon_cfg),
     ]
     return DoctorReport(checks=checks)
 
