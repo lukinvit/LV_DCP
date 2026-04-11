@@ -29,6 +29,10 @@ class Graph:
     def reverse_neighbors(self, node: str) -> set[str]:
         return set(self._rev.get(node, set()))
 
+    def has_node(self, name: str) -> bool:
+        """Return True if *name* appears as either a source or destination in any relation."""
+        return name in self._fwd or name in self._rev
+
     def expand(self, seed: str, *, depth: int, reverse: bool = False) -> set[str]:
         adj = self._rev if reverse else self._fwd
         visited: set[str] = {seed}

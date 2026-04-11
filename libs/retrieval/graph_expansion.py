@@ -214,7 +214,7 @@ def _walk_mixed(
         if defining_file is None or defining_file in seen_files:
             continue
         # Only include if the file actually exists in the graph
-        if defining_file not in ctx.graph._fwd and defining_file not in ctx.graph._rev:
+        if not ctx.graph.has_node(defining_file):
             continue
         seen_files.add(defining_file)
         if defining_file == seed_path:
