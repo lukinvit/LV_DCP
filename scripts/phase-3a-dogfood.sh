@@ -9,8 +9,13 @@
 #   - /Users/v.lukin/Nextcloud/lukinvit.tech/projects/TG_RUSCOFFEE_ADMIN_BOT
 #
 # Outputs status per project. Non-zero exit code = at least one step failed.
+#
+# Before running: ensures pre-existing lvdcp registration is cleared so each
+# project starts from a clean install state. After running: re-installs
+# lvdcp once so the user's MCP config is restored.
 
 set -u
+set -o pipefail
 
 PROJECTS=(
   "/Users/v.lukin/Nextcloud/lukinvit.tech/projects/LV_DCP"
@@ -26,6 +31,7 @@ log() {
   echo "$1" | tee -a "$LOG_FILE"
 }
 
+# run_step <label> <cmd...> — run a command, tee output, track failures.
 run_step() {
   local label="$1"
   shift
@@ -33,12 +39,14 @@ run_step() {
   if "$@" 2>&1 | tee -a "$LOG_FILE"; then
     log "   OK"
     return 0
-  else
-    log "   FAIL"
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    return 1
   fi
+  log "   FAIL"
+  FAIL_COUNT=$((FAIL_COUNT + 1))
+  return 1
 }
+
+# Clear any pre-existing registration so the first install is truly fresh.
+uv run ctx mcp uninstall 2>/dev/null >/dev/null || true
 
 for PROJECT in "${PROJECTS[@]}"; do
   log ""
@@ -66,12 +74,15 @@ for PROJECT in "${PROJECTS[@]}"; do
   fi
 
   run_step "mcp handshake via doctor --json" bash -c \
-    'uv run ctx mcp doctor --json | python -c "import json,sys; r=json.load(sys.stdin); h=[c for c in r[\"checks\"] if c[\"name\"]==\"mcp handshake\"]; exit(0 if h and h[0][\"status\"]==\"PASS\" else 1)"'
+    'uv run ctx mcp doctor --json | python3 -c "import json,sys; r=json.load(sys.stdin); h=[c for c in r[\"checks\"] if c[\"name\"]==\"mcp handshake\"]; sys.exit(0 if h and h[0][\"status\"]==\"PASS\" else 1)"'
 
   run_step "ctx mcp uninstall" uv run ctx mcp uninstall
-
-  uv run ctx mcp install 2>&1 >/dev/null || true
 done
+
+# Restore: re-install once so the user's MCP config ends in a known-good state.
+log ""
+log "Restoring lvdcp MCP registration..."
+uv run ctx mcp install 2>&1 | tee -a "$LOG_FILE" || true
 
 log ""
 log "================================================================"
