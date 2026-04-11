@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace as dataclass_replace
 from pathlib import Path
 
 import typer
@@ -34,6 +35,10 @@ def pack(
 
     with idx:
         result = idx.retrieve(query, mode=mode.value, limit=limit)
+        # Persist the trace so F1.B sparklines and lvdcp_explain can see
+        # CLI-originated queries, not only MCP lvdcp_pack ones.
+        trace_with_project = dataclass_replace(result.trace, project=path.name)
+        idx.save_trace(trace_with_project)
         builder = build_edit_pack if mode == PackMode.EDIT else build_navigate_pack
         pack_obj = builder(project_slug=path.name, query=query, result=result)
         typer.echo(pack_obj.assembled_markdown)

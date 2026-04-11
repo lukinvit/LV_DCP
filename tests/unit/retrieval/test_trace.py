@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 import pytest
@@ -18,7 +19,7 @@ def test_save_and_load_trace(cache: SqliteCache) -> None:
         project="demo",
         query="login endpoint",
         mode="navigate",
-        timestamp=1000.0,
+        timestamp=time.time(),
         stages=[
             StageResult(name="symbol_match", candidate_count=5, elapsed_ms=2.5),
             StageResult(name="fts", candidate_count=8, elapsed_ms=1.2),
