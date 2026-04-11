@@ -13,11 +13,15 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from libs.core.entities import Symbol
 from libs.retrieval.fts import FtsIndex
 from libs.retrieval.index import SymbolIndex
 from libs.storage.sqlite_cache import SqliteCache
+
+if TYPE_CHECKING:
+    from libs.graph.builder import Graph
 
 SYMBOL_WEIGHT = 3.0
 FTS_WEIGHT = 1.0
@@ -43,10 +47,12 @@ class RetrievalPipeline:
         cache: SqliteCache,
         fts: FtsIndex,
         symbols: SymbolIndex,
+        graph: Graph | None = None,  # NEW Phase 2 — wired up in Task 2.5
     ) -> None:
         self._cache = cache
         self._fts = fts
         self._symbols = symbols
+        self._graph = graph
 
     def retrieve(
         self,

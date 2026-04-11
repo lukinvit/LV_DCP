@@ -52,22 +52,4 @@ def inspect(
     inspect_module.inspect(path)
 
 
-@app.command()
-def pack(
-    path: Path = typer.Argument(  # noqa: B008
-        ...,
-        exists=True,
-        file_okay=False,
-        dir_okay=True,
-        resolve_path=True,
-    ),
-    query: str = typer.Argument(...),
-    mode: str = typer.Option(
-        "navigate",
-        "--mode",
-        case_sensitive=False,
-    ),
-    limit: int = typer.Option(10, "--limit"),
-) -> None:
-    """Build a context pack from a query."""
-    pack_module.pack(path, query, mode, limit)
+app.command()(pack_module.pack)

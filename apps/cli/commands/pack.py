@@ -7,67 +7,33 @@ from pathlib import Path
 import typer
 from libs.context_pack.builder import build_edit_pack, build_navigate_pack
 from libs.core.entities import PackMode
-from libs.retrieval.fts import FtsIndex
-from libs.retrieval.index import SymbolIndex
-from libs.retrieval.pipeline import RetrievalPipeline
-from libs.storage.sqlite_cache import SqliteCache
-
-from apps.cli.commands.scan import CACHE_REL, FTS_REL
+from libs.project_index.index import ProjectIndex, ProjectNotIndexedError
 
 
 def pack(
-    path: Path,
-    query: str,
-    mode: str,
-    limit: int,
+    path: Path = typer.Argument(  # noqa: B008
+        ...,
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        resolve_path=True,
+    ),
+    query: str = typer.Argument(...),
+    mode: PackMode = typer.Option(  # noqa: B008
+        PackMode.NAVIGATE,
+        "--mode",
+        case_sensitive=False,
+    ),
+    limit: int = typer.Option(10, "--limit"),
 ) -> None:
-    """Build a context pack from a query."""
-    # Convert mode string to PackMode enum
     try:
-        pack_mode = PackMode(mode.lower())
-    except ValueError as err:
-        typer.echo(f"Invalid mode: {mode}. Use 'navigate' or 'edit'.", err=True)
-        raise typer.Exit(1) from err
+        idx = ProjectIndex.open(path)
+    except ProjectNotIndexedError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
 
-    cache_path = path / CACHE_REL
-    if not cache_path.exists():
-        typer.echo(
-            f"no cache at {cache_path}. Run `ctx scan {path}` first.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
-
-    fts_path = path / FTS_REL
-    if not fts_path.exists():
-        typer.echo(
-            f"no FTS index at {fts_path}. Run `ctx scan {path}` first.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
-
-    with SqliteCache(cache_path) as cache:
-        cache.migrate()
-
-        fts = FtsIndex(fts_path)
-        fts.create()  # idempotent: CREATE VIRTUAL TABLE IF NOT EXISTS
-
-        sym_idx = SymbolIndex()
-        sym_idx.extend(list(cache.iter_symbols()))
-
-        pipeline = RetrievalPipeline(cache=cache, fts=fts, symbols=sym_idx)
-        result = pipeline.retrieve(query, mode=pack_mode.value, limit=limit)
-
-        if pack_mode == PackMode.EDIT:
-            pack_obj = build_edit_pack(
-                project_slug=path.name,
-                query=query,
-                result=result,
-            )
-        else:
-            pack_obj = build_navigate_pack(
-                project_slug=path.name,
-                query=query,
-                result=result,
-            )
-
+    with idx:
+        result = idx.retrieve(query, mode=mode.value, limit=limit)
+        builder = build_edit_pack if mode == PackMode.EDIT else build_navigate_pack
+        pack_obj = builder(project_slug=path.name, query=query, result=result)
         typer.echo(pack_obj.assembled_markdown)

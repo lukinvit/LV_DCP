@@ -6,9 +6,7 @@ from collections import Counter
 from pathlib import Path
 
 import typer
-from libs.storage.sqlite_cache import SqliteCache
-
-from apps.cli.commands.scan import CACHE_REL
+from libs.project_index.index import ProjectIndex, ProjectNotIndexedError
 
 
 def inspect(
@@ -20,29 +18,28 @@ def inspect(
         resolve_path=True,
     ),
 ) -> None:
-    cache_path = path / CACHE_REL
-    if not cache_path.exists():
-        typer.echo(f"no cache at {cache_path}. Run `ctx scan {path}` first.", err=True)
-        raise typer.Exit(code=1)
+    try:
+        idx = ProjectIndex.open(path)
+    except ProjectNotIndexedError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
 
-    with SqliteCache(cache_path) as cache:
-        cache.migrate()
+    with idx:
+        files = list(idx._cache.iter_files())
+        symbols = list(idx._cache.iter_symbols())
+        relations = list(idx._cache.iter_relations())
 
-        files = list(cache.iter_files())
-        symbols = list(cache.iter_symbols())
-        relations = list(cache.iter_relations())
+        lang_counts = Counter(f.language for f in files)
+        sym_type_counts = Counter(s.symbol_type.value for s in symbols)
+        rel_type_counts = Counter(r.relation_type.value for r in relations)
 
-    lang_counts = Counter(f.language for f in files)
-    sym_type_counts = Counter(s.symbol_type.value for s in symbols)
-    rel_type_counts = Counter(r.relation_type.value for r in relations)
-
-    typer.echo(f"project: {path.name}")
-    typer.echo(f"files: {len(files)}")
-    for lang, count in lang_counts.most_common():
-        typer.echo(f"  {lang}: {count}")
-    typer.echo(f"symbols: {len(symbols)}")
-    for t, c in sym_type_counts.most_common():
-        typer.echo(f"  {t}: {c}")
-    typer.echo(f"relations: {len(relations)}")
-    for t, c in rel_type_counts.most_common():
-        typer.echo(f"  {t}: {c}")
+        typer.echo(f"project: {path.name}")
+        typer.echo(f"files: {len(files)}")
+        for lang, count in lang_counts.most_common():
+            typer.echo(f"  {lang}: {count}")
+        typer.echo(f"symbols: {len(symbols)}")
+        for t, c in sym_type_counts.most_common():
+            typer.echo(f"  {t}: {c}")
+        typer.echo(f"relations: {len(relations)}")
+        for t, c in rel_type_counts.most_common():
+            typer.echo(f"  {t}: {c}")
