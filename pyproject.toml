@@ -1,6 +1,6 @@
 [project]
 name = "lv-dcp"
-version = "0.3.1"
+version = "0.3.2"
 description = "LV_DCP — Developer Context Platform. Local-first engineering memory for macOS."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -23,6 +23,9 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn>=0.30",
     "jinja2>=3.1",
+    "openai>=1.50",
+    "anthropic>=0.40",
+    "tiktoken>=0.7",
 ]
 
 [project.optional-dependencies]

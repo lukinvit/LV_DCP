@@ -19,9 +19,20 @@ class ProjectEntry(BaseModel):
     last_scan_status: str = "pending"
 
 
+class LLMConfig(BaseModel):
+    provider: str = "openai"
+    summary_model: str = "gpt-4o-mini"
+    rerank_model: str = "gpt-4o-mini"
+    api_key_env_var: str = "OPENAI_API_KEY"
+    monthly_budget_usd: float = 25.0
+    prompt_version: str = "v1"
+    enabled: bool = False
+
+
 class DaemonConfig(BaseModel):
     version: int = Field(default=1)
     projects: list[ProjectEntry] = Field(default_factory=list)
+    llm: LLMConfig = Field(default_factory=LLMConfig)
 
 
 def load_config(path: Path) -> DaemonConfig:
