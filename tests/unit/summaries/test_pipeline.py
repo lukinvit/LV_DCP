@@ -143,9 +143,7 @@ async def test_pipeline_continues_on_single_file_error(
     assert len(result.errors) == 1
 
 
-async def test_role_filter_skips_docs(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_role_filter_skips_docs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LVDCP_SCAN_HISTORY_DB", str(tmp_path / "history.db"))
 
     project = tmp_path / "proj"

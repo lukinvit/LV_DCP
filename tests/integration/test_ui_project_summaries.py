@@ -8,7 +8,6 @@ from pathlib import Path
 import httpx
 import pytest
 import yaml
-
 from apps.agent.config import add_project
 from apps.ui.main import create_app
 from libs.scanning.scanner import scan_project
@@ -16,9 +15,7 @@ from libs.summaries.store import SummaryRow, SummaryStore
 
 
 @pytest.fixture
-def workspace_with_summaries(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> Path:
+def workspace_with_summaries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     project = tmp_path / "proj"
     project.mkdir()
     (project / "a.py").write_text("def a() -> None: return None\n")
@@ -38,28 +35,36 @@ def workspace_with_summaries(
     # Populate summaries for a.py and b.py
     store = SummaryStore(tmp_path / "summaries.db")
     store.migrate()
-    store.persist(SummaryRow(
-        content_hash="h1",
-        prompt_version="v2",
-        model_name="gpt-4o-mini",
-        project_root=str(project.resolve()),
-        file_path="a.py",
-        summary_text="Defines function a() that returns None.",
-        cost_usd=0.00032,
-        tokens_in=100, tokens_out=20, tokens_cached=0,
-        created_at=time.time(),
-    ))
-    store.persist(SummaryRow(
-        content_hash="h2",
-        prompt_version="v2",
-        model_name="gpt-4o-mini",
-        project_root=str(project.resolve()),
-        file_path="b.py",
-        summary_text="Defines function b() that returns None.",
-        cost_usd=0.00032,
-        tokens_in=100, tokens_out=20, tokens_cached=0,
-        created_at=time.time(),
-    ))
+    store.persist(
+        SummaryRow(
+            content_hash="h1",
+            prompt_version="v2",
+            model_name="gpt-4o-mini",
+            project_root=str(project.resolve()),
+            file_path="a.py",
+            summary_text="Defines function a() that returns None.",
+            cost_usd=0.00032,
+            tokens_in=100,
+            tokens_out=20,
+            tokens_cached=0,
+            created_at=time.time(),
+        )
+    )
+    store.persist(
+        SummaryRow(
+            content_hash="h2",
+            prompt_version="v2",
+            model_name="gpt-4o-mini",
+            project_root=str(project.resolve()),
+            file_path="b.py",
+            summary_text="Defines function b() that returns None.",
+            cost_usd=0.00032,
+            tokens_in=100,
+            tokens_out=20,
+            tokens_cached=0,
+            created_at=time.time(),
+        )
+    )
     store.close()
     return project
 
@@ -69,7 +74,9 @@ async def test_project_detail_shows_summaries_section(workspace_with_summaries: 
     app = create_app()
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.get(f"/project/{workspace_with_summaries.name.lower().replace('_', '-')}")
+        response = await client.get(
+            f"/project/{workspace_with_summaries.name.lower().replace('_', '-')}"
+        )
     assert response.status_code == 200
     # Verify the summaries section header is present
     assert "File summaries" in response.text or "summaries" in response.text.lower()

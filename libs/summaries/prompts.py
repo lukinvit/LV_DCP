@@ -17,11 +17,7 @@ FILE_SUMMARY_PROMPT_V1 = {
         "system if inferable. Use technical tone, no preamble, no boilerplate like "
         "'This file contains...'. Output plain text only, no markdown."
     ),
-    "user_template": (
-        "File path: {file_path}\n"
-        "```\n{content}\n```\n\n"
-        "Summary:"
-    ),
+    "user_template": ("File path: {file_path}\n```\n{content}\n```\n\nSummary:"),
 }
 
 
@@ -44,11 +40,7 @@ FILE_SUMMARY_PROMPT_V2 = {
         "- LLM = Large Language Model\n"
         "- DTO = Data Transfer Object\n"
     ),
-    "user_template": (
-        "File path: {file_path}\n"
-        "```\n{content}\n```\n\n"
-        "Summary:"
-    ),
+    "user_template": ("File path: {file_path}\n```\n{content}\n```\n\nSummary:"),
 }
 
 

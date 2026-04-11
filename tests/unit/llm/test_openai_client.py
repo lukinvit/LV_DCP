@@ -106,6 +106,7 @@ async def test_summarize_retries_on_rate_limit_with_retry_after(
     rate_limit_response.headers = {"retry-after": "0.01"}
 
     call_count = 0
+
     async def mock_create(**kwargs: object) -> MagicMock:
         nonlocal call_count
         call_count += 1
@@ -119,6 +120,7 @@ async def test_summarize_retries_on_rate_limit_with_retry_after(
 
     # Capture sleep calls to verify we honored Retry-After
     sleeps: list[float] = []
+
     async def mock_sleep(seconds: float) -> None:
         sleeps.append(seconds)
 
