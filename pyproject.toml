@@ -85,6 +85,15 @@ warn_return_any = true
 show_error_codes = true
 exclude = ["tests/eval/fixtures/"]
 
+[[tool.mypy.overrides]]
+module = ["watchdog.*"]
+ignore_missing_imports = true
+disallow_untyped_calls = false
+
+[[tool.mypy.overrides]]
+module = ["apps.agent.daemon", "tests.integration.test_ctx_watch"]
+disallow_untyped_calls = false
+
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
