@@ -16,6 +16,9 @@ from apps.mcp.tools import (
 from apps.mcp.tools import (
     lvdcp_scan as _lvdcp_scan,
 )
+from apps.mcp.tools import (
+    lvdcp_status as _lvdcp_status,
+)
 
 mcp = FastMCP(
     "lvdcp",
@@ -31,6 +34,7 @@ mcp.tool()(_lvdcp_scan)
 mcp.tool()(_lvdcp_pack)
 mcp.tool()(_lvdcp_inspect)
 mcp.tool()(_lvdcp_explain)
+mcp.tool()(_lvdcp_status)
 
 
 def run_stdio() -> None:

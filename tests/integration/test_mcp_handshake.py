@@ -41,6 +41,7 @@ async def test_mcp_stdio_handshake_lists_tools(tmp_path: Path) -> None:
             "lvdcp_pack",
             "lvdcp_inspect",
             "lvdcp_explain",
+            "lvdcp_status",
         }, f"unexpected tool names: {tool_names}"
 
         result = await session.call_tool(

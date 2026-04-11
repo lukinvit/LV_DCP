@@ -14,6 +14,8 @@ from typing import Literal
 from libs.context_pack.builder import build_edit_pack, build_navigate_pack
 from libs.project_index.index import ProjectIndex, ProjectNotIndexedError
 from libs.scanning.scanner import scan_project
+from libs.status.aggregator import build_project_status, build_workspace_status
+from libs.status.models import ProjectStatus, WorkspaceStatus
 from pydantic import BaseModel, Field
 
 
@@ -161,6 +163,28 @@ def lvdcp_inspect(path: str) -> InspectResult:
             relations=len(relations),
             languages=dict(lang_counts),
         )
+
+
+class StatusResponse(BaseModel):
+    workspace: WorkspaceStatus | None = None
+    project: ProjectStatus | None = None
+
+
+def lvdcp_status(path: str | None = None) -> StatusResponse:
+    """Return a snapshot of workspace health or a single project's detailed status.
+
+    CALL THIS TO:
+    - Quickly check which projects are indexed and fresh (`lvdcp_status()`)
+    - Get detailed per-project data including dependency graph
+      (`lvdcp_status(path="/abs/project")`)
+    - See Claude Code token usage rolling totals per project or workspace-wide
+
+    DO NOT CALL FOR:
+    - Replacing `lvdcp_pack` (use pack for code context, status for meta-level state)
+    """
+    if path is None:
+        return StatusResponse(workspace=build_workspace_status())
+    return StatusResponse(project=build_project_status(Path(path).resolve()))
 
 
 def lvdcp_explain(path: str, trace_id: str) -> ExplainResult:
