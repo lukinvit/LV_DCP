@@ -17,11 +17,13 @@
 | Операция | Фаза | Цель p50 | Потолок p95 |
 |---|---|---|---|
 | Initial scan, 500-файловый Python репо | 1 (deterministic) | 10s | 20s |
-| Initial scan, 500-файловый репо | 2 (с LLM summaries) | 45s | 90s |
 | Incremental scan, single-file change, end-to-end | 3 | 1.5s | 3s |
 | Retrieval (context pack assembly) | 1 (deterministic) | 0.8s | 2s |
-| Retrieval (с vector stage) | 2+ | 1.2s | 3s |
 | CLI cold start (`ctx --help`) | все | 150ms | 400ms |
+
+> Phase 2 closed without LLM summaries or vector stage (see ADR-004 pivot).
+> LLM-specific latency and per-scan dollar cost budgets are defined in
+> Phase 3c scope.
 
 ### 2. Cost budgets (LLM)
 
@@ -56,7 +58,8 @@
 
 - Phase 1 exit: recall@5 ≥ 0.70 (deterministic-only)
 - Phase 2 exit: recall@5 ≥ 0.85, precision@3 ≥ 0.70
-- Phase 3 exit: не регрессировать относительно Phase 2 после перехода на backend
+- Phase 3a exit: не регрессировать Phase 2 thresholds после cleanup
+- Phase 3c exit: recall@5 ≥ 0.92, impact_recall@5 ≥ 0.80 (LLM + vector enrichment)
 
 ## Consequences
 
