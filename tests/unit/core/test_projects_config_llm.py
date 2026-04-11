@@ -13,7 +13,7 @@ def test_llm_config_defaults() -> None:
     assert cfg.rerank_model == "gpt-4o-mini"
     assert cfg.api_key_env_var == "OPENAI_API_KEY"
     assert cfg.monthly_budget_usd == 25.0
-    assert cfg.prompt_version == "v1"
+    assert cfg.prompt_version == "v2"
     assert cfg.enabled is False
 
 

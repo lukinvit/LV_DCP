@@ -25,7 +25,7 @@ class LLMConfig(BaseModel):
     rerank_model: str = "gpt-4o-mini"
     api_key_env_var: str = "OPENAI_API_KEY"
     monthly_budget_usd: float = 25.0
-    prompt_version: str = "v1"
+    prompt_version: str = "v2"
     enabled: bool = False
 
 

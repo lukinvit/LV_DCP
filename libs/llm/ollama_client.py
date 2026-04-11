@@ -10,7 +10,7 @@ import httpx
 from libs.llm.base import RerankCandidate, RerankResult, SummaryResult
 from libs.llm.errors import LLMProviderError
 from libs.llm.models import UsageRecord
-from libs.summaries.prompts import FILE_SUMMARY_PROMPT_V1
+from libs.summaries.prompts import get_prompt
 
 DEFAULT_OLLAMA_HOST = "http://localhost:11434"
 REQUEST_TIMEOUT_SECONDS = 300.0  # local inference can be slow
@@ -28,9 +28,10 @@ class OllamaClient:
         prompt_version: str,
         file_path: str,
     ) -> SummaryResult:
-        if prompt_version != "v1":
-            raise LLMProviderError(f"unsupported prompt_version: {prompt_version}")
-        prompt = FILE_SUMMARY_PROMPT_V1
+        try:
+            prompt = get_prompt(prompt_version)
+        except KeyError as exc:
+            raise LLMProviderError(f"unsupported prompt_version: {prompt_version}") from exc
         user_msg = prompt["user_template"].format(file_path=file_path, content=content)
         try:
             async with httpx.AsyncClient(
