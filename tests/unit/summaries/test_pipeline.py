@@ -12,7 +12,9 @@ from libs.summaries.pipeline import summarize_project
 from libs.summaries.store import SummaryStore
 
 
-def _fake_summary(text: str = "Stub.", input_tokens: int = 800, output_tokens: int = 150) -> SummaryResult:
+def _fake_summary(
+    text: str = "Stub.", input_tokens: int = 800, output_tokens: int = 150
+) -> SummaryResult:
     return SummaryResult(
         text=text,
         usage=UsageRecord(
@@ -78,16 +80,22 @@ async def test_warm_run_hits_cache_skips_llm(
     # Cold run
     await summarize_project(
         project.resolve(),
-        client=mock_client, model="gpt-4o-mini", prompt_version="v1",
-        store=store, concurrency=1,
+        client=mock_client,
+        model="gpt-4o-mini",
+        prompt_version="v1",
+        store=store,
+        concurrency=1,
     )
     assert mock_client.summarize.await_count == 1
 
     # Warm run — file unchanged
     result = await summarize_project(
         project.resolve(),
-        client=mock_client, model="gpt-4o-mini", prompt_version="v1",
-        store=store, concurrency=1,
+        client=mock_client,
+        model="gpt-4o-mini",
+        prompt_version="v1",
+        store=store,
+        concurrency=1,
     )
     assert result.files_cached == 1
     assert result.files_summarized == 0
@@ -109,6 +117,7 @@ async def test_pipeline_continues_on_single_file_error(
     scan_project(project, mode="full")
 
     call_count = 0
+
     async def fake_summarize(**kwargs: object) -> SummaryResult:
         nonlocal call_count
         call_count += 1
@@ -124,8 +133,11 @@ async def test_pipeline_continues_on_single_file_error(
 
     result = await summarize_project(
         project.resolve(),
-        client=mock_client, model="gpt-4o-mini", prompt_version="v1",
-        store=store, concurrency=1,
+        client=mock_client,
+        model="gpt-4o-mini",
+        prompt_version="v1",
+        store=store,
+        concurrency=1,
     )
     assert result.files_summarized == 1  # one succeeded
     assert len(result.errors) == 1

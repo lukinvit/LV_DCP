@@ -146,10 +146,17 @@ class SummaryStore:
         )
         return [
             SummaryRow(
-                content_hash=r[0], prompt_version=r[1], model_name=r[2],
-                project_root=r[3], file_path=r[4], summary_text=r[5],
-                cost_usd=r[6], tokens_in=r[7], tokens_out=r[8],
-                tokens_cached=r[9], created_at=r[10],
+                content_hash=r[0],
+                prompt_version=r[1],
+                model_name=r[2],
+                project_root=r[3],
+                file_path=r[4],
+                summary_text=r[5],
+                cost_usd=r[6],
+                tokens_in=r[7],
+                tokens_out=r[8],
+                tokens_cached=r[9],
+                created_at=r[10],
             )
             for r in cur.fetchall()
         ]

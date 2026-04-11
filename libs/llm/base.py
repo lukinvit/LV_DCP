@@ -39,8 +39,7 @@ class LLMClient(Protocol):
         model: str,
         prompt_version: str,
         file_path: str,
-    ) -> SummaryResult:
-        ...
+    ) -> SummaryResult: ...
 
     async def rerank(
         self,
@@ -48,8 +47,6 @@ class LLMClient(Protocol):
         candidates: list[RerankCandidate],
         *,
         model: str,
-    ) -> list[RerankResult]:
-        ...
+    ) -> list[RerankResult]: ...
 
-    async def test_connection(self) -> bool:
-        ...
+    async def test_connection(self) -> bool: ...

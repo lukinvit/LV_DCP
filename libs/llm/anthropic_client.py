@@ -28,9 +28,7 @@ class AnthropicClient:
         if prompt_version != "v1":
             raise LLMProviderError(f"unsupported prompt_version: {prompt_version}")
         prompt = FILE_SUMMARY_PROMPT_V1
-        user_msg = prompt["user_template"].format(
-            file_path=file_path, content=content
-        )
+        user_msg = prompt["user_template"].format(file_path=file_path, content=content)
         try:
             resp = await self._client.messages.create(
                 model=model,

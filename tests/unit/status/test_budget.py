@@ -19,7 +19,9 @@ def _row(cost: float, ts: float) -> SummaryRow:
         file_path="x.py",
         summary_text="t",
         cost_usd=cost,
-        tokens_in=100, tokens_out=50, tokens_cached=0,
+        tokens_in=100,
+        tokens_out=50,
+        tokens_cached=0,
         created_at=ts,
     )
 
@@ -71,9 +73,7 @@ def test_compute_budget_status_warning_at_80_percent(
     assert status.status == "warning"
 
 
-def test_compute_budget_status_exceeded(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_compute_budget_status_exceeded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     db = tmp_path / "summaries.db"
     monkeypatch.setenv("LVDCP_SUMMARIES_DB", str(db))
 

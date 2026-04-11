@@ -43,9 +43,7 @@ def test_persist_and_lookup_roundtrip(tmp_path: Path) -> None:
     row = _row()
     store.persist(row)
 
-    got = store.lookup(
-        content_hash="h1", prompt_version="v1", model_name="gpt-4o-mini"
-    )
+    got = store.lookup(content_hash="h1", prompt_version="v1", model_name="gpt-4o-mini")
     assert got is not None
     assert got.summary_text == "Does a thing."
     assert got.cost_usd == 0.001
@@ -59,12 +57,8 @@ def test_cache_key_differs_by_model(tmp_path: Path) -> None:
     store.persist(_row(model_name="gpt-4o-mini", summary_text="gpt version"))
     store.persist(_row(model_name="claude-haiku-4-5", summary_text="claude version"))
 
-    got_gpt = store.lookup(
-        content_hash="h1", prompt_version="v1", model_name="gpt-4o-mini"
-    )
-    got_claude = store.lookup(
-        content_hash="h1", prompt_version="v1", model_name="claude-haiku-4-5"
-    )
+    got_gpt = store.lookup(content_hash="h1", prompt_version="v1", model_name="gpt-4o-mini")
+    got_claude = store.lookup(content_hash="h1", prompt_version="v1", model_name="claude-haiku-4-5")
     assert got_gpt is not None and got_gpt.summary_text == "gpt version"
     assert got_claude is not None and got_claude.summary_text == "claude version"
 

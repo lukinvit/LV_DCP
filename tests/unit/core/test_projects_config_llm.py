@@ -26,9 +26,7 @@ def test_daemon_config_has_llm_field() -> None:
 def test_backwards_compat_load_config_without_llm_section(tmp_path: Path) -> None:
     """Phase 3a/3b config.yaml (no llm: section) must still parse."""
     config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        yaml.safe_dump({"version": 1, "projects": []}, sort_keys=False)
-    )
+    config_path.write_text(yaml.safe_dump({"version": 1, "projects": []}, sort_keys=False))
     cfg = load_config(config_path)
     assert cfg.llm.enabled is False
 

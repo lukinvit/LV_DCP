@@ -82,6 +82,4 @@ async def test_test_connection_raises_on_auth_error() -> None:
 async def test_rerank_raises_not_implemented() -> None:
     client = OpenAIClient(api_key="sk-test")
     with pytest.raises(NotImplementedError, match=r"rerank is Phase 3c\.2"):
-        await client.rerank(
-            query="test", candidates=[], model="gpt-4o-mini"
-        )
+        await client.rerank(query="test", candidates=[], model="gpt-4o-mini")

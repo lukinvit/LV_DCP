@@ -282,9 +282,7 @@ def test_check_llm_provider_warns_if_env_var_missing(
 # ---------- LLM budget check tests ----------
 
 
-def test_check_llm_budget_disabled_passes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_check_llm_budget_disabled_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LVDCP_SUMMARIES_DB", str(tmp_path / "summaries.db"))
     config = DaemonConfig(llm=LLMConfig(enabled=False))
     check = check_llm_budget(config)

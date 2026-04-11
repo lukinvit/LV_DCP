@@ -19,8 +19,12 @@ def _fake_summary() -> SummaryResult:
     return SummaryResult(
         text="Stub summary.",
         usage=UsageRecord(
-            input_tokens=800, output_tokens=150, cached_input_tokens=0,
-            cost_usd=0.00032, model="gpt-4o-mini", provider="openai",
+            input_tokens=800,
+            output_tokens=150,
+            cached_input_tokens=0,
+            cost_usd=0.00032,
+            model="gpt-4o-mini",
+            provider="openai",
             timestamp=time.time(),
         ),
     )
@@ -53,16 +57,20 @@ def test_summarize_generates_and_persists(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cfg_path = tmp_path / "config.yaml"
-    cfg_path.write_text(yaml.safe_dump({
-        "version": 1,
-        "projects": [],
-        "llm": {
-            "provider": "openai",
-            "summary_model": "gpt-4o-mini",
-            "enabled": True,
-            "api_key_env_var": "FAKE_KEY_FOR_TEST",
-        },
-    }))
+    cfg_path.write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "projects": [],
+                "llm": {
+                    "provider": "openai",
+                    "summary_model": "gpt-4o-mini",
+                    "enabled": True,
+                    "api_key_env_var": "FAKE_KEY_FOR_TEST",
+                },
+            }
+        )
+    )
     monkeypatch.setenv("LVDCP_CONFIG_PATH", str(cfg_path))
     monkeypatch.setenv("LVDCP_SUMMARIES_DB", str(tmp_path / "summaries.db"))
     monkeypatch.setenv("LVDCP_SCAN_HISTORY_DB", str(tmp_path / "history.db"))
