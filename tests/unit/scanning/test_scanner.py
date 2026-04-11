@@ -1,7 +1,8 @@
 from pathlib import Path
 
 import pytest
-from libs.scanning.scanner import ScanResult, scan_project
+from libs.scanning.scanner import CACHE_REL, ScanResult, scan_project
+from libs.storage.sqlite_cache import SqliteCache
 
 
 @pytest.fixture
@@ -39,3 +40,17 @@ def test_scan_project_incremental_reparses_modified(sample_project: Path) -> Non
     (sample_project / "app" / "main.py").write_text("def entry() -> int:\n    return 42\n")
     result = scan_project(sample_project, mode="incremental")
     assert result.files_reparsed == 1
+
+
+def test_scan_marks_file_with_secret_content(tmp_path: Path) -> None:
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "config.py").write_text(
+        "# Accidentally committed:\nAWS_KEY = 'AKIAIOSFODNN7EXAMPLE'\n"
+    )
+    scan_project(tmp_path, mode="full")
+    cache = SqliteCache(tmp_path / CACHE_REL)
+    cache.migrate()
+    f = cache.get_file("app/config.py")
+    assert f is not None
+    assert f.has_secrets is True
+    cache.close()

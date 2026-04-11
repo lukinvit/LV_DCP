@@ -41,3 +41,16 @@ def test_is_test_path_true_cases() -> None:
 def test_is_test_path_false_cases() -> None:
     assert not is_test_path("app/main.py")
     assert not is_test_path("docs/test.md")
+
+
+def test_env_files_are_ignored_except_example() -> None:
+    assert is_ignored(".env")
+    assert is_ignored(".env.local")
+    assert is_ignored("app/.env.production")
+    # .env.example is not in the exact-match list, so it remains indexable
+    assert not is_ignored(".env.example")
+
+
+def test_credentials_json_ignored() -> None:
+    assert is_ignored("credentials.json")
+    assert is_ignored("app/secrets.json")

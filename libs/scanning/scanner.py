@@ -17,6 +17,7 @@ from typing import Literal
 from libs.core.entities import File, Symbol
 from libs.core.hashing import content_hash
 from libs.core.paths import is_ignored, normalize_path
+from libs.core.secrets import contains_secret_pattern
 from libs.dotcontext.writer import write_project_md, write_symbol_index_md
 from libs.parsers.registry import detect_language, get_parser
 from libs.retrieval.fts import FtsIndex
@@ -36,7 +37,7 @@ class ScanResult:
     elapsed_seconds: float
 
 
-def _process_and_index_files(
+def _process_and_index_files(  # noqa: PLR0915
     root: Path,
     cache: SqliteCache,
     fts: FtsIndex,
@@ -90,22 +91,29 @@ def _process_and_index_files(
 
         parse_result = parser.parse(file_path=rel, data=data)
 
+        # NEW: secret detection (inline for statement count)
+        has_secrets = contains_secret_pattern(data)
         file_entity = File(
             path=rel,
             content_hash=new_hash,
             size_bytes=len(data),
             language=language,
             role=parse_result.role,
+            has_secrets=has_secrets,
         )
         cache.put_file(file_entity)
         cache.replace_symbols(file_path=rel, symbols=parse_result.symbols)
         cache.replace_relations(file_path=rel, relations=parse_result.relations)
 
-        try:
-            text = data.decode("utf-8", errors="replace")
-        except (UnicodeDecodeError, AttributeError):
-            text = ""
-        fts.index_file(rel, f"{rel}\n{text}")
+        # FTS: path only if file has secrets, full content otherwise
+        if has_secrets:
+            fts.index_file(rel, rel)
+        else:
+            try:
+                text = data.decode("utf-8", errors="replace")
+            except (UnicodeDecodeError, AttributeError):
+                text = ""
+            fts.index_file(rel, f"{rel}\n{text}")
 
         files_processed.append(file_entity)
         all_symbols.extend(parse_result.symbols)

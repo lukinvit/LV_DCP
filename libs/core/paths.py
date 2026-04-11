@@ -22,6 +22,18 @@ DEFAULT_IGNORE_PREFIXES: tuple[str, ...] = (
     ".cache/",
     "coverage/",
     ".context/",
+    "secrets/",
+    "credentials/",
+)
+
+DEFAULT_IGNORE_FILENAME_EXACT: tuple[str, ...] = (
+    ".env",
+    ".env.local",
+    ".env.production",
+    ".env.staging",
+    ".env.development",
+    "credentials.json",
+    "secrets.json",
 )
 
 DEFAULT_IGNORE_SUFFIXES: tuple[str, ...] = (
@@ -74,4 +86,8 @@ def is_ignored(relative_posix: str) -> bool:
             return True
         if f"/{prefix}" in relative_posix:
             return True
+    # Exact filename match (basename)
+    basename = relative_posix.rsplit("/", 1)[-1]
+    if basename in DEFAULT_IGNORE_FILENAME_EXACT:
+        return True
     return any(relative_posix.endswith(suffix) for suffix in DEFAULT_IGNORE_SUFFIXES)
