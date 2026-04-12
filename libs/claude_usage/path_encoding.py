@@ -7,8 +7,8 @@ Observed encoding:
 - Every '_' inside any segment → '-'
 
 Example:
-    /Users/v.lukin/Nextcloud/lukinvit.tech/projects/LV_DCP
-    → -Users-v-lukin-Nextcloud-lukinvit-tech-projects-LV-DCP
+    /home/user/projects/LV_DCP
+    → -home-user-projects-LV-DCP
 
 Decoding is lossy (a '-' could represent '/', '.' or '_' originally); the
 decoder reconstructs path separators only and returns a best-effort Path

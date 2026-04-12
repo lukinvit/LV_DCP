@@ -86,11 +86,11 @@ $ ctx pack . "refresh token rotation" --mode edit
 | 3c.2 | 0.3.4 | Done | Role-weighted fusion, config boost, graph depth tuning |
 | 4 | 0.4.0 | Done | pymorphy3 stemmer, git intelligence, impact analysis, hotspots, adaptive graph clustering, UI project management, diff-aware edit packs |
 | 5 | 0.5.0 | Done | Hook enforcement, dual-language retrieval, 5 new relation types (tests_for, inherits, specifies), value metrics dashboard, scan coverage, 457 tests passing |
-| 6 | **0.6.0** | **Done** | Cross-language parsers (TS/JS/Go/Rust), Qdrant vector store, Obsidian vault sync, VS Code extension MVP, cross-project patterns, 586 tests passing |
+| 6 | **0.6.0** | **Done** | Cross-language parsers (TS/JS/Go/Rust), Qdrant vector store, Obsidian vault sync, VS Code extension MVP, cross-project patterns, 587 tests passing |
 
 ### Test suite
 
-586 tests, 0 failures. Eval harness with 32 synthetic + 10 multi-project queries.
+587 tests, 0 failures. Eval harness with 32 synthetic + 10 multi-project queries.
 
 ## Dashboard
 

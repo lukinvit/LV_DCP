@@ -127,7 +127,7 @@ Same pattern as Python: if file role is `"test"`, scan its imports and promote i
 
 **New:** `tests/eval/typescript_queries.yaml`
 
-3-5 queries against a real TS project (e.g., TG_RUSCOFFEE_ADMIN_BOT or similar). Gate: recall@5 >= 0.55.
+3-5 queries against a real TS project (e.g., a medium-sized Node.js/TypeScript project). Gate: recall@5 >= 0.55.
 
 ## 4. Week 2 — Go Parser
 
