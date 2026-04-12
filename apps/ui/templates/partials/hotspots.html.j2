@@ -1,0 +1,42 @@
+{% if status.hotspots %}
+<section class="section">
+    <h2>Hotspots</h2>
+    <p class="subtitle">Files with highest risk: many dependents x frequent changes x no tests</p>
+    <table style="width:100%;border-collapse:collapse;font-size:14px;">
+        <thead>
+            <tr style="border-bottom:2px solid #ddd;text-align:left;">
+                <th style="padding:8px;">File</th>
+                <th style="padding:8px;text-align:right;">Fan-in</th>
+                <th style="padding:8px;text-align:right;">Fan-out</th>
+                <th style="padding:8px;text-align:right;">Churn (30d)</th>
+                <th style="padding:8px;text-align:center;">Tests</th>
+                <th style="padding:8px;text-align:right;">Score</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for h in status.hotspots %}
+            <tr style="border-bottom:1px solid #eee;">
+                <td style="padding:8px;font-family:monospace;font-size:12px;">{{ h.file_path }}</td>
+                <td style="padding:8px;text-align:right;">{{ h.fan_in }}</td>
+                <td style="padding:8px;text-align:right;">{{ h.fan_out }}</td>
+                <td style="padding:8px;text-align:right;">{{ h.churn_30d }}</td>
+                <td style="padding:8px;text-align:center;">
+                    {% if h.has_tests %}
+                        <span style="color:#2e7d32;">&#x2713;</span>
+                    {% else %}
+                        <span style="color:#d32f2f;">&#x2717;</span>
+                    {% endif %}
+                </td>
+                <td style="padding:8px;text-align:right;font-weight:bold;
+                    {% if h.score > 50 %}color:#d32f2f;
+                    {% elif h.score > 20 %}color:#f57c00;
+                    {% else %}color:#2e7d32;
+                    {% endif %}">
+                    {{ "%.0f"|format(h.score) }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endif %}
