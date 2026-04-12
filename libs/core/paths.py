@@ -24,6 +24,8 @@ DEFAULT_IGNORE_PREFIXES: tuple[str, ...] = (
     ".context/",
     ".playwright-mcp/",
     ".superpowers/",
+    ".claude/",
+    ".cursor/",
     "secrets/",
     "credentials/",
 )
