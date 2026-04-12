@@ -14,7 +14,7 @@ from libs.core.entities import File, Relation, RelationType, Symbol, SymbolType
 
 # Phase 1 has no formal migration path; bumping this constant is advisory.
 # ADR-002 Phase 2 will introduce proper migration dispatch (see review issue I2).
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS files (
@@ -71,6 +71,18 @@ CREATE TABLE IF NOT EXISTS retrieval_traces (
 );
 CREATE INDEX IF NOT EXISTS idx_traces_timestamp ON retrieval_traces(timestamp);
 CREATE INDEX IF NOT EXISTS idx_traces_project ON retrieval_traces(project);
+
+CREATE TABLE IF NOT EXISTS git_stats (
+    file_path       TEXT PRIMARY KEY,
+    commit_count    INTEGER NOT NULL DEFAULT 0,
+    churn_30d       INTEGER NOT NULL DEFAULT 0,
+    last_modified_ts REAL NOT NULL DEFAULT 0,
+    age_days        INTEGER NOT NULL DEFAULT 0,
+    authors_json    TEXT NOT NULL DEFAULT '[]',
+    primary_author  TEXT NOT NULL DEFAULT '',
+    last_author     TEXT NOT NULL DEFAULT '',
+    computed_at_ts  REAL NOT NULL DEFAULT 0
+);
 """
 
 
@@ -131,11 +143,32 @@ class SqliteCache:
             self._migrate_v2_to_v3(conn)
             return
 
+        if current_version == 3:
+            self._migrate_v3_to_v4(conn)
+            return
+
         raise RuntimeError(
             f"SqliteCache at {self.db_path} is at schema version {current_version}, "
             f"but this binary expects {SCHEMA_VERSION}. "
             f"Delete {self.db_path.parent} and re-run `ctx scan` to rebuild."
         )
+
+    def _migrate_v3_to_v4(self, conn: sqlite3.Connection) -> None:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS git_stats (
+                file_path       TEXT PRIMARY KEY,
+                commit_count    INTEGER NOT NULL DEFAULT 0,
+                churn_30d       INTEGER NOT NULL DEFAULT 0,
+                last_modified_ts REAL NOT NULL DEFAULT 0,
+                age_days        INTEGER NOT NULL DEFAULT 0,
+                authors_json    TEXT NOT NULL DEFAULT '[]',
+                primary_author  TEXT NOT NULL DEFAULT '',
+                last_author     TEXT NOT NULL DEFAULT '',
+                computed_at_ts  REAL NOT NULL DEFAULT 0
+            );
+        """)
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        conn.commit()
 
     def _migrate_v2_to_v3(self, conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE files ADD COLUMN has_secrets INTEGER NOT NULL DEFAULT 0")
@@ -319,4 +352,54 @@ class SqliteCache:
                 relation_type=RelationType(row[4]),
                 confidence=row[5],
                 provenance=row[6],
+            )
+
+    # --- git stats -------------------------------------------------------------
+
+    def put_git_stats(self, stats: "GitFileStats", *, computed_at: float) -> None:
+        import json
+
+        conn = self._connect()
+        conn.execute(
+            """INSERT OR REPLACE INTO git_stats
+               (file_path, commit_count, churn_30d, last_modified_ts, age_days,
+                authors_json, primary_author, last_author, computed_at_ts)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                stats.file_path,
+                stats.commit_count,
+                stats.churn_30d,
+                stats.last_modified_ts,
+                stats.age_days,
+                json.dumps(stats.authors),
+                stats.primary_author,
+                stats.last_author,
+                computed_at,
+            ),
+        )
+        conn.commit()
+
+    def iter_git_stats(self) -> "Iterator[GitFileStats]":
+        import json
+
+        from libs.gitintel.models import GitFileStats
+
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                "SELECT file_path, commit_count, churn_30d, last_modified_ts, age_days, "
+                "authors_json, primary_author, last_author FROM git_stats"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return  # table doesn't exist yet (pre-v4 schema)
+        for row in rows:
+            yield GitFileStats(
+                file_path=row[0],
+                commit_count=row[1],
+                churn_30d=row[2],
+                last_modified_ts=row[3],
+                age_days=row[4],
+                authors=json.loads(row[5]),
+                primary_author=row[6],
+                last_author=row[7],
             )
