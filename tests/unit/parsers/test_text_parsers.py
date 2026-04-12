@@ -16,6 +16,44 @@ def test_markdown_extracts_headings_as_symbols() -> None:
     assert "Section B" in names
 
 
+def test_markdown_extracts_all_heading_levels() -> None:
+    parser = MarkdownParser()
+    data = b"# Introduction\n\nSome text\n\n## Architecture\n\n### Components\n"
+    result = parser.parse(file_path="docs/design.md", data=data)
+    assert len(result.symbols) == 3
+    names = [s.name for s in result.symbols]
+    assert "Introduction" in names
+    assert "Architecture" in names
+    assert "Components" in names
+
+
+def test_markdown_role_is_docs() -> None:
+    parser = MarkdownParser()
+    result = parser.parse(file_path="README.md", data=b"# Hello\n")
+    assert result.role == "docs"
+
+
+def test_markdown_handles_empty_file() -> None:
+    parser = MarkdownParser()
+    result = parser.parse(file_path="docs/empty.md", data=b"")
+    assert len(result.symbols) == 0
+
+
+def test_markdown_line_numbers_are_correct() -> None:
+    parser = MarkdownParser()
+    data = b"# First\n\ntext\n\n## Second\n"
+    result = parser.parse(file_path="docs/a.md", data=data)
+    assert result.symbols[0].start_line == 1
+    assert result.symbols[1].start_line == 5
+
+
+def test_markdown_fq_name_contains_file_path() -> None:
+    parser = MarkdownParser()
+    data = b"# Heading\n"
+    result = parser.parse(file_path="docs/readme.md", data=data)
+    assert result.symbols[0].fq_name.startswith("docs/readme.md#")
+
+
 def test_yaml_parses_valid_doc_without_symbols() -> None:
     parser = YamlParser()
     data = b"key: value\nlist:\n  - 1\n  - 2\n"

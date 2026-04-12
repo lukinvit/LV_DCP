@@ -126,6 +126,39 @@ def build_workspace_status() -> WorkspaceStatus:
     )
 
 
+def _build_scan_coverage(root: Path) -> dict | None:
+    """Compute scan coverage stats: symbol/file ratio, languages, relation types."""
+    try:
+        with ProjectIndex.open(root) as idx:
+            files = list(idx.iter_files())
+            symbols = list(idx.iter_symbols())
+            relations = list(idx.iter_relations())
+    except (ProjectNotIndexedError, Exception):
+        return None
+
+    if not files:
+        return None
+
+    files_with_symbols = len({s.file_path for s in symbols})
+    languages: dict[str, int] = {}
+    for f in files:
+        languages[f.language] = languages.get(f.language, 0) + 1
+    relation_types: dict[str, int] = {}
+    for r in relations:
+        rt = r.relation_type.value if hasattr(r.relation_type, "value") else str(r.relation_type)
+        relation_types[rt] = relation_types.get(rt, 0) + 1
+
+    return {
+        "files_total": len(files),
+        "files_with_symbols": files_with_symbols,
+        "coverage_pct": files_with_symbols / len(files) * 100,
+        "symbols": len(symbols),
+        "relations": len(relations),
+        "languages": dict(sorted(languages.items(), key=lambda x: -x[1])),
+        "relation_types": dict(sorted(relation_types.items(), key=lambda x: -x[1])),
+    }
+
+
 def build_project_status(project_root: Path) -> ProjectStatus:
     root = project_root.resolve()
     config_path = resolve_config_path()
@@ -148,6 +181,7 @@ def build_project_status(project_root: Path) -> ProjectStatus:
     sparklines = _build_sparklines(root, now=now)
 
     hotspots = _build_hotspots(root)
+    coverage = _build_scan_coverage(root)
 
     return ProjectStatus(
         card=card,
@@ -156,6 +190,7 @@ def build_project_status(project_root: Path) -> ProjectStatus:
         sparklines=sparklines,
         graph=graph,
         hotspots=hotspots,
+        scan_coverage=coverage,
     )
 
 

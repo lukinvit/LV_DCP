@@ -1,0 +1,46 @@
+{% if coverage %}
+<section class="section">
+    <h2>Scan Coverage</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin:12px 0;">
+        <div style="background:#f8f9fa;padding:12px;border-radius:8px;text-align:center;">
+            <div style="font-size:24px;font-weight:bold;
+                {% if coverage.coverage_pct >= 80 %}color:#2e7d32;
+                {% elif coverage.coverage_pct >= 50 %}color:#f57c00;
+                {% else %}color:#d32f2f;{% endif %}">{{ "%.0f"|format(coverage.coverage_pct) }}%</div>
+            <div style="font-size:11px;color:#666;">symbol coverage</div>
+        </div>
+        <div style="background:#f8f9fa;padding:12px;border-radius:8px;text-align:center;">
+            <div style="font-size:24px;font-weight:bold;">{{ coverage.files_with_symbols }}/{{ coverage.files_total }}</div>
+            <div style="font-size:11px;color:#666;">files with symbols</div>
+        </div>
+        <div style="background:#f8f9fa;padding:12px;border-radius:8px;text-align:center;">
+            <div style="font-size:24px;font-weight:bold;">{{ coverage.symbols }}</div>
+            <div style="font-size:11px;color:#666;">symbols</div>
+        </div>
+        <div style="background:#f8f9fa;padding:12px;border-radius:8px;text-align:center;">
+            <div style="font-size:24px;font-weight:bold;">{{ coverage.relations }}</div>
+            <div style="font-size:11px;color:#666;">relations</div>
+        </div>
+    </div>
+    {% if coverage.languages %}
+    <details style="margin-top:8px;">
+        <summary style="cursor:pointer;font-size:13px;color:#2a5caa;">Language breakdown</summary>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;">
+            {% for lang, count in coverage.languages.items() %}
+            <span style="font-size:12px;background:#eee;padding:2px 8px;border-radius:4px;">{{ lang }}: {{ count }}</span>
+            {% endfor %}
+        </div>
+    </details>
+    {% endif %}
+    {% if coverage.relation_types %}
+    <details style="margin-top:4px;">
+        <summary style="cursor:pointer;font-size:13px;color:#2a5caa;">Relation types</summary>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;">
+            {% for rtype, count in coverage.relation_types.items() %}
+            <span style="font-size:12px;background:#eee;padding:2px 8px;border-radius:4px;">{{ rtype }}: {{ count }}</span>
+            {% endfor %}
+        </div>
+    </details>
+    {% endif %}
+</section>
+{% endif %}

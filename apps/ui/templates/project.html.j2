@@ -16,6 +16,10 @@
         {% endwith %}
     </section>
 
+    {% with coverage=status.scan_coverage %}
+        {% include "partials/scan_coverage.html.j2" %}
+    {% endwith %}
+
     <section class="section">
         <h2>Dependency graph</h2>
         {% include "partials/graph_panel.html.j2" %}
