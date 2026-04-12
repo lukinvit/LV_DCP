@@ -1,6 +1,6 @@
 # Active retrieval quality thresholds. Changed only by explicit PR, never bundled
 # with retrieval pipeline changes (see ADR-002).
-active_phase: 2  # flipped to 2 in Task 2.14
+active_phase: 3  # flipped to 3 in Phase 3c.2 Stage 1
 
 phases:
   "0":
@@ -23,3 +23,10 @@ phases:
     precision_at_3_files: 0.60
     recall_at_5_symbols: 0.80
     impact_recall_at_5: 0.75
+
+  "3":
+    description: "Deterministic retrieval fixes — role weights + config boost + graph depth"
+    recall_at_5_files: 0.92
+    precision_at_3_files: 0.60
+    recall_at_5_symbols: 0.80
+    impact_recall_at_5: 0.85
