@@ -25,7 +25,11 @@ mcp = FastMCP(
     instructions=(
         "LV_DCP context tools. Call lvdcp_pack before answering architectural "
         "or edit questions about a Python project — it returns 2-20 KB of "
-        "ranked relevant files much cheaper than grep-walking the repo."
+        "ranked relevant files much cheaper than grep-walking the repo.\n\n"
+        "IMPORTANT: You MUST call lvdcp_pack BEFORE using Grep or Read tools "
+        "when working in a project that has .context/cache.db. The pack is "
+        "1000x cheaper than grep-walking and already knows the dependency graph. "
+        "Do NOT skip this step — it saves tokens and gives better results."
     ),
 )
 
