@@ -1,5 +1,5 @@
 <section class="section">
-    <h2>LV_DCP Value</h2>
+    <h2>LV_DCP Value (measured)</h2>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin-top:12px;">
         <div style="background:#f8f9fa;padding:16px;border-radius:8px;text-align:center;">
             <div style="font-size:28px;font-weight:bold;color:#2a5caa;">{{ metrics.total_packs }}</div>
@@ -7,14 +7,19 @@
             <div style="font-size:11px;color:#999;">{{ metrics.packs_7d }} last 7d</div>
         </div>
         <div style="background:#f8f9fa;padding:16px;border-radius:8px;text-align:center;">
-            <div style="font-size:28px;font-weight:bold;color:#2e7d32;">{{ "{:,.0f}".format(metrics.estimated_tokens_saved / 1000) }}K</div>
-            <div style="font-size:12px;color:#666;">tokens saved</div>
-            <div style="font-size:11px;color:#999;">vs grep-walking repos</div>
+            {% if metrics.avg_compression_ratio > 0 %}
+            <div style="font-size:28px;font-weight:bold;color:#2e7d32;">{{ "%.0f"|format(metrics.avg_compression_ratio) }}x</div>
+            <div style="font-size:12px;color:#666;">compression ratio</div>
+            <div style="font-size:11px;color:#999;">{{ metrics.total_pack_files_returned }} files returned / {{ metrics.total_packs }} packs</div>
+            {% else %}
+            <div style="font-size:28px;font-weight:bold;color:#999;">&mdash;</div>
+            <div style="font-size:12px;color:#666;">compression ratio</div>
+            {% endif %}
         </div>
         <div style="background:#f8f9fa;padding:16px;border-radius:8px;text-align:center;">
             <div style="font-size:28px;font-weight:bold;color:#f57c00;">{{ metrics.projects_active }}/{{ metrics.projects_total }}</div>
             <div style="font-size:12px;color:#666;">projects active</div>
-            <div style="font-size:11px;color:#999;">{{ metrics.avg_files_indexed }} avg files</div>
+            <div style="font-size:11px;color:#999;">{{ metrics.total_files_in_projects }} files indexed</div>
         </div>
         <div style="background:#f8f9fa;padding:16px;border-radius:8px;text-align:center;">
             {% set total_cov = metrics.coverage_high + metrics.coverage_medium + metrics.coverage_ambiguous %}
@@ -27,4 +32,38 @@
             <div style="font-size:11px;color:#999;">{{ metrics.mode_edit }} edits / {{ metrics.mode_navigate }} navigates</div>
         </div>
     </div>
+
+    {% if metrics.project_coverage %}
+    <details style="margin-top:16px;">
+        <summary style="cursor:pointer;font-size:14px;color:#2a5caa;">Per-project scan coverage</summary>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;">
+            <thead>
+                <tr style="border-bottom:2px solid #ddd;text-align:left;">
+                    <th style="padding:6px;">Project</th>
+                    <th style="padding:6px;text-align:right;">Files</th>
+                    <th style="padding:6px;text-align:right;">With symbols</th>
+                    <th style="padding:6px;text-align:right;">Coverage</th>
+                    <th style="padding:6px;text-align:right;">Relations</th>
+                    <th style="padding:6px;text-align:right;">Packs</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for pc in metrics.project_coverage if pc.files_total > 0 %}
+                <tr style="border-bottom:1px solid #eee;">
+                    <td style="padding:6px;font-family:monospace;font-size:12px;">{{ pc.name }}</td>
+                    <td style="padding:6px;text-align:right;">{{ pc.files_total }}</td>
+                    <td style="padding:6px;text-align:right;">{{ pc.files_with_symbols }}</td>
+                    <td style="padding:6px;text-align:right;font-weight:bold;
+                        {% if pc.coverage_pct >= 80 %}color:#2e7d32;
+                        {% elif pc.coverage_pct >= 50 %}color:#f57c00;
+                        {% else %}color:#d32f2f;
+                        {% endif %}">{{ "%.0f"|format(pc.coverage_pct) }}%</td>
+                    <td style="padding:6px;text-align:right;">{{ pc.relations }}</td>
+                    <td style="padding:6px;text-align:right;">{{ pc.packs_served }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </details>
+    {% endif %}
 </section>
