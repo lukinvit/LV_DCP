@@ -172,7 +172,7 @@ def test_sqlite_cache_is_context_manager(tmp_path: Path) -> None:
     cache2.close()
 
 
-def test_migrate_rejects_future_version(tmp_path: Path) -> None:
+def test_migrate_forward_compatible_with_future_version(tmp_path: Path) -> None:
     db = tmp_path / "cache.db"
     with SqliteCache(db) as cache:
         cache.migrate()
@@ -182,9 +182,9 @@ def test_migrate_rejects_future_version(tmp_path: Path) -> None:
         conn.commit()
         conn.close()
 
-    # Reopening with the same binary must refuse to migrate
-    with pytest.raises(RuntimeError, match="schema version 99"), SqliteCache(db) as cache2:
-        cache2.migrate()
+    # Reopening with older binary must NOT crash — forward compatible
+    with SqliteCache(db) as cache2:
+        cache2.migrate()  # should silently proceed
 
 
 def test_delete_file_cascades_relations(cache: SqliteCache) -> None:

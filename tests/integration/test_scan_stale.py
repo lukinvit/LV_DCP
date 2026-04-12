@@ -22,7 +22,7 @@ def test_scan_removes_deleted_files(tmp_path: Path) -> None:
     cache = SqliteCache(tmp_path / CACHE_REL)
     cache.migrate()
     paths_after_first = {f.path for f in cache.iter_files()}
-    assert paths_after_first == {"a.py", "b.py"}
+    assert {"a.py", "b.py"}.issubset(paths_after_first)  # may also have CLAUDE.md
     symbols_before = {s.name for s in cache.iter_symbols()}
     assert "alpha" in symbols_before
     assert "beta" in symbols_before
@@ -37,7 +37,8 @@ def test_scan_removes_deleted_files(tmp_path: Path) -> None:
     cache = SqliteCache(tmp_path / CACHE_REL)
     cache.migrate()
     paths_after_second = {f.path for f in cache.iter_files()}
-    assert paths_after_second == {"a.py"}
+    assert "a.py" in paths_after_second
+    assert "b.py" not in paths_after_second
     symbols_after = {s.name for s in cache.iter_symbols()}
     assert "alpha" in symbols_after
     assert "beta" not in symbols_after
