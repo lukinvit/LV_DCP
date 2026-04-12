@@ -24,8 +24,10 @@ from libs.scan_history.store import (
 from libs.status.daemon_probe import probe_daemon
 from libs.status.health import build_health_card
 from libs.status.models import (
+    GraphCluster,
     GraphDump,
     GraphEdge,
+    GraphFileNode,
     GraphNode,
     ProjectStatus,
     SparklineSeries,
@@ -152,6 +154,68 @@ def build_project_status(project_root: Path) -> ProjectStatus:
     )
 
 
+def _cluster_files(
+    nodes: list[GraphNode],
+    edges: list[GraphEdge],
+    *,
+    max_clusters: int = 50,
+    files_per_cluster: int = 20,
+) -> list[GraphCluster]:
+    degree: dict[str, int] = {}
+    for e in edges:
+        degree[e.src] = degree.get(e.src, 0) + 1
+        degree[e.dst] = degree.get(e.dst, 0) + 1
+
+    buckets: dict[str, list[GraphNode]] = {}
+    for n in nodes:
+        parts = n.id.split("/")
+        cluster_id = (
+            "/".join(parts[:2]) if len(parts) > 2 else (parts[0] if len(parts) == 2 else ".")
+        )
+        buckets.setdefault(cluster_id, []).append(n)
+
+    node_to_cluster: dict[str, str] = {}
+    clusters: list[GraphCluster] = []
+    for cid, file_nodes in buckets.items():
+        for fn in file_nodes:
+            node_to_cluster[fn.id] = cid
+
+        files_with_deg = [(fn, degree.get(fn.id, 0)) for fn in file_nodes]
+        files_with_deg.sort(key=lambda x: -x[1])
+
+        roles = [fn.role for fn in file_nodes]
+        dominant_role = max(set(roles), key=roles.count) if roles else "code"
+        total_deg = sum(d for _, d in files_with_deg)
+
+        top = [
+            GraphFileNode(id=fn.id, label=fn.id.split("/")[-1], role=fn.role, degree=d)
+            for fn, d in files_with_deg[:files_per_cluster]
+        ]
+
+        clusters.append(
+            GraphCluster(
+                id=cid,
+                label=cid,
+                role=dominant_role,
+                children_count=len(file_nodes),
+                total_degree=total_deg,
+                top_files=top,
+            )
+        )
+
+    for e in edges:
+        src_c = node_to_cluster.get(e.src)
+        dst_c = node_to_cluster.get(e.dst)
+        if src_c and dst_c and src_c != dst_c:
+            for c in clusters:
+                if c.id == src_c:
+                    c.inter_cluster_edges += 1
+                    break
+
+    clusters.sort(key=lambda c: -c.total_degree)
+    return clusters[:max_clusters]
+
+
 def _build_graph_dump(root: Path) -> GraphDump | None:
     try:
         with ProjectIndex.open(root) as idx:
@@ -160,10 +224,10 @@ def _build_graph_dump(root: Path) -> GraphDump | None:
     except ProjectNotIndexedError:
         return None
 
-    nodes: list[GraphNode] = []
+    all_nodes: list[GraphNode] = []
     seen: set[str] = set()
-    for f in files[:200]:  # cap for payload budget
-        nodes.append(GraphNode(id=f.path, label=f.path, role=_role_for_file(f.path)))
+    for f in files:
+        all_nodes.append(GraphNode(id=f.path, label=f.path, role=_role_for_file(f.path)))
         seen.add(f.path)
 
     symbol_to_file: dict[str, str] = {}
@@ -178,8 +242,9 @@ def _build_graph_dump(root: Path) -> GraphDump | None:
         if src_file and dst_file and src_file != dst_file and src_file in seen and dst_file in seen:
             edge_pairs.add((src_file, dst_file))
 
-    edges = [GraphEdge(src=s, dst=d) for s, d in edge_pairs]
-    return GraphDump(nodes=nodes, edges=edges)
+    all_edges = [GraphEdge(src=s, dst=d) for s, d in edge_pairs]
+    clusters = _cluster_files(all_nodes, all_edges)
+    return GraphDump(nodes=all_nodes, edges=all_edges, clusters=clusters)
 
 
 def _build_sparklines(root: Path, *, now: float) -> list[SparklineSeries]:

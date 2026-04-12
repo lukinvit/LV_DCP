@@ -6,12 +6,27 @@
 {% endblock %}
 
 {% block content %}
-    <h1>Projects ({{ workspace.projects_count }})</h1>
+    <div style="display:flex;align-items:center;gap:12px;">
+        <h1 style="margin:0;">Projects ({{ workspace.projects_count }})</h1>
+        <button onclick="document.getElementById('add-project-dialog').showModal()"
+                style="padding:4px 12px;border:1px solid #2a5caa;border-radius:4px;background:white;color:#2a5caa;cursor:pointer;font-size:16px;"
+                title="Add project">+</button>
+    </div>
+    {% include "partials/add_project_modal.html.j2" %}
     <div class="project-grid">
         {% for card in workspace.projects %}
-            {% include "partials/health_card.html.j2" %}
+            <div style="position:relative;">
+                {% include "partials/health_card.html.j2" %}
+                <form method="post" action="/api/projects/{{ card.slug }}/remove"
+                      style="position:absolute;top:8px;right:8px;"
+                      onsubmit="return confirm('Remove {{ card.name }}?')">
+                    <button type="submit"
+                            style="border:none;background:none;color:#999;cursor:pointer;font-size:16px;"
+                            title="Remove project">&times;</button>
+                </form>
+            </div>
         {% else %}
-            <p class="empty">No projects registered. Run <code>ctx watch add &lt;path&gt;</code>.</p>
+            <p class="empty">No projects registered. Click + to add one.</p>
         {% endfor %}
     </div>
 {% endblock %}

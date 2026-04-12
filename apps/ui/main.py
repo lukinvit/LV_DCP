@@ -12,6 +12,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from apps.ui.routes.api import router as api_router
 from apps.ui.routes.index import router as index_router
 from apps.ui.routes.project import router as project_router
+from apps.ui.routes.projects import router as projects_router
 from apps.ui.routes.settings import router as settings_router
 
 _STATIC_DIR = Path(__file__).parent / "static"
@@ -37,5 +38,6 @@ def create_app() -> FastAPI:
     app.include_router(project_router)
     app.include_router(api_router)
     app.include_router(settings_router)
+    app.include_router(projects_router)
 
     return app
