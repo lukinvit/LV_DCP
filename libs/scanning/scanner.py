@@ -183,6 +183,16 @@ def scan_project(
             visited_paths,
         ) = _process_and_index_files(root, cache, fts, mode, only)
 
+        # Git intelligence (full scans only, whole-project)
+        if mode == "full" and only is None:
+            from libs.gitintel.extractor import extract_git_stats
+
+            git_stats = extract_git_stats(root)
+            now_ts = time.time()
+            for file_stats in git_stats.values():
+                if file_stats.file_path in visited_paths:
+                    cache.put_git_stats(file_stats, computed_at=now_ts)
+
         # Stale file cleanup (only in whole-project scans)
         stale_files_removed = 0
         if only is None:
