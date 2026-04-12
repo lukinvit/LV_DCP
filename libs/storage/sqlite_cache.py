@@ -149,6 +149,11 @@ class SqliteCache:
             self._migrate_v3_to_v4(conn)
             return
 
+        if current_version > SCHEMA_VERSION:
+            # Forward-compatible: newer schema opened by older binary.
+            # Work with what we understand, ignore unknown tables.
+            return
+
         raise RuntimeError(
             f"SqliteCache at {self.db_path} is at schema version {current_version}, "
             f"but this binary expects {SCHEMA_VERSION}. "
