@@ -78,3 +78,23 @@ def test_env_variants_are_ignored(path: str) -> None:
 def test_env_example_is_not_ignored() -> None:
     assert is_ignored(".env.example") is False
     assert is_ignored("sub/.env.example") is False
+
+
+class TestPhase4IgnorePatterns:
+    def test_playwright_mcp_ignored(self) -> None:
+        assert is_ignored(".playwright-mcp/page-2026.yml")
+
+    def test_superpowers_ignored(self) -> None:
+        assert is_ignored(".superpowers/brainstorm/content/foo.html")
+
+    def test_minified_js_ignored(self) -> None:
+        assert is_ignored("static/bundle.min.js")
+
+    def test_minified_css_ignored(self) -> None:
+        assert is_ignored("static/style.min.css")
+
+    def test_regular_js_not_ignored(self) -> None:
+        assert not is_ignored("apps/ui/static/js/dashboard.js")
+
+    def test_regular_css_not_ignored(self) -> None:
+        assert not is_ignored("apps/ui/static/css/style.css")
