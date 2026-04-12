@@ -157,8 +157,7 @@ def generate_per_query_report(report: EvalReport, *, tag: str = "eval") -> str:
         recall = len(hits) / len(expected_set) if expected_set else 1.0
         missed_str = ", ".join(sorted(missed)) if missed else "—"
         lines.append(
-            f"| {qr.query_id} | {qr.mode} | {len(expected_set)} "
-            f"| {recall:.2f} | {missed_str} |"
+            f"| {qr.query_id} | {qr.mode} | {len(expected_set)} | {recall:.2f} | {missed_str} |"
         )
     lines.append("")
     return "\n".join(lines)

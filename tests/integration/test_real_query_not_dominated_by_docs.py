@@ -11,7 +11,6 @@ import textwrap
 from pathlib import Path
 
 import pytest
-
 from libs.project_index.index import ProjectIndex
 from libs.scanning.scanner import scan_project
 
@@ -21,11 +20,13 @@ def docs_heavy_repo(tmp_path: Path) -> Path:
     """Build a tiny repo with 1 code file + 3 docs files, all mentioning 'widget'."""
     code = tmp_path / "libs" / "widget.py"
     code.parent.mkdir(parents=True)
-    code.write_text(textwrap.dedent("""\
+    code.write_text(
+        textwrap.dedent("""\
         class Widget:
             def render(self) -> str:
                 return "<widget/>"
-    """))
+    """)
+    )
 
     docs_dir = tmp_path / "docs"
     docs_dir.mkdir()
@@ -50,8 +51,7 @@ def test_code_file_in_top3_despite_docs_keyword_density(docs_heavy_repo: Path) -
         result = idx.retrieve("widget rendering", mode="navigate", limit=5)
         top3 = result.files[:3]
         assert "libs/widget.py" in top3, (
-            f"Code file should be in top-3 but got: {top3}. "
-            f"Full top-5: {result.files}"
+            f"Code file should be in top-3 but got: {top3}. Full top-5: {result.files}"
         )
     finally:
         idx.close()
@@ -64,8 +64,7 @@ def test_edit_mode_also_prefers_code(docs_heavy_repo: Path) -> None:
         result = idx.retrieve("fix widget rendering bug", mode="edit", limit=5)
         top3 = result.files[:3]
         assert "libs/widget.py" in top3, (
-            f"Code file should be in top-3 for edit but got: {top3}. "
-            f"Full top-5: {result.files}"
+            f"Code file should be in top-3 for edit but got: {top3}. Full top-5: {result.files}"
         )
     finally:
         idx.close()

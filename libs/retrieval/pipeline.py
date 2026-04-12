@@ -61,11 +61,25 @@ DOCS_OVERRIDE_KEYWORDS: frozenset[str] = frozenset(
 )
 DOCS_OVERRIDE_MULTIPLIER = 1.20
 
-CONFIG_TRIGGER_KEYWORDS: frozenset[str] = frozenset({
-    "config", "settings", "timeout", "ttl", "schedule", "lifetime",
-    "env", "port", "url", "host", "secret", "credential",
-    "database", "db", "connection",
-})
+CONFIG_TRIGGER_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "config",
+        "settings",
+        "timeout",
+        "ttl",
+        "schedule",
+        "lifetime",
+        "env",
+        "port",
+        "url",
+        "host",
+        "secret",
+        "credential",
+        "database",
+        "db",
+        "connection",
+    }
+)
 CONFIG_BOOST_FRACTION = 0.5
 CONFIG_BOOST_FLOOR = 0.5
 
@@ -80,9 +94,7 @@ def _maybe_boost_config_files(
     if not query_words & CONFIG_TRIGGER_KEYWORDS:
         return
     baseline = (
-        max(file_scores.values()) * CONFIG_BOOST_FRACTION
-        if file_scores
-        else CONFIG_BOOST_FLOOR
+        max(file_scores.values()) * CONFIG_BOOST_FRACTION if file_scores else CONFIG_BOOST_FLOOR
     )
     for path, role in file_roles.items():
         if role == "config":
