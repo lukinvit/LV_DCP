@@ -173,11 +173,23 @@ class TestConfigBoostHeuristic:
 
     def test_trigger_keywords_completeness(self) -> None:
         expected = {
-            "config", "settings", "timeout", "ttl", "schedule", "lifetime",
-            "env", "port", "url", "host", "secret", "credential",
-            "database", "db", "connection",
+            "config",
+            "settings",
+            "timeout",
+            "ttl",
+            "schedule",
+            "lifetime",
+            "env",
+            "port",
+            "url",
+            "host",
+            "secret",
+            "credential",
+            "database",
+            "db",
+            "connection",
         }
-        assert CONFIG_TRIGGER_KEYWORDS == expected
+        assert expected == CONFIG_TRIGGER_KEYWORDS
 
     def test_no_substring_match_on_credentials(self) -> None:
         """Word 'credentials' must NOT match keyword 'credential'."""
@@ -221,7 +233,7 @@ class TestGraphDepthTuning:
 
         captured_depths: list[int] = []
 
-        def fake_expand(seeds, graph, *, depth, decay):
+        def fake_expand(seeds: object, graph: object, *, depth: int, decay: float) -> list[object]:
             captured_depths.append(depth)
             return []
 
