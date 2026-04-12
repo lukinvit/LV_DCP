@@ -47,9 +47,27 @@ class GraphEdge(BaseModel):
     dst: str
 
 
+class GraphFileNode(BaseModel):
+    id: str
+    label: str
+    role: str = "code"
+    degree: int = 0
+
+
+class GraphCluster(BaseModel):
+    id: str
+    label: str
+    role: str
+    children_count: int
+    total_degree: int
+    inter_cluster_edges: int = 0
+    top_files: list[GraphFileNode] = Field(default_factory=list)
+
+
 class GraphDump(BaseModel):
     nodes: list[GraphNode] = Field(default_factory=list)
     edges: list[GraphEdge] = Field(default_factory=list)
+    clusters: list[GraphCluster] = Field(default_factory=list)
 
 
 class ProjectStatus(BaseModel):
