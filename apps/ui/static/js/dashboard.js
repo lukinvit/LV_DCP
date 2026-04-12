@@ -20,6 +20,14 @@
         resize();
         window.addEventListener('resize', resize);
 
+        var tooltip = document.createElement('div');
+        tooltip.style.cssText = 'position:absolute;padding:4px 8px;background:#1a1a2e;color:#eee;' +
+            'border-radius:4px;font-size:12px;pointer-events:none;display:none;white-space:nowrap;z-index:10';
+        container.style.position = 'relative';
+        container.appendChild(tooltip);
+
+        var hoveredNode = null;
+
         d3.json('/api/project/' + slug + '/graph.json').then(function (data) {
             if (!data || !data.nodes || data.nodes.length === 0) {
                 info.textContent = 'No graph data';
@@ -35,6 +43,29 @@
             var links = data.edges
                 .filter(function (e) { return nodeIds.has(e.src) && nodeIds.has(e.dst); })
                 .map(function (e) { return { source: e.src, target: e.dst }; });
+
+            var degree = {};
+            links.forEach(function (l) {
+                var s = typeof l.source === 'object' ? l.source.id : l.source;
+                var t = typeof l.target === 'object' ? l.target.id : l.target;
+                degree[s] = (degree[s] || 0) + 1;
+                degree[t] = (degree[t] || 0) + 1;
+            });
+            var maxDeg = Math.max(1, d3.max(Object.values(degree)) || 1);
+            nodes.forEach(function (n) {
+                n.degree = degree[n.id] || 0;
+                n.radius = 2 + 6 * Math.sqrt(n.degree / maxDeg);
+            });
+
+            var neighbors = {};
+            links.forEach(function (l) {
+                var s = typeof l.source === 'object' ? l.source.id : l.source;
+                var t = typeof l.target === 'object' ? l.target.id : l.target;
+                if (!neighbors[s]) neighbors[s] = new Set();
+                if (!neighbors[t]) neighbors[t] = new Set();
+                neighbors[s].add(t);
+                neighbors[t].add(s);
+            });
 
             info.textContent = nodes.length + ' nodes, ' + links.length + ' edges' +
                 (totalNodes > maxVisible ? ' (+' + (totalNodes - maxVisible) + ' hidden)' : '');
@@ -55,22 +86,75 @@
 
             function draw() {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.strokeStyle = '#cccccc';
-                ctx.lineWidth = 0.5;
-                ctx.beginPath();
+                var hId = hoveredNode ? hoveredNode.id : null;
+                var hNeighbors = hId && neighbors[hId] ? neighbors[hId] : null;
+
                 links.forEach(function (l) {
+                    var sId = l.source.id, tId = l.target.id;
+                    var active = hId && (sId === hId || tId === hId);
+                    ctx.strokeStyle = active ? '#e74c3c' : (hId ? 'rgba(200,200,200,0.15)' : '#cccccc');
+                    ctx.lineWidth = active ? 1.5 : 0.5;
+                    ctx.beginPath();
                     ctx.moveTo(l.source.x, l.source.y);
                     ctx.lineTo(l.target.x, l.target.y);
+                    ctx.stroke();
                 });
-                ctx.stroke();
 
                 nodes.forEach(function (n) {
+                    var isHovered = hId === n.id;
+                    var isNeighbor = hNeighbors && hNeighbors.has(n.id);
+                    var dimmed = hId && !isHovered && !isNeighbor;
                     ctx.beginPath();
-                    ctx.arc(n.x, n.y, 3, 0, 2 * Math.PI);
-                    ctx.fillStyle = roleColor[n.role] || '#666666';
+                    ctx.arc(n.x, n.y, isHovered ? n.radius + 2 : n.radius, 0, 2 * Math.PI);
+                    var base = roleColor[n.role] || '#666666';
+                    ctx.fillStyle = dimmed ? 'rgba(180,180,180,0.3)' : base;
                     ctx.fill();
+                    if (isHovered) {
+                        ctx.strokeStyle = '#e74c3c';
+                        ctx.lineWidth = 2;
+                        ctx.stroke();
+                    }
                 });
             }
+
+            canvas.addEventListener('mousemove', function (e) {
+                var rect = canvas.getBoundingClientRect();
+                var mx = e.clientX - rect.left;
+                var my = e.clientY - rect.top;
+                var found = null;
+                for (var i = nodes.length - 1; i >= 0; i--) {
+                    var n = nodes[i];
+                    var dx = mx - n.x, dy = my - n.y;
+                    if (dx * dx + dy * dy < (n.radius + 3) * (n.radius + 3)) {
+                        found = n;
+                        break;
+                    }
+                }
+                if (found !== hoveredNode) {
+                    hoveredNode = found;
+                    if (found) {
+                        var label = found.id + ' (' + found.degree + ' connections)';
+                        tooltip.textContent = label;
+                        tooltip.style.display = 'block';
+                        canvas.style.cursor = 'pointer';
+                    } else {
+                        tooltip.style.display = 'none';
+                        canvas.style.cursor = 'default';
+                    }
+                    draw();
+                }
+                if (found) {
+                    tooltip.style.left = (mx + 12) + 'px';
+                    tooltip.style.top = (my - 8) + 'px';
+                }
+            });
+
+            canvas.addEventListener('mouseleave', function () {
+                hoveredNode = null;
+                tooltip.style.display = 'none';
+                canvas.style.cursor = 'default';
+                draw();
+            });
         }).catch(function (err) {
             info.textContent = 'Error loading graph: ' + err.message;
         });
