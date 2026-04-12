@@ -39,6 +39,17 @@ def pack(
         # CLI-originated queries, not only MCP lvdcp_pack ones.
         trace_with_project = dataclass_replace(result.trace, project=path.name)
         idx.save_trace(trace_with_project)
-        builder = build_edit_pack if mode == PackMode.EDIT else build_navigate_pack
-        pack_obj = builder(project_slug=path.name, query=query, result=result)
+        if mode == PackMode.EDIT:
+            pack_obj = build_edit_pack(
+                project_slug=path.name,
+                query=query,
+                result=result,
+                project_root=path,
+            )
+        else:
+            pack_obj = build_navigate_pack(
+                project_slug=path.name,
+                query=query,
+                result=result,
+            )
         typer.echo(pack_obj.assembled_markdown)

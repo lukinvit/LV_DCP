@@ -120,12 +120,19 @@ def lvdcp_pack(
 
     with idx:
         result = idx.retrieve(query, mode=mode, limit=limit)
-        builder = build_edit_pack if mode == "edit" else build_navigate_pack
-        pack = builder(
-            project_slug=root.name,
-            query=query,
-            result=result,
-        )
+        if mode == "edit":
+            pack = build_edit_pack(
+                project_slug=root.name,
+                query=query,
+                result=result,
+                project_root=root,
+            )
+        else:
+            pack = build_navigate_pack(
+                project_slug=root.name,
+                query=query,
+                result=result,
+            )
         # Persist the trace so lvdcp_explain can look it up.
         # Use dataclasses.replace to set project field (trace.project is "" by default).
         trace_with_project = dataclasses.replace(result.trace, project=root.name)
