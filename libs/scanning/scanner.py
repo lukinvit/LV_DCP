@@ -45,7 +45,7 @@ class ScanResult:
     elapsed_seconds: float
 
 
-def _process_and_index_files(  # noqa: PLR0915
+def _process_and_index_files(  # noqa: PLR0912, PLR0915
     root: Path,
     cache: SqliteCache,
     fts: FtsIndex,
@@ -73,12 +73,16 @@ def _process_and_index_files(  # noqa: PLR0915
         if only is not None and rel not in only:
             continue
 
-        visited_paths.add(rel)
-
         try:
             data = abs_path.read_bytes()
         except OSError:
             continue
+
+        # Skip large data dumps (>100KB JSON files pollute FTS with noise)
+        if rel.endswith(".json") and len(data) > 100_000:
+            continue
+
+        visited_paths.add(rel)
 
         language = detect_language(rel)
         if language == "unknown":

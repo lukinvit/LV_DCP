@@ -26,6 +26,8 @@ dependencies = [
     "openai>=1.50",
     "anthropic>=0.40",
     "tiktoken>=0.7",
+    "pymorphy3>=2.0",
+    "pymorphy3-dicts-ru>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -76,7 +78,8 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S", "PL"]
+"tests/**/*.py" = ["S", "PL", "RUF001"]
+"libs/retrieval/stemmer.py" = ["RUF001"]
 
 [tool.mypy]
 python_version = "3.12"

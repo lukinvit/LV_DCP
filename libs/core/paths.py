@@ -22,6 +22,8 @@ DEFAULT_IGNORE_PREFIXES: tuple[str, ...] = (
     ".cache/",
     "coverage/",
     ".context/",
+    ".playwright-mcp/",
+    ".superpowers/",
     "secrets/",
     "credentials/",
 )
@@ -42,6 +44,8 @@ DEFAULT_IGNORE_SUFFIXES: tuple[str, ...] = (
     ".dll",
     ".log",
     ".DS_Store",
+    ".min.js",
+    ".min.css",
 )
 
 

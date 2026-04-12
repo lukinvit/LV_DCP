@@ -1,0 +1,76 @@
+version: 1
+description: |
+  Real queries across multiple registered projects.
+  Phase 4 Week 1 litmus test: TG_APP_COLLECT English queries must reach recall@5 >= 0.60.
+  Russian queries on English-code projects are expected to underperform (language mismatch).
+
+projects:
+  TG_APP_COLLECT:
+    queries:
+      - id: tc01-telegram-client-en
+        text: "telegram client connection and rate limiting"
+        mode: navigate
+        expected:
+          files:
+            - src/telegram/client_pool.py
+            - src/telegram/rate_limiter.py
+      - id: tc02-telegram-scraping-en
+        text: "telegram channel data scraping and collection"
+        mode: navigate
+        expected:
+          files:
+            - src/telegram/client.py
+            - src/telegram/client_pool.py
+      - id: tc03-add-source-en
+        text: "add new telegram scraping data source pipeline"
+        mode: edit
+        expected:
+          files:
+            - src/telegram/client.py
+            - src/telegram/client_pool.py
+      - id: tc04-keyword-analytics
+        text: "keyword analytics search and monitoring"
+        mode: navigate
+        expected:
+          files:
+            - src/services/keyword_research_service.py
+      - id: tc05-web-app-routes
+        text: "web application routes and pages"
+        mode: navigate
+        expected:
+          files:
+            - src/web/app.py
+
+  TG_Proxy_enaibler_bot:
+    queries:
+      - id: tp01-vpn-handlers
+        text: "VPN peer management and connection handlers"
+        mode: navigate
+        expected:
+          files:
+            - bot/handlers/admin/assign_vpn.py
+            - bot/services/vpn.py
+      - id: tp02-vpn-model
+        text: "VPN peer data model and database"
+        mode: navigate
+        expected:
+          files:
+            - bot/models/vpn_peer.py
+
+  TG_RUSCOFFEE_ADMIN_BOT:
+    queries:
+      - id: tr01-admin-commands
+        text: "admin bot command handlers and settings"
+        mode: navigate
+        expected:
+          files:
+            - bot/handlers/settings.py
+
+  LV_Presentation:
+    queries:
+      - id: lp01-content-api
+        text: "content generation API and slide creation"
+        mode: navigate
+        expected:
+          files:
+            - domains/content/api/router.py
