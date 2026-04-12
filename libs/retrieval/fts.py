@@ -12,6 +12,7 @@ from pathlib import Path
 
 from libs.retrieval._stopwords import STOPWORDS
 from libs.retrieval.stemmer import normalize_query, normalize_text
+from libs.retrieval.term_dict import expand_query
 
 
 class FtsIndex:
@@ -65,6 +66,7 @@ class FtsIndex:
             self._conn = None
 
     def search(self, query: str, *, limit: int = 20) -> list[tuple[str, float]]:
+        query = expand_query(query)
         conn = self._connect()
         normalized = normalize_query(query)
         and_query, or_query = self._sanitize(normalized)
