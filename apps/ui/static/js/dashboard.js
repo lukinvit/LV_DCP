@@ -70,9 +70,10 @@
                     };
                 });
                 var edgeSet = {};
+                var clusterIdSet = new Set(cNodes.map(function (n) { return n.id; }));
                 allEdges.forEach(function (e) {
                     var sc = _clusterMap[e.src], dc = _clusterMap[e.dst];
-                    if (sc && dc && sc !== dc) {
+                    if (sc && dc && sc !== dc && clusterIdSet.has(sc) && clusterIdSet.has(dc)) {
                         var key = sc < dc ? sc + '|' + dc : dc + '|' + sc;
                         edgeSet[key] = { source: sc, target: dc };
                     }
