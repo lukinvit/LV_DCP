@@ -26,6 +26,9 @@ DEFAULT_IGNORE_PREFIXES: tuple[str, ...] = (
     ".superpowers/",
     ".claude/",
     ".cursor/",
+    ".github/",
+    "docker/",
+    "data/",
     "secrets/",
     "credentials/",
 )
@@ -33,6 +36,10 @@ DEFAULT_IGNORE_PREFIXES: tuple[str, ...] = (
 DEFAULT_IGNORE_FILENAME_EXACT: tuple[str, ...] = (
     "credentials.json",
     "secrets.json",
+    "docker-compose.yml",
+    "docker-compose.prod.yml",
+    "docker-compose.override.yml",
+    "ruff.toml",
 )
 
 # Explicit allow-list for .env.* variants that are safe to index.
