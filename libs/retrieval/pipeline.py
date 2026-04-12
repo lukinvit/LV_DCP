@@ -60,6 +60,28 @@ DOCS_OVERRIDE_KEYWORDS: frozenset[str] = frozenset(
 )
 DOCS_OVERRIDE_MULTIPLIER = 1.20
 
+CONFIG_TRIGGER_KEYWORDS: frozenset[str] = frozenset({
+    "config", "settings", "timeout", "ttl", "schedule",
+    "env", "port", "url", "host", "secret", "credential",
+    "database", "db", "connection",
+})
+CONFIG_BOOST_BASELINE = 0.5
+
+
+def _maybe_boost_config_files(
+    query: str,
+    file_scores: dict[str, float],
+    file_roles: dict[str, str],
+) -> None:
+    """Inject config files into candidate pool when query mentions config terms."""
+    query_lower = query.lower()
+    if not any(kw in query_lower for kw in CONFIG_TRIGGER_KEYWORDS):
+        return
+    for path, role in file_roles.items():
+        if role == "config":
+            current = file_scores.get(path, 0.0)
+            file_scores[path] = max(current, CONFIG_BOOST_BASELINE)
+
 
 def _apply_role_weights(
     file_scores: dict[str, float],
@@ -135,8 +157,11 @@ class RetrievalPipeline:
             stage, expanded_candidates = self._stage_graph(self._graph, file_scores, mode)
             stages.append(stage)
 
-        # Role-weighted score fusion (D1)
+        # Config file boost (D2) — before role weights so config boost gets multiplied
         roles = self._get_file_roles()
+        _maybe_boost_config_files(query, file_scores, roles)
+
+        # Role-weighted score fusion (D1)
         _apply_role_weights(file_scores, roles, query, mode)
 
         # Stage 4: score decay cutoff + final rank

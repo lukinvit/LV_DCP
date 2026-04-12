@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from libs.retrieval.pipeline import (
+    CONFIG_BOOST_BASELINE,
+    CONFIG_TRIGGER_KEYWORDS,
     DOCS_OVERRIDE_KEYWORDS,
     DOCS_OVERRIDE_MULTIPLIER,
     ROLE_WEIGHTS_EDIT,
     ROLE_WEIGHTS_NAVIGATE,
     _apply_role_weights,
+    _maybe_boost_config_files,
 )
 
 
@@ -113,3 +116,61 @@ class TestRoleWeightedFusion:
         }
         _apply_role_weights(file_scores, file_roles, "design of the retrieval pipeline", "navigate")
         assert file_scores["libs/retrieval/pipeline.py"] >= file_scores["docs/design.md"]
+
+
+class TestConfigBoostHeuristic:
+    """D2: config file boost on config-ish queries."""
+
+    def test_config_files_injected_on_timeout_query(self) -> None:
+        file_scores: dict[str, float] = {
+            "libs/auth.py": 3.0,
+        }
+        file_roles = {
+            "libs/auth.py": "source",
+            "config/settings.yaml": "config",
+        }
+        _maybe_boost_config_files("what is the timeout", file_scores, file_roles)
+        assert "config/settings.yaml" in file_scores
+        assert file_scores["config/settings.yaml"] == CONFIG_BOOST_BASELINE
+
+    def test_config_boost_does_not_override_higher_score(self) -> None:
+        file_scores: dict[str, float] = {
+            "config/settings.yaml": 2.0,
+        }
+        file_roles = {
+            "config/settings.yaml": "config",
+        }
+        _maybe_boost_config_files("config timeout", file_scores, file_roles)
+        assert file_scores["config/settings.yaml"] == 2.0
+
+    def test_no_boost_on_non_config_query(self) -> None:
+        file_scores: dict[str, float] = {}
+        file_roles = {
+            "config/settings.yaml": "config",
+        }
+        _maybe_boost_config_files("how does login work", file_scores, file_roles)
+        assert "config/settings.yaml" not in file_scores
+
+    def test_case_insensitive_trigger(self) -> None:
+        file_scores: dict[str, float] = {}
+        file_roles = {"config/settings.yaml": "config"}
+        _maybe_boost_config_files("TIMEOUT handling", file_scores, file_roles)
+        assert "config/settings.yaml" in file_scores
+
+    def test_only_config_role_files_boosted(self) -> None:
+        file_scores: dict[str, float] = {}
+        file_roles = {
+            "config/settings.yaml": "config",
+            "libs/timeout.py": "source",
+        }
+        _maybe_boost_config_files("timeout", file_scores, file_roles)
+        assert "config/settings.yaml" in file_scores
+        assert "libs/timeout.py" not in file_scores
+
+    def test_trigger_keywords_completeness(self) -> None:
+        expected = {
+            "config", "settings", "timeout", "ttl", "schedule",
+            "env", "port", "url", "host", "secret", "credential",
+            "database", "db", "connection",
+        }
+        assert CONFIG_TRIGGER_KEYWORDS == expected
