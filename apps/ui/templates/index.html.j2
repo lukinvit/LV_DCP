@@ -6,6 +6,7 @@
 {% endblock %}
 
 {% block content %}
+    {% include "partials/value_metrics.html.j2" %}
     <div style="display:flex;align-items:center;gap:12px;">
         <h1 style="margin:0;">Projects ({{ workspace.projects_count }})</h1>
         <button onclick="document.getElementById('add-project-dialog').showModal()"

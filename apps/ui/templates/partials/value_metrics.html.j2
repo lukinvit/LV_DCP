@@ -1,0 +1,30 @@
+<section class="section">
+    <h2>LV_DCP Value</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin-top:12px;">
+        <div style="background:#f8f9fa;padding:16px;border-radius:8px;text-align:center;">
+            <div style="font-size:28px;font-weight:bold;color:#2a5caa;">{{ metrics.total_packs }}</div>
+            <div style="font-size:12px;color:#666;">context packs served</div>
+            <div style="font-size:11px;color:#999;">{{ metrics.packs_7d }} last 7d</div>
+        </div>
+        <div style="background:#f8f9fa;padding:16px;border-radius:8px;text-align:center;">
+            <div style="font-size:28px;font-weight:bold;color:#2e7d32;">{{ "{:,.0f}".format(metrics.estimated_tokens_saved / 1000) }}K</div>
+            <div style="font-size:12px;color:#666;">tokens saved</div>
+            <div style="font-size:11px;color:#999;">vs grep-walking repos</div>
+        </div>
+        <div style="background:#f8f9fa;padding:16px;border-radius:8px;text-align:center;">
+            <div style="font-size:28px;font-weight:bold;color:#f57c00;">{{ metrics.projects_active }}/{{ metrics.projects_total }}</div>
+            <div style="font-size:12px;color:#666;">projects active</div>
+            <div style="font-size:11px;color:#999;">{{ metrics.avg_files_indexed }} avg files</div>
+        </div>
+        <div style="background:#f8f9fa;padding:16px;border-radius:8px;text-align:center;">
+            {% set total_cov = metrics.coverage_high + metrics.coverage_medium + metrics.coverage_ambiguous %}
+            {% if total_cov > 0 %}
+            <div style="font-size:28px;font-weight:bold;color:#2a5caa;">{{ "%.0f"|format(metrics.coverage_high / total_cov * 100) }}%</div>
+            {% else %}
+            <div style="font-size:28px;font-weight:bold;color:#999;">&mdash;</div>
+            {% endif %}
+            <div style="font-size:12px;color:#666;">high coverage</div>
+            <div style="font-size:11px;color:#999;">{{ metrics.mode_edit }} edits / {{ metrics.mode_navigate }} navigates</div>
+        </div>
+    </div>
+</section>
