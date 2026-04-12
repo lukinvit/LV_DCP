@@ -5,12 +5,14 @@ Single-writer (the CLI process). Schema is versioned via PRAGMA user_version.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from types import TracebackType
 
 from libs.core.entities import File, Relation, RelationType, Symbol, SymbolType
+from libs.gitintel.models import GitFileStats
 
 # Phase 1 has no formal migration path; bumping this constant is advisory.
 # ADR-002 Phase 2 will introduce proper migration dispatch (see review issue I2).
@@ -356,9 +358,7 @@ class SqliteCache:
 
     # --- git stats -------------------------------------------------------------
 
-    def put_git_stats(self, stats: "GitFileStats", *, computed_at: float) -> None:
-        import json
-
+    def put_git_stats(self, stats: GitFileStats, *, computed_at: float) -> None:
         conn = self._connect()
         conn.execute(
             """INSERT OR REPLACE INTO git_stats
@@ -379,11 +379,7 @@ class SqliteCache:
         )
         conn.commit()
 
-    def iter_git_stats(self) -> "Iterator[GitFileStats]":
-        import json
-
-        from libs.gitintel.models import GitFileStats
-
+    def iter_git_stats(self) -> Iterator[GitFileStats]:
         conn = self._connect()
         try:
             rows = conn.execute(

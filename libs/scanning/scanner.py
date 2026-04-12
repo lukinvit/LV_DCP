@@ -185,7 +185,7 @@ def scan_project(
 
         # Git intelligence (full scans only, whole-project)
         if mode == "full" and only is None:
-            from libs.gitintel.extractor import extract_git_stats
+            from libs.gitintel.extractor import extract_git_stats  # noqa: PLC0415
 
             git_stats = extract_git_stats(root)
             now_ts = time.time()
