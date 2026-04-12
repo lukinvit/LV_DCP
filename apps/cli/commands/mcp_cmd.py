@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -28,6 +30,71 @@ def _resolve_claudemd_path(scope: str) -> Path:
     if scope == "local":
         return Path.cwd() / "CLAUDE.md"
     raise typer.BadParameter(f"unknown scope: {scope}")
+
+
+_HOOKS_SRC = Path(__file__).resolve().parent.parent / "mcp" / "hooks"
+_HOOKS_DST = Path.home() / ".claude" / "hooks"
+
+_HOOK_CONFIGS = {
+    "PreToolUse": [
+        {
+            "matcher": "Grep|Read",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": "bash ~/.claude/hooks/lvdcp-precheck.sh",
+                    "timeout": 5,
+                    "statusMessage": "Checking LV_DCP index...",
+                }
+            ],
+        }
+    ],
+    "PostToolUse": [
+        {
+            "matcher": "Write|Edit",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": "bash ~/.claude/hooks/lvdcp-autoscan.sh",
+                    "timeout": 10,
+                    "async": True,
+                }
+            ],
+        }
+    ],
+}
+
+
+def _install_hooks() -> list[str]:
+    """Copy hook scripts and merge hook config into ~/.claude/settings.json."""
+    installed: list[str] = []
+
+    # Copy hook scripts
+    _HOOKS_DST.mkdir(parents=True, exist_ok=True)
+    for src in _HOOKS_SRC.glob("*.sh"):
+        dst = _HOOKS_DST / src.name
+        shutil.copy2(src, dst)
+        dst.chmod(0o755)
+        installed.append(str(dst))
+
+    # Merge hook config into settings.json
+    settings_path = Path.home() / ".claude" / "settings.json"
+    settings: dict = {}
+    if settings_path.exists():
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+
+    hooks = settings.setdefault("hooks", {})
+    for event, entries in _HOOK_CONFIGS.items():
+        existing = hooks.get(event, [])
+        existing_matchers = {e.get("matcher") for e in existing}
+        for entry in entries:
+            if entry["matcher"] not in existing_matchers:
+                existing.append(entry)
+        hooks[event] = existing
+
+    settings_path.write_text(json.dumps(settings, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    return installed
 
 
 @app.command("serve")
@@ -83,6 +150,13 @@ def install(
     if result.config_created:
         typer.echo(f"config bootstrapped:       {result.config_path}")
     typer.echo(f"entry point: {result.entry_command} {' '.join(result.entry_args)}")
+
+    # Install hooks
+    hook_files = _install_hooks()
+    for hf in hook_files:
+        typer.echo(f"hook installed: {hf}")
+    typer.echo("hooks: PreToolUse (lvdcp_pack reminder) + PostToolUse (auto-rescan)")
+
     typer.echo(
         "note: entry point contains an absolute Python path. If you sync "
         "dotfiles across machines, re-run `ctx mcp install` on each host."
