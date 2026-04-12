@@ -48,7 +48,7 @@ async def summarize_project(  # noqa: PLR0913
 
     Per-file errors are logged in `errors` but do not halt the pipeline.
     """
-    root = root.resolve()  # noqa: ASYNC240 — resolve() is pure path manipulation, no I/O
+    root = root.resolve()
     start = time.perf_counter()
 
     with ProjectIndex.open(root) as idx:
