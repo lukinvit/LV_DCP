@@ -32,6 +32,53 @@ GRAPH_EXPANSION_DEPTH = 2
 GRAPH_EXPANSION_DECAY = 0.7
 GRAPH_SEED_COUNT = 5  # how many top candidates seed graph expansion
 
+ROLE_WEIGHTS_NAVIGATE: dict[str, float] = {
+    "source": 1.0,
+    "test": 0.85,
+    "config": 1.10,
+    "docs": 0.35,
+    "other": 0.70,
+}
+ROLE_WEIGHTS_EDIT: dict[str, float] = {
+    "source": 1.0,
+    "test": 0.95,
+    "config": 1.15,
+    "docs": 0.40,
+    "other": 0.70,
+}
+DOCS_OVERRIDE_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "docs",
+        "documentation",
+        "readme",
+        "changelog",
+        "architecture",
+        "design",
+        "spec",
+        "adr",
+    }
+)
+DOCS_OVERRIDE_MULTIPLIER = 1.20
+
+
+def _apply_role_weights(
+    file_scores: dict[str, float],
+    file_roles: dict[str, str],
+    query: str,
+    mode: str,
+) -> None:
+    """Multiply each candidate's score by its role weight. Mutates file_scores."""
+    weights = ROLE_WEIGHTS_EDIT if mode == "edit" else ROLE_WEIGHTS_NAVIGATE
+    query_lower = query.lower()
+    wants_docs = any(kw in query_lower for kw in DOCS_OVERRIDE_KEYWORDS)
+    for path in list(file_scores):
+        score = file_scores[path]
+        role = file_roles.get(path, "other")
+        if wants_docs and role == "docs":
+            file_scores[path] = score * DOCS_OVERRIDE_MULTIPLIER
+        else:
+            file_scores[path] = score * weights.get(role, 0.70)
+
 
 @dataclass(frozen=True)
 class RetrievalResult:
@@ -55,6 +102,12 @@ class RetrievalPipeline:
         self._fts = fts
         self._symbols = symbols
         self._graph = graph
+        self._file_roles: dict[str, str] | None = None
+
+    def _get_file_roles(self) -> dict[str, str]:
+        if self._file_roles is None:
+            self._file_roles = {f.path: f.role for f in self._cache.iter_files()}
+        return self._file_roles
 
     def retrieve(
         self,
@@ -81,6 +134,10 @@ class RetrievalPipeline:
         if self._graph is not None and file_scores:
             stage, expanded_candidates = self._stage_graph(self._graph, file_scores, mode)
             stages.append(stage)
+
+        # Role-weighted score fusion (D1)
+        roles = self._get_file_roles()
+        _apply_role_weights(file_scores, roles, query, mode)
 
         # Stage 4: score decay cutoff + final rank
         ordered, dropped = _apply_score_decay(file_scores)
