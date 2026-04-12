@@ -728,7 +728,7 @@ Phase 3c.1 закрывается при ВСЕХ выполненных:
 8. `lvdcp_status` MCP resource returns `budget` field when `llm.enabled`
 9. `make lint typecheck test` clean; new test count target ≥310 (was 278 at Phase 3b close, adding ~32 new)
 10. **Eval harness: identical to Phase 3b close** (0.891 / 0.620 / 0.833 / 0.819) — retrieval untouched, zero regression
-11. Dogfood: run `ctx summarize` on LV_DCP + TG_Proxy_enaibler_bot + TG_RUSCOFFEE_ADMIN_BOT, capture cost + latency + 5 sample summaries in `docs/dogfood/phase-3c1.md`
+11. Dogfood: run `ctx summarize` on LV_DCP + Project_Medium_A + Project_Medium_B, capture cost + latency + 5 sample summaries in `docs/dogfood/phase-3c1.md`
 12. `pyproject.toml` version bumped `0.3.1` → `0.3.2`
 13. README.md updated with `ctx summarize` + `/settings` usage
 14. Upgrade smoke test from `phase-3b-complete`: `git pull && uv sync --all-extras && ctx mcp doctor` → WARN on version mismatch → `ctx mcp install` → clean → `ctx ui` → settings page accessible

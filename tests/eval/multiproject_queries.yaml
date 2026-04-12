@@ -5,7 +5,7 @@ description: |
   Queries use specific identifiers to get precise results.
 
 projects:
-  TG_APP_COLLECT:
+  Project_Large:
     queries:
       - id: tc01-telegram-client
         text: "telegram client connection rate_limiter TelegramClientPool"
@@ -42,7 +42,7 @@ projects:
             - src/temporal/workflows/pipeline.py
             - src/temporal/workflows/keyword_research.py
 
-  TG_Proxy_enaibler_bot:
+  Project_Medium_A:
     queries:
       - id: tp01-vpn-handlers
         text: "VPN peer management and connection handlers"
@@ -57,7 +57,7 @@ projects:
           files:
             - bot/models/vpn_peer.py
 
-  TG_RUSCOFFEE_ADMIN_BOT:
+  Project_Medium_B:
     queries:
       - id: tr01-admin-commands
         text: "admin bot command handlers and settings"
@@ -66,7 +66,7 @@ projects:
           files:
             - bot/handlers/settings.py
 
-  LV_Presentation:
+  Project_Small:
     queries:
       - id: lp01-content-api
         text: "content generation API and slide creation"

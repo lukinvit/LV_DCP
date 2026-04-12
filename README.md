@@ -2,7 +2,7 @@
 
 **Local-first engineering memory.** Turns Python projects on macOS into a queryable context layer for Claude, IDE agents, and humans. Reduces token cost of repeated code reading, builds a relation graph, and makes agent edits safer.
 
-[![Phase 5 Complete](https://img.shields.io/badge/phase-5%20complete-green)](docs/dogfood/phase-4.md)
+[![Phase 5 Complete](https://img.shields.io/badge/phase-5%20complete-green)](docs/dogfood/phase-5.md)
 [![Version 0.5.0](https://img.shields.io/badge/version-0.5.0-blue)](pyproject.toml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue)](pyproject.toml)
@@ -64,15 +64,15 @@ $ ctx pack . "refresh token rotation" --mode edit
 | recall@5 symbols | 0.880 | ≥ 0.80 | +0.047 |
 | impact_recall@5 | **0.931** | ≥ 0.85 | +0.112 |
 
-### Multi-project retrieval (10 queries, 4 projects)
+### Multi-project retrieval (9 queries, 4 projects)
 
 | Metric | Value |
 |---|---|
-| Global recall@5 | **1.000** |
-| TG_APP_COLLECT (1208 files) | 1.000 |
-| TG_Proxy_enaibler_bot | 1.000 |
-| TG_RUSCOFFEE_ADMIN_BOT | 1.000 |
-| LV_Presentation | 1.000 |
+| Global recall@5 | **0.500** |
+| Large project (1200+ files) | 0.200 |
+| Medium projects (100-500 files) | 0.750–1.000 |
+
+> Multi-project retrieval on large projects needs further tuning in Phase 6.
 
 ### Roadmap
 
@@ -235,7 +235,7 @@ Supported languages (Phase 2):
 
 Automatic ignore list: `.git/`, `.venv/`, `node_modules/`, `__pycache__/`, `.mypy_cache/`, `.ruff_cache/`, `.pytest_cache/`, `dist/`, `build/`, `.context/`, `secrets/`, `credentials/`, plus `.env`, `.env.local/production/staging/development`, `credentials.json`, `secrets.json`.
 
-Other languages (TypeScript, Go, Rust, Java) are **not** supported in Phase 2 — they land in Phase 5+.
+Other languages (TypeScript, Go, Rust, Java) are **not** yet supported — they are planned for Phase 6.
 
 ### Privacy model
 
@@ -313,7 +313,7 @@ make test          # pytest, excluding eval and llm markers
 make eval          # retrieval evaluation harness
 ```
 
-Phase 2 complete: 157 passing tests, 4 eval thresholds clear, linear git history, tagged `phase-2-complete`.
+Phase 5 complete: 457 passing tests, eval harness with 32 synthetic + 9 multi-project queries, tagged `phase-5-complete`.
 
 ### Running the daemon
 

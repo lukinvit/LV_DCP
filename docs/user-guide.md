@@ -31,7 +31,7 @@
 ### Первая установка
 
 ```bash
-cd ~/Nextcloud/lukinvit.tech/projects/LV_DCP
+cd ~/projects/LV_DCP
 uv sync --all-extras
 ```
 
@@ -42,7 +42,7 @@ uv sync --all-extras
 Если хочешь вызывать `ctx` из любого места без `uv run`:
 
 ```bash
-cd ~/Nextcloud/lukinvit.tech/projects/LV_DCP
+cd ~/projects/LV_DCP
 uv pip install -e .
 # теперь команда ctx доступна глобально, пока активно текущее окружение
 ```

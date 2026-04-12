@@ -16,8 +16,8 @@ Provider: OpenAI (default), model `gpt-4o-mini`, prompt v1.
 | Project | Files | New summaries | Cached | Cost USD | Tokens in→out | Latency | Failed |
 |---|---|---|---|---|---|---|---|
 | LV_DCP | 253 | 227 | 24 | $0.0632 | 336806 → 21072 | 56.86s | 2 |
-| TG_Proxy_enaibler_bot | 146 | 107 | 15 | $0.0227 | 112705 → 9721 | 28.87s | 24 |
-| TG_RUSCOFFEE_ADMIN_BOT | 109 | 71 | 18 | $0.0131 | 61766 → 6463 | 21.54s | 20 |
+| Project_Medium_A | 146 | 107 | 15 | $0.0227 | 112705 → 9721 | 28.87s | 24 |
+| Project_Medium_B | 109 | 71 | 18 | $0.0131 | 61766 → 6463 | 21.54s | 20 |
 | **Total** | **508** | **405** | **57** | **$0.099** | **511K → 37K** | **107s** | **46** |
 
 **ADR-001 budget compliance:** `$0.099 ≪ $0.50` canary budget — **×5 margin**. LV_DCP alone at `$0.0632` is within target. 
@@ -146,7 +146,7 @@ Upgrade path verified end-to-end. No manual config edits required.
 
 ## Known issues
 
-- **Rate limiting during cold scan on small OpenAI tiers.** Default concurrency=10 + 400K tokens/minute throughput saturates tier-1 (200K TPM) around the 150th file in a batch. 46 files failed with HTTP 429 across the 3 dogfood projects (mostly on TG_Proxy_enaibler_bot and TG_RUSCOFFEE_ADMIN_BOT). The failed files get retried successfully on the next run (cache miss + fresh TPM bucket). **Mitigation for Phase 5+**: add exponential backoff with more aggressive jitter; drop default concurrency from 10 to 4 for tier-1 users. **Workaround now**: `ctx summarize <path> --concurrency 3` or re-run after first failure to pick up unsummarized files.
+- **Rate limiting during cold scan on small OpenAI tiers.** Default concurrency=10 + 400K tokens/minute throughput saturates tier-1 (200K TPM) around the 150th file in a batch. 46 files failed with HTTP 429 across the 3 dogfood projects (mostly on Project_Medium_A and Project_Medium_B). The failed files get retried successfully on the next run (cache miss + fresh TPM bucket). **Mitigation for Phase 5+**: add exponential backoff with more aggressive jitter; drop default concurrency from 10 to 4 for tier-1 users. **Workaround now**: `ctx summarize <path> --concurrency 3` or re-run after first failure to pick up unsummarized files.
 - **One HTTP 400 error on LV_DCP** (`tests/unit/status/test_aggregator.py`): "We could not parse the JSON body of your request". The file content has characters that break OpenAI SDK's request serialization (possibly embedded triple backticks or control chars). Retried successfully on warm run. **Likely root cause**: embedded JSON-looking blobs in large test files confuse the SDK's payload construction. **Mitigation for Phase 5+**: escape content more aggressively in the user message, or submit as base64 with a decoder instruction.
 - **Prompt v1 produces one factual hallucination**: "MCP = Managed Code Platform" in `libs/mcp_ops/doctor.py` summary, should be "Model Context Protocol". **Mitigation**: add a glossary section to the system prompt in v2, bump `prompt_version` to `v2` which invalidates old cache rows on that key component.
 - **`ctx summarize` picks up non-code files** — Markdown templates, docs, plans get LLM summaries. Intended scope, but wastes tokens on files like `.specify/templates/spec-template.md`. **Mitigation for Phase 5+**: role-based filter in `summarize_project` skipping files where `role` is `"docs"` and size > threshold.

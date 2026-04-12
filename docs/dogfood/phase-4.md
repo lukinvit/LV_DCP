@@ -14,10 +14,10 @@
 
 ### Multi-project (10 queries, 4 projects)
 - Global recall@5:   0.611 (target ≥ 0.50) **PASS**
-- TG_APP_COLLECT:    0.400 (target ≥ 0.60) **MISS** — fixture expected files need calibration
-- TG_Proxy_enaibler_bot: 0.750
-- TG_RUSCOFFEE_ADMIN_BOT: 1.000
-- LV_Presentation:   1.000
+- Project_Large:    0.400 (target ≥ 0.60) **MISS** — fixture expected files need calibration
+- Project_Medium_A: 0.750
+- Project_Medium_B: 1.000
+- Project_Small:   1.000
 
 ## What was built
 
@@ -28,7 +28,7 @@
 - Multi-project eval fixture
 
 ### Week 2 — Adaptive Graph + UI
-- Module clustering (35 clusters for LV_DCP, 50 for TG_APP_COLLECT)
+- Module clustering (35 clusters for LV_DCP, 50 for Project_Large)
 - Click-to-expand, zoom+pan (d3-zoom)
 - Add/remove projects from dashboard UI
 
@@ -49,7 +49,7 @@
 
 ## Known limitations
 - Russian→English language gap: stemmer fixes morphology but can't bridge cross-language queries
-- TG_APP_COLLECT eval fixture needs calibration (expected files don't match actual best results)
+- Project_Large eval fixture needs calibration (expected files don't match actual best results)
 - 37 pre-existing async test failures (pytest-asyncio framework issue)
 
 ## Test coverage

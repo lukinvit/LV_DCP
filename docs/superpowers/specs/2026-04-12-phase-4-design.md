@@ -7,13 +7,13 @@
 
 ## 1. Goal
 
-Make LV_DCP genuinely useful on real multi-language projects (not just its own codebase). Fix Russian FTS, add git intelligence for hotspot/impact analysis, make the dashboard interactive and self-service. **Litmus test: TG_APP_COLLECT** (1544 files, mixed ru/en) must produce quality retrieval results.
+Make LV_DCP genuinely useful on real multi-language projects (not just its own codebase). Fix Russian FTS, add git intelligence for hotspot/impact analysis, make the dashboard interactive and self-service. **Litmus test: Project_Large** (1544 files, mixed ru/en) must produce quality retrieval results.
 
 ## 2. Scope — 6 weeks, 5 deliverable groups
 
 | Week | Deliverable | Key metric |
 |---|---|---|
-| 1 | Retrieval quality fix (pymorphy3 + ignore + eval) | TG_APP_COLLECT recall@5 ≥ 0.60 |
+| 1 | Retrieval quality fix (pymorphy3 + ignore + eval) | Project_Large recall@5 ≥ 0.60 |
 | 2 | Adaptive graph clustering + UI project management | 6 projects visible, graph usable on 1500-file project |
 | 3 | Git intelligence infrastructure (churn + blame) | git_stats populated for all 6 projects |
 | 4 | Static impact analysis + hotspot widget | Impact API + top-10 hotspot table |
@@ -32,7 +32,7 @@ Make LV_DCP genuinely useful on real multi-language projects (not just its own c
 
 **Language detection:** simple heuristic — if token contains Cyrillic characters, apply pymorphy3. Otherwise leave as-is (FTS5 unicode61 handles English).
 
-**Dependency:** `pymorphy3` + `pymorphy3-dicts-ru` added to `pyproject.toml` as required dependency (~15MB installed). Performance: ~100K words/sec normalization. TG_APP_COLLECT scan overhead: +2-5 seconds.
+**Dependency:** `pymorphy3` + `pymorphy3-dicts-ru` added to `pyproject.toml` as required dependency (~15MB installed). Performance: ~100K words/sec normalization. Project_Large scan overhead: +2-5 seconds.
 
 **Implementation:**
 
@@ -98,8 +98,8 @@ Add size-based ignore: skip files > 100KB with extension `.json` (data dumps). I
 version: 1
 description: Real queries across multiple registered projects.
 projects:
-  TG_APP_COLLECT:
-    root: /Users/v.lukin/Nextcloud/lukinvit.tech/projects/TG_APP_COLLECT
+  Project_Large:
+    root: Project_Large
     queries:
       - id: tc01-telegram-client
         text: "telegram client connection and rate limiting"
@@ -122,7 +122,7 @@ projects:
 
 **Eval runner extension:** `tests/eval/run_multiproject_eval.py` — scans each project, runs queries, reports per-project recall@5.
 
-**Week 1 eval gate:** TG_APP_COLLECT recall@5 ≥ 0.60 on tc01-tc03.
+**Week 1 eval gate:** Project_Large recall@5 ≥ 0.60 on tc01-tc03.
 
 ## 4. Week 2 — Adaptive Graph + UI Project Management
 
@@ -383,7 +383,7 @@ def _git_changed_files(project_root: Path) -> list[str]:
 |---|---|---|
 | LV_DCP synthetic recall@5 | ≥ 0.92 | No regression from Phase 3c.2 |
 | LV_DCP real recall@5 | ≥ 0.80 | No regression |
-| TG_APP_COLLECT recall@5 | ≥ 0.60 | Litmus test |
+| Project_Large recall@5 | ≥ 0.60 | Litmus test |
 | Cross-project average recall@5 | ≥ 0.50 | Across all 6 projects |
 | LV_DCP impact_recall@5 | ≥ 0.85 | No regression |
 
@@ -461,7 +461,7 @@ tests/
 ## 11. Risks
 
 **R1 — pymorphy3 slows scan significantly on large projects.**
-Mitigation: lazy initialization (first call only), normalize only during FTS indexing (not during symbol/relation extraction). Benchmark on TG_APP_COLLECT: must stay under +10 seconds.
+Mitigation: lazy initialization (first call only), normalize only during FTS indexing (not during symbol/relation extraction). Benchmark on Project_Large: must stay under +10 seconds.
 
 **R2 — Git blame on large repos is slow.**
 Mitigation: batch mode (`git log --name-only` for churn, single pass). Blame only for files that changed. Full blame run only on `--full` scan. Timeout: 30s per project, skip gracefully.
@@ -498,12 +498,12 @@ Phase 4 closes when ALL pass:
 1. LV_DCP synthetic recall@5 ≥ 0.92
 2. LV_DCP real recall@5 ≥ 0.80
 3. LV_DCP impact_recall@5 ≥ 0.85
-4. TG_APP_COLLECT recall@5 ≥ 0.60
+4. Project_Large recall@5 ≥ 0.60
 5. Cross-project average recall@5 ≥ 0.50
 6. `make lint typecheck test` green
 7. Hotspot widget renders for all 6 projects
 8. Impact API returns valid data for all 6 projects
-9. Graph clustering works on TG_APP_COLLECT (1544 files)
+9. Graph clustering works on Project_Large (1544 files)
 10. Dogfood report `docs/dogfood/phase-4.md` committed
 
 **If all pass:** version 0.4.0, tag `phase-4-complete`.

@@ -14,8 +14,8 @@ Full log: `/tmp/phase-3a-dogfood.log`
 | Project | install | doctor | scan | launchd | handshake | uninstall | Manual edits |
 |---|---|---|---|---|---|---|---|
 | LV_DCP | ✓ | ✓ 7/7 | 176 files / 0.32s warm | ✓ bootstrap+bootout | ✓ | ✓ | none |
-| TG_Proxy_enaibler_bot | ✓ | ✓ 7/7 | 146 files / 0.56s warm | ✓ bootstrap+bootout | ✓ | ✓ | none |
-| TG_RUSCOFFEE_ADMIN_BOT | ✓ | ✓ 7/7 | 109 files / 0.30s warm | ✓ bootstrap+bootout | ✓ | ✓ | none |
+| Project_Medium_A | ✓ | ✓ 7/7 | 146 files / 0.56s warm | ✓ bootstrap+bootout | ✓ | ✓ | none |
+| Project_Medium_B | ✓ | ✓ 7/7 | 109 files / 0.30s warm | ✓ bootstrap+bootout | ✓ | ✓ | none |
 
 **Dogfood exit code: 0 (zero failures across all 3 projects × 7 steps).**
 

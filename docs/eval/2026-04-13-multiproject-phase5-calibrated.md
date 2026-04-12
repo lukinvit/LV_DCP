@@ -2,7 +2,7 @@
 
 ## Per-project results
 
-### TG_APP_COLLECT
+### Project_Large
 
 | id | recall@5 | missed |
 |---|---|---|
@@ -14,7 +14,7 @@
 
 **Average recall@5: 1.000**
 
-### TG_Proxy_enaibler_bot
+### Project_Medium_A
 
 | id | recall@5 | missed |
 |---|---|---|
@@ -23,7 +23,7 @@
 
 **Average recall@5: 1.000**
 
-### TG_RUSCOFFEE_ADMIN_BOT
+### Project_Medium_B
 
 | id | recall@5 | missed |
 |---|---|---|
@@ -31,7 +31,7 @@
 
 **Average recall@5: 1.000**
 
-### LV_Presentation
+### Project_Small
 
 | id | recall@5 | missed |
 |---|---|---|
