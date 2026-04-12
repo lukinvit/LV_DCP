@@ -86,7 +86,7 @@ $ ctx pack . "refresh token rotation" --mode edit
 | 3c.2 | 0.3.4 | Done | Role-weighted fusion, config boost, graph depth tuning |
 | 4 | 0.4.0 | Done | pymorphy3 stemmer, git intelligence, impact analysis, hotspots, adaptive graph clustering, UI project management, diff-aware edit packs |
 | 5 | **0.5.0** | **Done** | Hook enforcement, dual-language retrieval, 5 new relation types (tests_for, inherits, specifies), value metrics dashboard, scan coverage, 457 tests passing |
-| 6 | — | Next | Cross-language parsers (TS/JS), Qdrant, VS Code extension |
+| 6 | — | Next | Cross-language parsers (TS/JS/Go/Rust), Qdrant, VS Code extension, Obsidian sync |
 
 ### Test suite
 
@@ -118,7 +118,7 @@ lvdcp_status()                  # workspace summary across all registered projec
 lvdcp_status(path="/abs/p")     # single project detail including dependency graph
 ```
 
-Upgrading from Phase 3a: `git pull && uv sync && ctx mcp install` (doctor will prompt on version mismatch).
+Upgrading: `git pull && uv sync --extra dev && uv run ctx mcp install`.
 
 ## Phase 3c.1 — LLM Summaries (new in 0.3.2)
 
@@ -162,7 +162,7 @@ Dashboard topbar shows `$X.XX / $25 monthly` budget usage. `ctx mcp doctor` now 
 
 See [docs/adr/006-llm-provider-abstraction.md](docs/adr/006-llm-provider-abstraction.md) for the pluggable design rationale.
 
-Upgrading from Phase 3b: `git pull && uv sync --all-extras && ctx mcp install` (doctor will prompt on version mismatch).
+Upgrading: `git pull && uv sync --extra dev && uv run ctx mcp install`.
 
 ## Prerequisites
 
@@ -329,10 +329,10 @@ The daemon uses `watchdog.observers.Observer` which auto-selects `FSEventsObserv
 
 ## Roadmap
 
-- **Phase 3** (planned) — LLM summaries via Claude API with content-hash cache, vector search (sqlite-vss / pgvector), multi-stage retrieval with reranking, usage dashboard with project graph visualization, per-project cost tracking. Deferred from Phase 2 per [ADR-004](docs/adr/004-phase-2-pivot.md).
-- **Phase 4** — Cross-file call resolution via static analysis, edit pack v2 with real impact analysis, git intelligence (hotspots, co-change, diff summaries).
-- **Phase 5** — Qdrant (if metrics justify), TypeScript / Go / Rust parsers, cross-project pattern search.
-- **Phase 6** — VS Code extension (native UI, not just MCP), Obsidian vault sync, admin web UI.
+- **Phase 3** (done, v0.3.0–0.3.4) — LLM summaries with content-hash cache, dashboard UI (D3 graph, sparklines, health cards), cost tracking, settings UI, role-weighted retrieval fusion, config boost, graph depth tuning.
+- **Phase 4** (done, v0.4.0) — pymorphy3 Russian stemmer, git intelligence (churn/blame), static impact analysis + hotspot widget, adaptive graph clustering, UI project management, diff-aware edit packs.
+- **Phase 5** (done, v0.5.0) — Hook enforcement (PreToolUse/PostToolUse), dual-language retrieval (80+ ru↔en terms), 5 new relation types (tests_for, inherits, specifies), value metrics dashboard, scan coverage widget, 457 tests (0 failures).
+- **Phase 6** (next) — Cross-language parsers (TypeScript, Go, Rust), Qdrant vector store, VS Code extension, Obsidian vault sync, cross-project pattern search.
 
 ## Contributing
 
