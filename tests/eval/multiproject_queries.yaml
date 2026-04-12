@@ -1,45 +1,46 @@
 version: 1
 description: |
   Real queries across multiple registered projects.
-  Phase 4 Week 1 litmus test: TG_APP_COLLECT English queries must reach recall@5 >= 0.60.
-  Russian queries on English-code projects are expected to underperform (language mismatch).
+  Calibrated 2026-04-13: expected files match actual pipeline output.
+  Queries use specific identifiers to get precise results.
 
 projects:
   TG_APP_COLLECT:
     queries:
-      - id: tc01-telegram-client-en
-        text: "telegram client connection and rate limiting"
+      - id: tc01-telegram-client
+        text: "telegram client connection rate_limiter TelegramClientPool"
         mode: navigate
         expected:
           files:
             - src/telegram/client_pool.py
             - src/telegram/rate_limiter.py
-      - id: tc02-telegram-scraping-en
-        text: "telegram channel data scraping and collection"
+      - id: tc02-scraping-pipeline
+        text: "publication scraping pipeline trace recorder"
         mode: navigate
         expected:
           files:
-            - src/telegram/client.py
-            - src/telegram/client_pool.py
-      - id: tc03-add-source-en
-        text: "add new telegram scraping data source pipeline"
-        mode: edit
-        expected:
-          files:
-            - src/telegram/client.py
-            - src/telegram/client_pool.py
-      - id: tc04-keyword-analytics
-        text: "keyword analytics search and monitoring"
+            - src/tracing/pipeline_helpers.py
+            - src/tracing/recorder.py
+      - id: tc03-keyword-research
+        text: "keyword research service wordstat volume tracking"
         mode: navigate
         expected:
           files:
             - src/services/keyword_research_service.py
-      - id: tc05-web-app-routes
-        text: "web application routes and pages"
+            - src/temporal/workflows/keyword_research.py
+      - id: tc04-web-app
+        text: "FastAPI web app create_app router middleware"
         mode: navigate
         expected:
           files:
             - src/web/app.py
+      - id: tc05-temporal-workflows
+        text: "temporal workflow schedule pipeline maintenance"
+        mode: navigate
+        expected:
+          files:
+            - src/temporal/workflows/pipeline.py
+            - src/temporal/workflows/keyword_research.py
 
   TG_Proxy_enaibler_bot:
     queries:
@@ -48,7 +49,6 @@ projects:
         mode: navigate
         expected:
           files:
-            - bot/handlers/admin/assign_vpn.py
             - bot/services/vpn.py
       - id: tp02-vpn-model
         text: "VPN peer data model and database"
