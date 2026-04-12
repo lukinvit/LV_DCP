@@ -170,9 +170,7 @@ def _cluster_files(
     for n in nodes:
         parts = n.id.split("/")
         cluster_id = (
-            "/".join(parts[:2])
-            if len(parts) > 2
-            else (parts[0] if len(parts) == 2 else ".")
+            "/".join(parts[:2]) if len(parts) > 2 else (parts[0] if len(parts) == 2 else ".")
         )
         buckets.setdefault(cluster_id, []).append(n)
 
@@ -190,9 +188,7 @@ def _cluster_files(
         total_deg = sum(d for _, d in files_with_deg)
 
         top = [
-            GraphFileNode(
-                id=fn.id, label=fn.id.split("/")[-1], role=fn.role, degree=d
-            )
+            GraphFileNode(id=fn.id, label=fn.id.split("/")[-1], role=fn.role, degree=d)
             for fn, d in files_with_deg[:files_per_cluster]
         ]
 
@@ -231,9 +227,7 @@ def _build_graph_dump(root: Path) -> GraphDump | None:
     all_nodes: list[GraphNode] = []
     seen: set[str] = set()
     for f in files:
-        all_nodes.append(
-            GraphNode(id=f.path, label=f.path, role=_role_for_file(f.path))
-        )
+        all_nodes.append(GraphNode(id=f.path, label=f.path, role=_role_for_file(f.path)))
         seen.add(f.path)
 
     symbol_to_file: dict[str, str] = {}
