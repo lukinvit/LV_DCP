@@ -26,16 +26,22 @@ def _auto_register(config_path: Path, root: Path) -> None:
 _MANAGED_SECTION = """\
 
 <!-- LV_DCP managed section — do not edit manually -->
-## LV_DCP Context Discipline
+## LV_DCP Context Discipline (ОБЯЗАТЕЛЬНО)
 
-This project is indexed by LV_DCP. Before reading multiple files to answer \
-a question or start an edit task, **call `lvdcp_pack` first**:
+**BLOCKING REQUIREMENT:** This project is indexed by LV_DCP. \
+You MUST call `lvdcp_pack` BEFORE using Grep, Read, or any file exploration tool. \
+This is not optional.
+
+**EVERY task starts with lvdcp_pack:**
 
 - Navigate: `lvdcp_pack(path="{root}", query="your question", mode="navigate")`
 - Edit: `lvdcp_pack(path="{root}", query="task description", mode="edit")`
 
-The returned pack (2-20 KB) contains ranked files and symbols — much cheaper \
-than grep-walking the repo.
+**Why:** The pack returns 2-20 KB of ranked files and symbols in <1 second. \
+Without it, you grep-walk the entire repo (~1M+ tokens). The pack is 1000x cheaper \
+and already knows the dependency graph.
+
+**After receiving the pack:** Read only the top files from it. Do NOT grep the entire repo.
 <!-- end LV_DCP managed section -->
 """
 
