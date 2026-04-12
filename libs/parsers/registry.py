@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from libs.parsers.base import FileParser
+from libs.parsers.golang import GoParser
 from libs.parsers.python import PythonParser
+from libs.parsers.rust import RustParser
 from libs.parsers.text_parsers import JsonParser, MarkdownParser, TomlParser, YamlParser
+from libs.parsers.typescript import TypeScriptParser
 
 EXTENSION_TO_LANGUAGE: dict[str, str] = {
     ".py": "python",
@@ -14,6 +17,14 @@ EXTENSION_TO_LANGUAGE: dict[str, str] = {
     ".yml": "yaml",
     ".json": "json",
     ".toml": "toml",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
+    ".go": "go",
+    ".rs": "rust",
 }
 
 
@@ -24,12 +35,23 @@ def detect_language(path: str) -> str:
     return "unknown"
 
 
+def _make_js_parser() -> TypeScriptParser:
+    """Create a TypeScriptParser configured for JavaScript grammar."""
+    p = TypeScriptParser()
+    p.language = "javascript"
+    return p
+
+
 _PARSERS: dict[str, FileParser] = {
     "python": PythonParser(),
     "markdown": MarkdownParser(),
     "yaml": YamlParser(),
     "json": JsonParser(),
     "toml": TomlParser(),
+    "typescript": TypeScriptParser(),
+    "javascript": _make_js_parser(),
+    "go": GoParser(),
+    "rust": RustParser(),
 }
 
 

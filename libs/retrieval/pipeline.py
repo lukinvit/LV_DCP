@@ -364,3 +364,20 @@ def _apply_score_decay(
         else:
             dropped.append(Candidate(path=p, score=s, source="decayed"))
     return kept, dropped
+
+
+def rrf_fuse(
+    rankings: list[dict[str, float]],
+    k: int = 60,
+) -> dict[str, float]:
+    """Reciprocal Rank Fusion across multiple score dictionaries.
+
+    Each ranking is a dict of {file_path: score}. Results are fused by
+    summing 1/(k + rank + 1) for each ranking. Higher k smooths differences.
+    """
+    fused: dict[str, float] = {}
+    for ranking in rankings:
+        sorted_items = sorted(ranking.items(), key=lambda x: -x[1])
+        for rank, (key, _) in enumerate(sorted_items):
+            fused[key] = fused.get(key, 0.0) + 1.0 / (k + rank + 1)
+    return fused

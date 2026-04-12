@@ -1,9 +1,9 @@
 # LV_DCP — Developer Context Platform
 
-**Local-first engineering memory.** Turns Python projects on macOS into a queryable context layer for Claude, IDE agents, and humans. Reduces token cost of repeated code reading, builds a relation graph, and makes agent edits safer.
+**Local-first engineering memory.** Turns projects on macOS into a queryable context layer for Claude, IDE agents, and humans. Supports Python, TypeScript/JS, Go, and Rust. Reduces token cost of repeated code reading, builds a relation graph, and makes agent edits safer.
 
-[![Phase 5 Complete](https://img.shields.io/badge/phase-5%20complete-green)](docs/dogfood/phase-5.md)
-[![Version 0.5.0](https://img.shields.io/badge/version-0.5.0-blue)](pyproject.toml)
+[![Phase 6 Complete](https://img.shields.io/badge/phase-6%20complete-green)](docs/superpowers/specs/2026-04-13-phase-6-design.md)
+[![Version 0.6.0](https://img.shields.io/badge/version-0.6.0-blue)](pyproject.toml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue)](pyproject.toml)
 
@@ -53,7 +53,7 @@ $ ctx pack . "refresh token rotation" --mode edit
 
 ## Status
 
-**Phase 5 complete (2026-04-13)** — Stabilization, production adoption, multi-project retrieval. Version 0.5.0.
+**Phase 6 complete (2026-04-13)** — Cross-language parsers (TS/JS/Go/Rust), Qdrant vector store, Obsidian vault sync, VS Code extension MVP, cross-project patterns. Version 0.6.0.
 
 ### Retrieval quality (LV_DCP synthetic, 32 queries)
 
@@ -85,12 +85,12 @@ $ ctx pack . "refresh token rotation" --mode edit
 | 3c.1 | 0.3.3 | Done | LLM summaries, cost tracking, settings UI |
 | 3c.2 | 0.3.4 | Done | Role-weighted fusion, config boost, graph depth tuning |
 | 4 | 0.4.0 | Done | pymorphy3 stemmer, git intelligence, impact analysis, hotspots, adaptive graph clustering, UI project management, diff-aware edit packs |
-| 5 | **0.5.0** | **Done** | Hook enforcement, dual-language retrieval, 5 new relation types (tests_for, inherits, specifies), value metrics dashboard, scan coverage, 457 tests passing |
-| 6 | — | Next | Cross-language parsers (TS/JS/Go/Rust), Qdrant, VS Code extension, Obsidian sync |
+| 5 | 0.5.0 | Done | Hook enforcement, dual-language retrieval, 5 new relation types (tests_for, inherits, specifies), value metrics dashboard, scan coverage, 457 tests passing |
+| 6 | **0.6.0** | **Done** | Cross-language parsers (TS/JS/Go/Rust), Qdrant vector store, Obsidian vault sync, VS Code extension MVP, cross-project patterns, 586 tests passing |
 
 ### Test suite
 
-457 tests, 0 failures. Eval harness with 32 synthetic + 10 multi-project queries.
+586 tests, 0 failures. Eval harness with 32 synthetic + 10 multi-project queries.
 
 ## Dashboard
 

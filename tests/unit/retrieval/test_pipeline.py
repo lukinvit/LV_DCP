@@ -4,7 +4,7 @@ import pytest
 from libs.core.entities import File, Symbol, SymbolType
 from libs.retrieval.fts import FtsIndex
 from libs.retrieval.index import SymbolIndex
-from libs.retrieval.pipeline import RetrievalPipeline, RetrievalResult
+from libs.retrieval.pipeline import RetrievalPipeline, RetrievalResult, rrf_fuse
 from libs.storage.sqlite_cache import SqliteCache
 
 
@@ -77,3 +77,27 @@ def test_pipeline_finds_file_by_fts(pipeline: RetrievalPipeline) -> None:
 def test_pipeline_combines_symbol_and_fts(pipeline: RetrievalPipeline) -> None:
     result = pipeline.retrieve("login", mode="navigate", limit=5)
     assert result.files[0] == "app/handlers/auth.py"
+
+
+# --- RRF fusion tests ---
+
+
+def test_rrf_fuse_combines_rankings() -> None:
+    r1 = {"a.py": 3.0, "b.py": 2.0, "c.py": 1.0}
+    r2 = {"b.py": 3.0, "c.py": 2.0, "d.py": 1.0}
+    fused = rrf_fuse([r1, r2])
+    sorted_fused = sorted(fused.items(), key=lambda x: -x[1])
+    # b.py appears high in both → highest fused score
+    assert sorted_fused[0][0] == "b.py"
+    assert "d.py" in fused
+
+
+def test_rrf_fuse_empty_rankings() -> None:
+    fused = rrf_fuse([{}, {}])
+    assert fused == {}
+
+
+def test_rrf_fuse_single_ranking() -> None:
+    r1 = {"a.py": 3.0, "b.py": 1.0}
+    fused = rrf_fuse([r1])
+    assert set(fused.keys()) == {"a.py", "b.py"}

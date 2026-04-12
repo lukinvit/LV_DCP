@@ -7,7 +7,7 @@ from pathlib import Path
 import typer
 
 from apps.cli.commands import inspect as inspect_module
-from apps.cli.commands import mcp_cmd, watch_cmd
+from apps.cli.commands import mcp_cmd, obsidian_cmd, watch_cmd
 from apps.cli.commands import pack as pack_module
 from apps.cli.commands import scan as scan_module
 from apps.cli.commands import summarize as summarize_module
@@ -66,3 +66,4 @@ app.command()(ui_module.ui)
 
 app.add_typer(mcp_cmd.app, name="mcp")
 app.add_typer(watch_cmd.app, name="watch")
+app.add_typer(obsidian_cmd.app, name="obsidian")

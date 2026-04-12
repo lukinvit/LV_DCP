@@ -1,0 +1,56 @@
+{
+    "name": "lv-dcp",
+    "displayName": "LV_DCP — Developer Context Platform",
+    "description": "Context packs and impact analysis for your codebase",
+    "version": "0.6.0",
+    "publisher": "lukinvit",
+    "engines": {
+        "vscode": "^1.85.0"
+    },
+    "categories": [
+        "Other"
+    ],
+    "activationEvents": [
+        "onStartupFinished"
+    ],
+    "main": "./out/extension.js",
+    "contributes": {
+        "commands": [
+            {
+                "command": "lvdcp.getPack",
+                "title": "LV_DCP: Get Context Pack"
+            },
+            {
+                "command": "lvdcp.showImpact",
+                "title": "LV_DCP: Show Impact"
+            }
+        ],
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "lvdcp",
+                    "title": "LV_DCP",
+                    "icon": "$(symbol-structure)"
+                }
+            ]
+        },
+        "views": {
+            "lvdcp": [
+                {
+                    "id": "lvdcp.packResults",
+                    "name": "Context Pack"
+                }
+            ]
+        }
+    },
+    "scripts": {
+        "compile": "tsc -p ./",
+        "package": "npx @vscode/vsce package --no-dependencies"
+    },
+    "devDependencies": {
+        "@types/vscode": "^1.85.0",
+        "@types/node": "^20.0.0",
+        "typescript": "^5.4.0",
+        "@vscode/vsce": "^2.22.0"
+    }
+}
