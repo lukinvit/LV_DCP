@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextlib
 from pathlib import Path
 
-from fastapi import APIRouter, Form
+from fastapi import APIRouter, Form, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from libs.scanning.scanner import scan_project
 from libs.status.aggregator import build_workspace_status, resolve_config_path
@@ -15,10 +15,10 @@ from apps.agent.config import add_project, remove_project
 router = APIRouter()
 
 
-@router.post("/api/projects/add")
+@router.post("/api/projects/add", response_model=None)
 def add_project_endpoint(
     path: str = Form(...),
-) -> HTMLResponse | RedirectResponse:
+) -> Response:
     resolved = Path(path).expanduser().resolve()
     if not resolved.is_dir():
         return HTMLResponse(
