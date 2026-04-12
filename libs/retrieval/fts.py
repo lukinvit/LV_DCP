@@ -1,7 +1,7 @@
 """SQLite FTS5 wrapper for full-text search over file contents and symbol text.
 
 Two-layer schema:
-- fts_files(path, content) — one row per file
+- fts_files(path, content, content_stemmed) — one row per file
 - external delete/replace handled via explicit DELETE + INSERT
 """
 
@@ -11,6 +11,7 @@ import sqlite3
 from pathlib import Path
 
 from libs.retrieval._stopwords import STOPWORDS
+from libs.retrieval.stemmer import normalize_query, normalize_text
 
 
 class FtsIndex:
@@ -27,11 +28,16 @@ class FtsIndex:
 
     def create(self) -> None:
         conn = self._connect()
+        try:
+            conn.execute("SELECT content_stemmed FROM fts_files LIMIT 0")
+        except sqlite3.OperationalError:
+            conn.execute("DROP TABLE IF EXISTS fts_files")
         conn.executescript(
             """
             CREATE VIRTUAL TABLE IF NOT EXISTS fts_files USING fts5(
                 path UNINDEXED,
                 content,
+                content_stemmed,
                 tokenize = 'porter unicode61'
             );
             """
@@ -40,10 +46,11 @@ class FtsIndex:
 
     def index_file(self, path: str, content: str) -> None:
         conn = self._connect()
+        stemmed = normalize_text(content)
         conn.execute("DELETE FROM fts_files WHERE path = ?", (path,))
         conn.execute(
-            "INSERT INTO fts_files (path, content) VALUES (?, ?)",
-            (path, content),
+            "INSERT INTO fts_files (path, content, content_stemmed) VALUES (?, ?, ?)",
+            (path, content, stemmed),
         )
         conn.commit()
 
@@ -59,11 +66,15 @@ class FtsIndex:
 
     def search(self, query: str, *, limit: int = 20) -> list[tuple[str, float]]:
         conn = self._connect()
-        and_query, or_query = self._sanitize(query)
+        normalized = normalize_query(query)
+        and_query, or_query = self._sanitize(normalized)
+        if not and_query and not or_query:
+            and_query, or_query = self._sanitize(query)
         if not and_query and not or_query:
             return []
         # Try strict AND first; fall back to OR if no results
         for fts_query in filter(None, [and_query, or_query]):
+            fts_expr = f"{{content content_stemmed}}: ({fts_query})"
             try:
                 rows = conn.execute(
                     """
@@ -73,7 +84,7 @@ class FtsIndex:
                     ORDER BY score DESC
                     LIMIT ?
                     """,
-                    (fts_query, limit),
+                    (fts_expr, limit),
                 ).fetchall()
             except sqlite3.OperationalError:
                 rows = []
