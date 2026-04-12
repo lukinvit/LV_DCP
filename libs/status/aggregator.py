@@ -166,11 +166,19 @@ def _build_graph_dump(root: Path) -> GraphDump | None:
         nodes.append(GraphNode(id=f.path, label=f.path, role=_role_for_file(f.path)))
         seen.add(f.path)
 
-    edges: list[GraphEdge] = []
+    symbol_to_file: dict[str, str] = {}
     for rel in relations:
-        if rel.src_ref in seen and rel.dst_ref in seen:
-            edges.append(GraphEdge(src=rel.src_ref, dst=rel.dst_ref))
+        if rel.src_type == "file" and rel.dst_type == "symbol" and rel.relation_type == "defines":
+            symbol_to_file[rel.dst_ref] = rel.src_ref
 
+    edge_pairs: set[tuple[str, str]] = set()
+    for rel in relations:
+        src_file = rel.src_ref if rel.src_type == "file" else symbol_to_file.get(rel.src_ref)
+        dst_file = rel.dst_ref if rel.dst_type == "file" else symbol_to_file.get(rel.dst_ref)
+        if src_file and dst_file and src_file != dst_file and src_file in seen and dst_file in seen:
+            edge_pairs.add((src_file, dst_file))
+
+    edges = [GraphEdge(src=s, dst=d) for s, d in edge_pairs]
     return GraphDump(nodes=nodes, edges=edges)
 
 
