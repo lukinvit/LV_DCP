@@ -2,7 +2,8 @@
 
 **Local-first engineering memory.** Turns Python projects on macOS into a queryable context layer for Claude, IDE agents, and humans. Reduces token cost of repeated code reading, builds a relation graph, and makes agent edits safer.
 
-[![Phase 2 Complete](https://img.shields.io/badge/phase-2%20complete-green)](docs/dogfood/phase-2.md)
+[![Phase 5 Complete](https://img.shields.io/badge/phase-5%20complete-green)](docs/dogfood/phase-4.md)
+[![Version 0.5.0](https://img.shields.io/badge/version-0.5.0-blue)](pyproject.toml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue)](pyproject.toml)
 
@@ -52,18 +53,46 @@ $ ctx pack . "refresh token rotation" --mode edit
 
 ## Status
 
-**Phase 2 complete (2026-04-11)** — Native integration (MCP server) + retrieval completeness (graph expansion). Phase 3 (LLM summaries, vector search) in planning.
+**Phase 5 complete (2026-04-13)** — Stabilization, production adoption, multi-project retrieval. Version 0.5.0.
 
-| Metric | Value | Threshold |
-|---|---|---|
-| recall@5 files | 0.891 | ≥ 0.85 |
-| precision@3 files | 0.620 | ≥ 0.60 |
-| recall@5 symbols | 0.833 | ≥ 0.80 |
-| impact_recall@5 | 0.819 | ≥ 0.75 |
+### Retrieval quality (LV_DCP synthetic, 32 queries)
 
-Measured against a fixture repo with 32 queries including 12 "impact" queries that depend on graph-aware retrieval.
+| Metric | Value | Threshold | Delta from Phase 2 |
+|---|---|---|---|
+| recall@5 files | **0.964** | ≥ 0.92 | +0.073 |
+| precision@3 files | 0.568 | ≥ 0.60 | -0.052 |
+| recall@5 symbols | 0.880 | ≥ 0.80 | +0.047 |
+| impact_recall@5 | **0.931** | ≥ 0.85 | +0.112 |
 
-## Phase 3b — Dashboard (new in 0.3.1)
+### Multi-project retrieval (10 queries, 4 projects)
+
+| Metric | Value |
+|---|---|
+| Global recall@5 | **1.000** |
+| TG_APP_COLLECT (1208 files) | 1.000 |
+| TG_Proxy_enaibler_bot | 1.000 |
+| TG_RUSCOFFEE_ADMIN_BOT | 1.000 |
+| LV_Presentation | 1.000 |
+
+### Roadmap
+
+| Phase | Version | Status | Key deliverables |
+|---|---|---|---|
+| 0-1 | 0.1.x | Done | Foundation, deterministic retrieval, eval harness |
+| 2 | 0.2.x | Done | MCP server, graph expansion, symbol index |
+| 3a | 0.3.0 | Done | CLI cleanup, launchd service, install story |
+| 3b | 0.3.1 | Done | Dashboard UI (D3 graph, sparklines, health cards) |
+| 3c.1 | 0.3.3 | Done | LLM summaries, cost tracking, settings UI |
+| 3c.2 | 0.3.4 | Done | Role-weighted fusion, config boost, graph depth tuning |
+| 4 | 0.4.0 | Done | pymorphy3 stemmer, git intelligence, impact analysis, hotspots, adaptive graph clustering, UI project management, diff-aware edit packs |
+| 5 | **0.5.0** | **Done** | Hook enforcement, dual-language retrieval, 5 new relation types (tests_for, inherits, specifies), value metrics dashboard, scan coverage, 457 tests passing |
+| 6 | — | Next | Cross-language parsers (TS/JS), Qdrant, VS Code extension |
+
+### Test suite
+
+457 tests, 0 failures. Eval harness with 32 synthetic + 10 multi-project queries.
+
+## Dashboard
 
 Local project status dashboard:
 
@@ -73,10 +102,13 @@ uv run ctx ui /path/to/project     # open a specific project detail view
 ```
 
 Features:
-- Multi-project grid with file/symbol/relation counts, last scan status, daemon health
-- Dependency graph visualization (D3 force-directed, up to 200 nodes)
-- Sparklines: queries/day, scans/day, pack latency p95, average retrieval coverage (rolling 7 days)
-- Claude Code token usage totals (rolling 7d + 30d) aggregated from `~/.claude/projects/`
+- **Value metrics**: packs served, compression ratio, coverage quality
+- **Multi-project grid** with add/remove buttons, file/symbol/relation counts
+- **Adaptive dependency graph**: module clustering (click to expand), zoom+pan, hover tooltips
+- **Hotspots table**: top-10 riskiest files (fan_in x churn x test coverage)
+- **Scan coverage**: per-project symbol coverage %, language/relation breakdown
+- **Sparklines**: queries/day, scans/day, pack latency p95, coverage (rolling 7 days)
+- **Claude Code token usage** totals (rolling 7d + 30d)
 
 The same data is available programmatically via the new `lvdcp_status` MCP resource:
 

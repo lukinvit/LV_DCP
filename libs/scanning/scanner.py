@@ -143,7 +143,7 @@ def _process_and_index_files(  # noqa: PLR0912, PLR0915
     )
 
 
-def scan_project(
+def scan_project(  # noqa: PLR0912, PLR0915
     root: Path,
     *,
     mode: Literal["full", "incremental"] = "incremental",
@@ -192,6 +192,48 @@ def scan_project(
             for file_stats in git_stats.values():
                 if file_stats.file_path in visited_paths:
                     cache.put_git_stats(file_stats, computed_at=now_ts)
+
+        # Docs -> code linking (specifies relations)
+        from libs.parsers.docs_linker import extract_specifies_relations  # noqa: PLC0415
+
+        docs_files: list[tuple[str, str]] = []
+        for f in cache.iter_files():
+            if f.role == "docs":
+                try:
+                    text = (root / f.path).read_text(encoding="utf-8", errors="replace")
+                    docs_files.append((f.path, text))
+                except OSError:
+                    pass
+        if docs_files:
+            all_paths = {f.path for f in cache.iter_files()}
+            spec_rels = extract_specifies_relations(docs_files, all_paths)
+            if spec_rels:
+                conn = cache._connect()
+                # Remove old specifies relations to avoid duplicates
+                conn.execute(
+                    "DELETE FROM relations WHERE relation_type = ?",
+                    ("specifies",),
+                )
+                conn.executemany(
+                    "INSERT INTO relations "
+                    "(src_type, src_ref, dst_type, dst_ref, relation_type, "
+                    "confidence, provenance, origin_file) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        (
+                            r.src_type,
+                            r.src_ref,
+                            r.dst_type,
+                            r.dst_ref,
+                            r.relation_type.value,
+                            r.confidence,
+                            r.provenance,
+                            r.src_ref,
+                        )
+                        for r in spec_rels
+                    ],
+                )
+                conn.commit()
 
         # Stale file cleanup (only in whole-project scans)
         stale_files_removed = 0

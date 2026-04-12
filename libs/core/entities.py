@@ -28,6 +28,7 @@ class RelationType(StrEnum):
     SAME_FILE_CALLS = "same_file_calls"
     INHERITS = "inherits"
     TESTS_FOR = "tests_for"
+    SPECIFIES = "specifies"
     # Phase 2+ — reserved for later
     REFERENCES = "references"
     USES_ENV = "uses_env"
