@@ -32,12 +32,15 @@ class PythonParser:
         collector = _SymbolCollector(file_path=file_path, module_fq=module_fq)
         collector.visit(tree)
 
+        relations = list(collector.relations)
+        relations.extend(self._infer_tests_for(file_path, collector.relations))
+
         return ParseResult(
             file_path=file_path,
             language=self.language,
             role=self._role(file_path),
             symbols=tuple(collector.symbols),
-            relations=tuple(collector.relations),
+            relations=tuple(relations),
         )
 
     @staticmethod
@@ -52,6 +55,54 @@ class PythonParser:
     @staticmethod
     def _role(file_path: str) -> str:
         return "test" if is_test_path(file_path) else "source"
+
+    # Top-level directories that indicate a project-internal import.
+    _INTERNAL_PREFIXES: frozenset[str] = frozenset(
+        {"src", "libs", "apps", "bot", "app", "pkg", "internal", "modules"}
+    )
+
+    @classmethod
+    def _infer_tests_for(
+        cls, file_path: str, relations: list[Relation]
+    ) -> list[Relation]:
+        """If *file_path* is a test file, promote its imports to tests_for relations."""
+        if not is_test_path(file_path):
+            return []
+
+        seen: set[str] = set()
+        result: list[Relation] = []
+        for rel in relations:
+            if rel.relation_type != RelationType.IMPORTS:
+                continue
+            # Derive the module path (strip symbol name for from-imports).
+            # from-imports: dst_type="symbol", dst_ref="libs.core.entities.File"
+            #   → module parts = ["libs", "core", "entities"]
+            # plain imports: dst_type="module", dst_ref="libs.core.entities"
+            #   → module parts = ["libs", "core", "entities"]
+            ref = rel.dst_ref
+            parts = ref.split(".")
+            if rel.dst_type == "symbol" and len(parts) >= 2:
+                # Last segment is the symbol name, not a module
+                parts = parts[:-1]
+
+            # Filter: only project-internal imports (first segment in known prefixes)
+            if not parts or parts[0] not in cls._INTERNAL_PREFIXES:
+                continue
+
+            candidate = "/".join(parts) + ".py"
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            result.append(
+                Relation(
+                    src_type="file",
+                    src_ref=file_path,
+                    dst_type="file",
+                    dst_ref=candidate,
+                    relation_type=RelationType.TESTS_FOR,
+                )
+            )
+        return result
 
 
 class _SymbolCollector(ast.NodeVisitor):
@@ -108,6 +159,7 @@ class _SymbolCollector(ast.NodeVisitor):
             )
         )
         self._add_defines(fq)
+        self._add_inherits(fq, node)
         self._scope_stack.append(fq)
         self.generic_visit(node)
         self._scope_stack.pop()
@@ -212,6 +264,61 @@ class _SymbolCollector(ast.NodeVisitor):
             return f"{node.name}({ast.unparse(node.args)})"
         except Exception:
             return node.name
+
+    def _add_inherits(self, class_fq: str, node: ast.ClassDef) -> None:
+        """Create INHERITS relations for each base class."""
+        for base in node.bases:
+            base_name = self._base_class_name(base)
+            if base_name is None:
+                continue
+            resolved = self._resolve_name(base_name)
+            self.relations.append(
+                Relation(
+                    src_type="symbol",
+                    src_ref=class_fq,
+                    dst_type="symbol",
+                    dst_ref=resolved,
+                    relation_type=RelationType.INHERITS,
+                )
+            )
+
+    def _resolve_name(self, name: str) -> str:
+        """Resolve a bare or dotted name using imports seen so far.
+
+        If *name* was imported (``from x.y import Name``), return the
+        fully-qualified ``x.y.Name``.  If it looks like a local definition
+        (another class in the same file), prefix with the module fq name.
+        Otherwise return the name unchanged.
+        """
+        # Check imports collected so far
+        for rel in self.relations:
+            if rel.relation_type != RelationType.IMPORTS:
+                continue
+            # from-imports store dst_ref as "module.Name"
+            if rel.dst_ref.endswith(f".{name}") or rel.dst_ref == name:
+                return rel.dst_ref
+        # Check if defined in same file
+        for sym in self.symbols:
+            if sym.name == name:
+                return sym.fq_name
+        # Fallback: qualify with module prefix (best-effort)
+        return f"{self.module_fq}.{name}"
+
+    @staticmethod
+    def _base_class_name(node: ast.expr) -> str | None:
+        """Extract the name string from a base class AST node."""
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            parts: list[str] = [node.attr]
+            cur: ast.expr = node.value
+            while isinstance(cur, ast.Attribute):
+                parts.append(cur.attr)
+                cur = cur.value
+            if isinstance(cur, ast.Name):
+                parts.append(cur.id)
+                return ".".join(reversed(parts))
+        return None
 
     @staticmethod
     def _call_target(func: ast.AST) -> str | None:
