@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from libs.retrieval.pipeline import (
-    CONFIG_BOOST_BASELINE,
+    CONFIG_BOOST_FLOOR,
+    CONFIG_BOOST_FRACTION,
     CONFIG_TRIGGER_KEYWORDS,
     DOCS_OVERRIDE_KEYWORDS,
     DOCS_OVERRIDE_MULTIPLIER,
@@ -133,7 +134,7 @@ class TestConfigBoostHeuristic:
         }
         _maybe_boost_config_files("what is the timeout", file_scores, file_roles)
         assert "config/settings.yaml" in file_scores
-        assert file_scores["config/settings.yaml"] == CONFIG_BOOST_BASELINE
+        assert file_scores["config/settings.yaml"] == 3.0 * CONFIG_BOOST_FRACTION
 
     def test_config_boost_does_not_override_higher_score(self) -> None:
         file_scores: dict[str, float] = {
@@ -158,6 +159,7 @@ class TestConfigBoostHeuristic:
         file_roles = {"config/settings.yaml": "config"}
         _maybe_boost_config_files("TIMEOUT handling", file_scores, file_roles)
         assert "config/settings.yaml" in file_scores
+        assert file_scores["config/settings.yaml"] == CONFIG_BOOST_FLOOR
 
     def test_only_config_role_files_boosted(self) -> None:
         file_scores: dict[str, float] = {}
@@ -171,11 +173,25 @@ class TestConfigBoostHeuristic:
 
     def test_trigger_keywords_completeness(self) -> None:
         expected = {
-            "config", "settings", "timeout", "ttl", "schedule",
+            "config", "settings", "timeout", "ttl", "schedule", "lifetime",
             "env", "port", "url", "host", "secret", "credential",
             "database", "db", "connection",
         }
         assert CONFIG_TRIGGER_KEYWORDS == expected
+
+    def test_no_substring_match_on_credentials(self) -> None:
+        """Word 'credentials' must NOT match keyword 'credential'."""
+        file_scores: dict[str, float] = {"libs/auth.py": 5.0}
+        file_roles = {"libs/auth.py": "source", "config/settings.yaml": "config"}
+        _maybe_boost_config_files("validates credentials", file_scores, file_roles)
+        assert "config/settings.yaml" not in file_scores
+
+    def test_no_substring_match_on_import(self) -> None:
+        """Word 'import' must NOT match keyword 'port'."""
+        file_scores: dict[str, float] = {"libs/main.py": 5.0}
+        file_roles = {"libs/main.py": "source", "config/settings.yaml": "config"}
+        _maybe_boost_config_files("import models", file_scores, file_roles)
+        assert "config/settings.yaml" not in file_scores
 
 
 class TestGraphDepthTuning:

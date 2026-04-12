@@ -62,11 +62,12 @@ DOCS_OVERRIDE_KEYWORDS: frozenset[str] = frozenset(
 DOCS_OVERRIDE_MULTIPLIER = 1.20
 
 CONFIG_TRIGGER_KEYWORDS: frozenset[str] = frozenset({
-    "config", "settings", "timeout", "ttl", "schedule",
+    "config", "settings", "timeout", "ttl", "schedule", "lifetime",
     "env", "port", "url", "host", "secret", "credential",
     "database", "db", "connection",
 })
-CONFIG_BOOST_BASELINE = 0.5
+CONFIG_BOOST_FRACTION = 0.5
+CONFIG_BOOST_FLOOR = 0.5
 
 
 def _maybe_boost_config_files(
@@ -75,13 +76,18 @@ def _maybe_boost_config_files(
     file_roles: dict[str, str],
 ) -> None:
     """Inject config files into candidate pool when query mentions config terms."""
-    query_lower = query.lower()
-    if not any(kw in query_lower for kw in CONFIG_TRIGGER_KEYWORDS):
+    query_words = set(query.lower().split())
+    if not query_words & CONFIG_TRIGGER_KEYWORDS:
         return
+    baseline = (
+        max(file_scores.values()) * CONFIG_BOOST_FRACTION
+        if file_scores
+        else CONFIG_BOOST_FLOOR
+    )
     for path, role in file_roles.items():
         if role == "config":
             current = file_scores.get(path, 0.0)
-            file_scores[path] = max(current, CONFIG_BOOST_BASELINE)
+            file_scores[path] = max(current, baseline)
 
 
 def _apply_role_weights(
