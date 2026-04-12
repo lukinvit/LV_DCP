@@ -7,6 +7,8 @@ from libs.retrieval.pipeline import (
     CONFIG_TRIGGER_KEYWORDS,
     DOCS_OVERRIDE_KEYWORDS,
     DOCS_OVERRIDE_MULTIPLIER,
+    GRAPH_EXPANSION_DEPTH,
+    GRAPH_EXPANSION_DEPTH_EDIT,
     ROLE_WEIGHTS_EDIT,
     ROLE_WEIGHTS_NAVIGATE,
     _apply_role_weights,
@@ -174,3 +176,44 @@ class TestConfigBoostHeuristic:
             "database", "db", "connection",
         }
         assert CONFIG_TRIGGER_KEYWORDS == expected
+
+
+class TestGraphDepthTuning:
+    """D3: graph expansion depth=3 for edit mode."""
+
+    def test_navigate_depth_unchanged(self) -> None:
+        assert GRAPH_EXPANSION_DEPTH == 2
+
+    def test_edit_depth_is_three(self) -> None:
+        assert GRAPH_EXPANSION_DEPTH_EDIT == 3
+
+    def test_stage_graph_uses_edit_depth(self) -> None:
+        """Verify _stage_graph passes the correct depth based on mode."""
+        from unittest.mock import MagicMock, patch
+
+        from libs.retrieval.pipeline import RetrievalPipeline
+
+        mock_cache = MagicMock()
+        mock_cache.iter_files.return_value = []
+        mock_fts = MagicMock()
+        mock_fts.search.return_value = [("libs/foo.py", 1.0)]
+        mock_symbols = MagicMock()
+        mock_symbols.lookup.return_value = []
+        mock_symbols._symbols = []
+
+        mock_graph = MagicMock()
+
+        captured_depths: list[int] = []
+
+        def fake_expand(seeds, graph, *, depth, decay):
+            captured_depths.append(depth)
+            return []
+
+        with patch("libs.retrieval.pipeline.expand_via_graph", side_effect=fake_expand):
+            pipeline = RetrievalPipeline(
+                cache=mock_cache, fts=mock_fts, symbols=mock_symbols, graph=mock_graph
+            )
+            pipeline.retrieve("edit something", mode="edit")
+            pipeline.retrieve("find something", mode="navigate")
+
+        assert captured_depths == [3, 2]

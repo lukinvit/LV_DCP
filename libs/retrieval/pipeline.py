@@ -29,6 +29,7 @@ SYMBOL_WEIGHT = 3.0
 FTS_WEIGHT = 1.0
 SCORE_DECAY_THRESHOLD = 0.4
 GRAPH_EXPANSION_DEPTH = 2
+GRAPH_EXPANSION_DEPTH_EDIT = 3
 GRAPH_EXPANSION_DECAY = 0.7
 GRAPH_SEED_COUNT = 5  # how many top candidates seed graph expansion
 
@@ -250,10 +251,11 @@ class RetrievalPipeline:
         top_seeds = dict(sorted(file_scores.items(), key=lambda kv: -kv[1])[:GRAPH_SEED_COUNT])
         expansion_weight = 1.0 if mode == "edit" else 0.5
         expanded_candidates: list[Candidate] = []
+        depth = GRAPH_EXPANSION_DEPTH_EDIT if mode == "edit" else GRAPH_EXPANSION_DEPTH
         for expanded in expand_via_graph(
             top_seeds,
             graph,
-            depth=GRAPH_EXPANSION_DEPTH,
+            depth=depth,
             decay=GRAPH_EXPANSION_DECAY,
         ):
             boosted_score = expanded.score * expansion_weight
