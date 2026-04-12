@@ -78,7 +78,8 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S", "PL"]
+"tests/**/*.py" = ["S", "PL", "RUF001"]
+"libs/retrieval/stemmer.py" = ["RUF001"]
 
 [tool.mypy]
 python_version = "3.12"

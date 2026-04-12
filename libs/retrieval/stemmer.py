@@ -17,7 +17,7 @@ _analyzer = None
 def _get_analyzer():  # type: ignore[no-untyped-def]
     global _analyzer  # noqa: PLW0603
     if _analyzer is None:
-        import pymorphy3
+        import pymorphy3  # noqa: PLC0415
 
         _analyzer = pymorphy3.MorphAnalyzer()
     return _analyzer

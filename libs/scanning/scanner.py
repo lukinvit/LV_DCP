@@ -45,7 +45,7 @@ class ScanResult:
     elapsed_seconds: float
 
 
-def _process_and_index_files(  # noqa: PLR0915
+def _process_and_index_files(  # noqa: PLR0912, PLR0915
     root: Path,
     cache: SqliteCache,
     fts: FtsIndex,
