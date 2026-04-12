@@ -23,6 +23,38 @@ def _auto_register(config_path: Path, root: Path) -> None:
         add_project(config_path, root)
 
 
+_MANAGED_SECTION = """\
+
+<!-- LV_DCP managed section — do not edit manually -->
+## LV_DCP Context Discipline
+
+This project is indexed by LV_DCP. Before reading multiple files to answer \
+a question or start an edit task, **call `lvdcp_pack` first**:
+
+- Navigate: `lvdcp_pack(path="{root}", query="your question", mode="navigate")`
+- Edit: `lvdcp_pack(path="{root}", query="task description", mode="edit")`
+
+The returned pack (2-20 KB) contains ranked files and symbols — much cheaper \
+than grep-walking the repo.
+<!-- end LV_DCP managed section -->
+"""
+
+_MANAGED_MARKER = "LV_DCP managed section"
+
+
+def _ensure_claude_md_section(root: Path) -> None:
+    """Add LV_DCP discipline section to project CLAUDE.md if missing."""
+    claude_md = root / "CLAUDE.md"
+    try:
+        existing = claude_md.read_text(encoding="utf-8") if claude_md.exists() else ""
+        if _MANAGED_MARKER in existing:
+            return
+        section = _MANAGED_SECTION.format(root=root)
+        claude_md.write_text(existing + section, encoding="utf-8")
+    except OSError:
+        pass
+
+
 def scan(
     path: Path = typer.Argument(  # noqa: B008
         ...,
@@ -51,3 +83,4 @@ def scan(
     )
 
     _auto_register(DEFAULT_CONFIG_PATH, resolved)
+    _ensure_claude_md_section(resolved)
