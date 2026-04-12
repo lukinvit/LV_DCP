@@ -83,6 +83,24 @@ CONFIG_TRIGGER_KEYWORDS: frozenset[str] = frozenset(
 CONFIG_BOOST_FRACTION = 0.5
 CONFIG_BOOST_FLOOR = 0.5
 
+GIT_CHURN_BOOST = 1.10
+GIT_NEW_FILE_BOOST = 1.05
+
+
+def _apply_git_boost(
+    file_scores: dict[str, float],
+    git_stats: dict[str, object],
+) -> None:
+    """Boost recently active files in ranking. Mutates file_scores."""
+    for path in list(file_scores):
+        stats = git_stats.get(path)
+        if stats is None:
+            continue
+        if stats.churn_30d > 0:  # type: ignore[union-attr]
+            file_scores[path] *= GIT_CHURN_BOOST
+        if stats.age_days < 30:  # type: ignore[union-attr]
+            file_scores[path] *= GIT_NEW_FILE_BOOST
+
 
 def _maybe_boost_config_files(
     query: str,
@@ -144,6 +162,12 @@ class RetrievalPipeline:
         self._symbols = symbols
         self._graph = graph
         self._file_roles: dict[str, str] | None = None
+        self._git_stats: dict[str, object] | None = None
+
+    def _get_git_stats(self) -> dict[str, object]:
+        if self._git_stats is None:
+            self._git_stats = {s.file_path: s for s in self._cache.iter_git_stats()}
+        return self._git_stats
 
     def _get_file_roles(self) -> dict[str, str]:
         if self._file_roles is None:
@@ -182,6 +206,11 @@ class RetrievalPipeline:
 
         # Role-weighted score fusion (D1)
         _apply_role_weights(file_scores, roles, query, mode)
+
+        # Git intelligence boost
+        git_stats = self._get_git_stats()
+        if git_stats:
+            _apply_git_boost(file_scores, git_stats)
 
         # Stage 4: score decay cutoff + final rank
         ordered, dropped = _apply_score_decay(file_scores)
