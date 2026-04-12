@@ -6,11 +6,39 @@ markdown with the top files, symbols, and for EDIT mode a tests/configs split.
 
 from __future__ import annotations
 
+import subprocess
+from pathlib import Path
+
 from libs.core.entities import ContextPack, PackMode
 from libs.core.paths import is_test_path
 from libs.retrieval.pipeline import RetrievalResult
 
 PIPELINE_VERSION = "phase-2-v0"
+
+# Base score for git-changed files injected into edit packs.
+_GIT_CHANGED_SCORE = 3.0
+
+
+def _git_changed_files(project_root: Path) -> list[str]:
+    """Return files with uncommitted changes (staged + unstaged).
+
+    Falls back to an empty list when the directory is not a git repo,
+    git is not installed, or the command times out.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--name-only", "HEAD"],  # noqa: S607
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if result.returncode != 0:
+            return []
+        return [f.strip() for f in result.stdout.splitlines() if f.strip()]
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return []
 
 
 def build_navigate_pack(
@@ -74,7 +102,18 @@ def build_edit_pack(  # noqa: PLR0912, PLR0915
     project_slug: str,
     query: str,
     result: RetrievalResult,
+    project_root: Path | None = None,
 ) -> ContextPack:
+    # Detect uncommitted git changes and merge them into retrieval results.
+    git_changed: list[str] = []
+    if project_root is not None:
+        git_changed = _git_changed_files(project_root)
+        for path in git_changed:
+            if path not in result.files:
+                result.files.append(path)
+            # Boost score so changed files rank high in the pack.
+            result.scores.setdefault(path, _GIT_CHANGED_SCORE)
+
     # Split retrieved files into categories by path heuristics
     target_files: list[str] = []
     impacted_tests: list[str] = []
@@ -108,6 +147,13 @@ def build_edit_pack(  # noqa: PLR0912, PLR0915
             "> This is an **edit pack**: files grouped by role so the executor can "
             "plan a minimal, reversible patch. Run validation after every change."
         )
+        lines.append("")
+
+    if git_changed:
+        lines.append("## Currently modified (uncommitted)")
+        lines.append("")
+        for p in git_changed:
+            lines.append(f"- `{p}`")
         lines.append("")
 
     lines.append("## Target files")
