@@ -70,12 +70,22 @@ class GraphDump(BaseModel):
     clusters: list[GraphCluster] = Field(default_factory=list)
 
 
+class HotspotInfo(BaseModel):
+    file_path: str
+    fan_in: int
+    fan_out: int
+    churn_30d: int
+    has_tests: bool
+    score: float
+
+
 class ProjectStatus(BaseModel):
     card: HealthCard
     claude_usage_7d: TokenTotals
     claude_usage_30d: TokenTotals
     sparklines: list[SparklineSeries] = Field(default_factory=list)
     graph: GraphDump | None = None
+    hotspots: list[HotspotInfo] = Field(default_factory=list)
 
 
 class WorkspaceStatus(BaseModel):

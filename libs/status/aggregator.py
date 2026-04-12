@@ -14,6 +14,7 @@ from libs.claude_usage.aggregator import UsageAggregator
 from libs.claude_usage.cache import UsageCache
 from libs.claude_usage.path_encoding import encode_project_path
 from libs.core.projects_config import list_projects
+from libs.impact.hotspots import compute_hotspots as _compute_hotspots
 from libs.project_index.index import ProjectIndex, ProjectNotIndexedError
 from libs.retrieval.trace import query_traces_since
 from libs.scan_history.store import (
@@ -29,6 +30,7 @@ from libs.status.models import (
     GraphEdge,
     GraphFileNode,
     GraphNode,
+    HotspotInfo,
     ProjectStatus,
     SparklineSeries,
     TokenTotals,
@@ -145,13 +147,84 @@ def build_project_status(project_root: Path) -> ProjectStatus:
     graph = _build_graph_dump(root)
     sparklines = _build_sparklines(root, now=now)
 
+    hotspots = _build_hotspots(root)
+
     return ProjectStatus(
         card=card,
         claude_usage_7d=usage_7d,
         claude_usage_30d=usage_30d,
         sparklines=sparklines,
         graph=graph,
+        hotspots=hotspots,
     )
+
+
+def _build_hotspots(root: Path) -> list[HotspotInfo]:
+    """Compute top-10 hotspot files for a project."""
+    try:
+        with ProjectIndex.open(root) as idx:
+            files = list(idx.iter_files())
+            relations = list(idx.iter_relations())
+            git_stats_list = list(idx._cache.iter_git_stats())
+    except (ProjectNotIndexedError, Exception):
+        return []
+
+    # Build file-level fan_in / fan_out from relations
+    symbol_to_file: dict[str, str] = {}
+    for rel in relations:
+        if rel.src_type == "file" and rel.dst_type == "symbol" and rel.relation_type == "defines":
+            symbol_to_file[rel.dst_ref] = rel.src_ref
+
+    fan_in: dict[str, int] = {}
+    fan_out: dict[str, int] = {}
+    for rel in relations:
+        src_file = rel.src_ref if rel.src_type == "file" else symbol_to_file.get(rel.src_ref)
+        dst_file = rel.dst_ref if rel.dst_type == "file" else symbol_to_file.get(rel.dst_ref)
+        if src_file and dst_file and src_file != dst_file:
+            fan_out[src_file] = fan_out.get(src_file, 0) + 1
+            fan_in[dst_file] = fan_in.get(dst_file, 0) + 1
+
+    all_paths = {f.path for f in files}
+    file_roles = {f.path: f.role for f in files}
+    git_churn = {s.file_path: s.churn_30d for s in git_stats_list}
+
+    # Test coverage: check if a test file exists for source files
+    test_paths = {f.path for f in files if f.role == "test"}
+    test_coverage: dict[str, bool] = {}
+    for fp in all_paths:
+        if file_roles.get(fp) != "source":
+            continue
+        basename = fp.split("/")[-1]
+        has_test = any(
+            tp.endswith(f"test_{basename}") or tp.endswith(f"{basename.replace('.py', '_test.py')}")
+            for tp in test_paths
+        )
+        test_coverage[fp] = has_test
+
+    source_degrees = {
+        fp: (fan_in.get(fp, 0), fan_out.get(fp, 0))
+        for fp in all_paths
+        if file_roles.get(fp) == "source"
+    }
+
+    raw = _compute_hotspots(
+        file_degrees=source_degrees,
+        git_churn=git_churn,
+        test_coverage=test_coverage,
+        limit=10,
+    )
+
+    return [
+        HotspotInfo(
+            file_path=h.file_path,
+            fan_in=h.fan_in,
+            fan_out=h.fan_out,
+            churn_30d=h.churn_30d,
+            has_tests=h.has_tests,
+            score=h.hotspot_score,
+        )
+        for h in raw
+    ]
 
 
 def _cluster_files(
