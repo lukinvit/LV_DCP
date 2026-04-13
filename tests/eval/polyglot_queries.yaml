@@ -5,7 +5,7 @@ description: |
   Projects use generic names per publish-check convention.
 
 projects:
-  # X5_BM — Go microservices + TypeScript frontend (FSD architecture)
+  # GoTS_Project — Go microservices + TypeScript frontend (FSD architecture)
   GoTS_Project:
     queries:
       # Go backend — repository pattern
@@ -64,7 +64,7 @@ projects:
           files:
             - services/voting-service/internal/service/service.go
 
-  # X5_Agrement_Cheker — Python analysis + TS frontend
+  # PythonTS_Project — Python analysis + TS frontend
   PythonTS_Project:
     queries:
       # Python — analysis scripts

@@ -9,7 +9,7 @@
 
 Add a persistent LLM-synthesized knowledge layer to LV_DCP. During scan, modules with changed files are marked dirty. On `ctx wiki update`, a Claude Code subagent reads the code and writes/updates wiki articles per module. Context packs include relevant wiki articles before raw files — agents read understanding, not code.
 
-**Litmus test:** After `ctx wiki update` on X5_BM, asking "how does the voting service work?" returns a wiki article with architecture, components, and patterns — no raw code reading needed.
+**Litmus test:** After `ctx wiki update` on a Go microservices project, asking "how does the voting service work?" returns a wiki article with architecture, components, and patterns — no raw code reading needed.
 
 ## 2. Architecture
 

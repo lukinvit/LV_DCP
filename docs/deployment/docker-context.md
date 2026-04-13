@@ -18,7 +18,6 @@ docker context ls
 # desktop-linux    Docker Desktop                            unix://~/.docker/run/docker.sock
 # docker-vm *                                                ssh://user@docker.your-host.example:2222
 # home                                                       ssh://docker-vm
-# test2                                                      ssh://user@docker.your-host.example:2222
 ```
 
 Звёздочка рядом с `docker-vm` означает, что это активный контекст.

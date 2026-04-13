@@ -17,10 +17,11 @@ from tests.eval.metrics import recall_at_k
 EVAL_DIR = Path(__file__).resolve().parent
 POLYGLOT_YAML = EVAL_DIR / "polyglot_queries.yaml"
 
-# Map generic eval project names → real project directory names
+# Map generic eval project names → real project directory names on this machine.
+# Values are local directory names; they never appear in eval output or reports.
 PROJECT_NAME_MAP = {
-    "GoTS_Project": "X5_BM",
-    "PythonTS_Project": "X5_Agrement_Cheker",
+    "GoTS_Project": "GoTS_Project",
+    "PythonTS_Project": "PythonTS_Project",
 }
 
 DEFAULT_CONFIG_PATH = Path.home() / ".lvdcp" / "config.yaml"
