@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 import time
+from typing import Any
 
 _CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS wiki_state (
@@ -32,7 +33,7 @@ def compute_module_hash(file_hashes: list[str]) -> str:
     return hashlib.sha256(combined.encode()).hexdigest()
 
 
-def get_dirty_modules(conn: sqlite3.Connection) -> list[dict]:
+def get_dirty_modules(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     """Return all modules with status='dirty'."""
     rows = conn.execute(
         "SELECT module_path, wiki_file, last_generated_ts, source_hash, status "
@@ -50,7 +51,7 @@ def get_dirty_modules(conn: sqlite3.Connection) -> list[dict]:
     ]
 
 
-def get_all_modules(conn: sqlite3.Connection) -> list[dict]:
+def get_all_modules(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     """Return all modules from wiki_state."""
     rows = conn.execute(
         "SELECT module_path, wiki_file, last_generated_ts, source_hash, status FROM wiki_state"
@@ -93,7 +94,7 @@ def mark_current(
     )
 
 
-def update_dirty_state(conn: sqlite3.Connection, files: list) -> int:
+def update_dirty_state(conn: sqlite3.Connection, files: list[Any]) -> int:
     """Group files by module (first 2 path segments), mark dirty if hash changed.
 
     Each item in *files* must have `.path` and `.content_hash` attributes

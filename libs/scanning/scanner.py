@@ -14,7 +14,7 @@ import sqlite3
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from libs.core.entities import File, Symbol
 from libs.core.hashing import content_hash
@@ -55,7 +55,7 @@ def _process_and_index_files(  # noqa: PLR0912, PLR0915
     fts: FtsIndex,
     mode: Literal["full", "incremental"],
     only: set[str] | None = None,
-) -> tuple[list[File], list[Symbol], int, int, int, set[str], list[dict]]:
+) -> tuple[list[File], list[Symbol], int, int, int, set[str], list[dict[str, Any]]]:
     """Walk files, parse, and index.
 
     Return (files, symbols, total_symbols, total_relations, files_reparsed, visited, changed_for_embed).
@@ -66,7 +66,7 @@ def _process_and_index_files(  # noqa: PLR0912, PLR0915
     total_relations = 0
     files_reparsed = 0
     visited_paths: set[str] = set()
-    changed_for_embed: list[dict] = []
+    changed_for_embed: list[dict[str, Any]] = []
 
     for abs_path in _walk(root):
         try:
