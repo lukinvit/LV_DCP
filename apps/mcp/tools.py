@@ -175,8 +175,21 @@ def lvdcp_pack(
         trace_with_project = dataclasses.replace(result.trace, project=root.name)
         idx.save_trace(trace_with_project)
 
+    # Wiki enrichment (best-effort, prepends relevant wiki articles)
+    final_markdown = pack.assembled_markdown
+    try:
+        from libs.wiki.pack_enrichment import enrich_pack_markdown, find_relevant_articles  # noqa: PLC0415
+
+        wiki_dir = root / ".context" / "wiki"
+        if wiki_dir.exists():
+            articles = find_relevant_articles(wiki_dir, query, limit=3)
+            if articles:
+                final_markdown = enrich_pack_markdown(final_markdown, articles)
+    except Exception:
+        pass  # Degraded mode — wiki unavailable
+
     return PackResult(
-        markdown=pack.assembled_markdown,
+        markdown=final_markdown,
         trace_id=result.trace.trace_id,
         coverage=result.coverage,
         retrieved_files=result.files,

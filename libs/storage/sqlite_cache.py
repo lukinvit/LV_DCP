@@ -126,9 +126,19 @@ class SqliteCache:
             conn.executescript(_SCHEMA)
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             conn.commit()
+            # Create wiki_state table on fresh DB
+            from libs.wiki.state import ensure_wiki_table  # noqa: PLC0415
+
+            ensure_wiki_table(conn)
+            conn.commit()
             return
 
         if current_version == SCHEMA_VERSION:
+            # Ensure wiki_state table exists (added post-v4)
+            from libs.wiki.state import ensure_wiki_table  # noqa: PLC0415
+
+            ensure_wiki_table(conn)
+            conn.commit()
             return
 
         if current_version == 1:

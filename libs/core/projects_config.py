@@ -74,6 +74,13 @@ class ObsidianConfig(BaseModel):
     sync_mode: str = "manual"
 
 
+class WikiConfig(BaseModel):
+    enabled: bool = False
+    auto_update_after_scan: bool = False
+    max_modules_per_run: int = 10
+    article_max_tokens: int = 2000
+
+
 class DaemonConfig(BaseModel):
     version: int = Field(default=1)
     projects: list[ProjectEntry] = Field(default_factory=list)
@@ -81,6 +88,7 @@ class DaemonConfig(BaseModel):
     qdrant: QdrantConfig = Field(default_factory=QdrantConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     obsidian: ObsidianConfig = Field(default_factory=ObsidianConfig)
+    wiki: WikiConfig = Field(default_factory=WikiConfig)
 
 
 def load_config(path: Path) -> DaemonConfig:

@@ -275,6 +275,17 @@ def scan_project(  # noqa: PLR0912, PLR0915
         )
         write_symbol_index_md(project_root=root, symbols=all_cached_symbols)
 
+        # Wiki dirty tracking (best-effort, never blocks scan)
+        try:
+            from libs.wiki.state import ensure_wiki_table, update_dirty_state  # noqa: PLC0415
+
+            wiki_conn = cache._connect()
+            ensure_wiki_table(wiki_conn)
+            update_dirty_state(wiki_conn, files_processed)
+            wiki_conn.commit()
+        except Exception:
+            pass  # Best-effort: wiki tracking must never kill a scan
+
         # Embedding: upsert changed files to Qdrant (best-effort, never blocks scan)
         if changed_for_embed and only is None:
             try:
