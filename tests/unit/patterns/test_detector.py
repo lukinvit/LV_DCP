@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 from libs.patterns.detector import (
-    PatternEntry,
     detect_dependency_patterns,
     detect_structural_patterns,
 )
-
 
 # ---------------------------------------------------------------------------
 # detect_dependency_patterns

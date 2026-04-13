@@ -8,7 +8,14 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from libs.obsidian.models import SyncReport, VaultConfig
+from libs.obsidian.models import (
+    ObsidianFileInfo,
+    ObsidianGitInfo,
+    ObsidianModuleData,
+    ObsidianSymbolInfo,
+    SyncReport,
+    VaultConfig,
+)
 from libs.obsidian.templates import (
     render_home_page,
     render_module_page,
@@ -29,15 +36,15 @@ class ObsidianPublisher:
         tmp_path.write_text(content, encoding="utf-8")
         tmp_path.replace(path)
 
-    def sync_project(
+    def sync_project(  # noqa: PLR0913
         self,
         *,
         project_name: str,
-        files: list[dict],
-        symbols: list[dict],
-        modules: dict[str, dict],
-        hotspots: list[dict],
-        recent_changes: list[dict],
+        files: list[ObsidianFileInfo],
+        symbols: list[ObsidianSymbolInfo],
+        modules: dict[str, ObsidianModuleData],
+        hotspots: list[ObsidianGitInfo],
+        recent_changes: list[ObsidianGitInfo],
         languages: list[str],
     ) -> SyncReport:
         """Sync project data to Obsidian vault.

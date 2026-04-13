@@ -6,7 +6,7 @@ from pathlib import Path
 from libs.claude_usage.cache import UsageCache
 
 
-def _assistant(ts: str, i: int = 10, o: int = 5) -> dict:
+def _assistant(ts: str, i: int = 10, o: int = 5) -> dict[str, object]:
     return {
         "type": "assistant",
         "timestamp": ts,
@@ -22,7 +22,7 @@ def _assistant(ts: str, i: int = 10, o: int = 5) -> dict:
     }
 
 
-def _make_jsonl(path: Path, records: list[dict]) -> None:
+def _make_jsonl(path: Path, records: list[dict[str, object]]) -> None:
     path.write_text("\n".join(json.dumps(r) for r in records) + "\n")
 
 

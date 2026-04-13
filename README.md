@@ -3,7 +3,7 @@
 **Local-first engineering memory.** Turns projects on macOS into a queryable context layer for Claude, IDE agents, and humans. Supports Python, TypeScript/JS, Go, and Rust. Reduces token cost of repeated code reading, builds a relation graph, and makes agent edits safer.
 
 [![Phase 6 Complete](https://img.shields.io/badge/phase-6%20complete-green)](docs/superpowers/specs/2026-04-13-phase-6-design.md)
-[![Version 0.6.0](https://img.shields.io/badge/version-0.6.0-blue)](pyproject.toml)
+[![Version 0.6.1](https://img.shields.io/badge/version-0.6.1-blue)](pyproject.toml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue)](pyproject.toml)
 
@@ -53,18 +53,22 @@ $ ctx pack . "refresh token rotation" --mode edit
 
 ## Status
 
-**Phase 6 complete (2026-04-13)** — Cross-language parsers (TS/JS/Go/Rust), Qdrant vector store, Obsidian vault sync, VS Code extension MVP, cross-project patterns. Version 0.6.0.
+**Stabilization release 0.6.1 (2026-04-13)** — Phase 6 feature work is now backed by mandatory GitHub Actions quality gates, repository-wide green `ruff` / `mypy`, and warning-free runtime hardening for embeddings and Qdrant.
+
+Phase 6 remains complete: cross-language parsers (TS/JS/Go/Rust), Qdrant vector store, Obsidian vault sync, VS Code extension MVP, cross-project patterns, wiki knowledge module.
+
+Release note: [docs/release/2026-04-13-v0.6.1-stabilization.md](docs/release/2026-04-13-v0.6.1-stabilization.md)
 
 ### Retrieval quality (LV_DCP synthetic, 32 queries)
 
 | Metric | Value | Threshold | Delta from Phase 2 |
 |---|---|---|---|
 | recall@5 files | **0.964** | ≥ 0.92 | +0.073 |
-| precision@3 files | 0.568 | ≥ 0.60 | -0.052 |
+| precision@3 files | **0.682** | ≥ 0.63 | +0.062 |
 | recall@5 symbols | 0.880 | ≥ 0.80 | +0.047 |
 | impact_recall@5 | **0.931** | ≥ 0.85 | +0.112 |
 
-### Multi-project retrieval (9 queries, 4 projects)
+### Multi-project retrieval (9 advisory queries, 4 projects)
 
 | Metric | Value |
 |---|---|
@@ -86,11 +90,12 @@ $ ctx pack . "refresh token rotation" --mode edit
 | 3c.2 | 0.3.4 | Done | Role-weighted fusion, config boost, graph depth tuning |
 | 4 | 0.4.0 | Done | pymorphy3 stemmer, git intelligence, impact analysis, hotspots, adaptive graph clustering, UI project management, diff-aware edit packs |
 | 5 | 0.5.0 | Done | Hook enforcement, dual-language retrieval, 5 new relation types (tests_for, inherits, specifies), value metrics dashboard, scan coverage, 457 tests passing |
-| 6 | **0.6.0** | **Done** | Cross-language parsers (TS/JS/Go/Rust), Qdrant vector store, Obsidian vault sync, VS Code extension MVP, cross-project patterns, 587 tests passing (632 with wiki module) |
+| 6 | **0.6.0** | **Done** | Phase 6 feature release: cross-language parsers (TS/JS/Go/Rust), Qdrant vector store, Obsidian vault sync, VS Code extension MVP, cross-project patterns, wiki knowledge module |
+| 6.1 | **0.6.1** | **Done** | Stabilization pass: mandatory CI quality gates, green `ruff` + `mypy`, async/Qdrant runtime hardening, 653 CI-gated tests passing |
 
 ### Test suite
 
-632 tests, 0 failures. Eval harness with 32 synthetic + 10 multi-project queries.
+653 CI-gated tests, 0 failures. Current green baseline: 651 non-eval + 2 eval. Eval harness: 32 synthetic queries; multi-project eval currently covers 9 advisory queries across 4 registered projects.
 
 ## Dashboard
 
@@ -314,7 +319,7 @@ make test          # pytest, excluding eval and llm markers
 make eval          # retrieval evaluation harness
 ```
 
-Phase 6 complete: 632 passing tests (including wiki module), eval harness with 32 synthetic + 10 multi-project queries, tagged `phase-6-complete`.
+Stabilization 0.6.1: 653 CI-gated tests passing (651 non-eval + 2 eval), eval harness with 32 synthetic queries, plus 9 advisory multi-project queries. Phase 6 feature baseline remains tagged `phase-6-complete`.
 
 ### Running the daemon
 
@@ -333,7 +338,8 @@ The daemon uses `watchdog.observers.Observer` which auto-selects `FSEventsObserv
 - **Phase 3** (done, v0.3.0–0.3.4) — LLM summaries with content-hash cache, dashboard UI (D3 graph, sparklines, health cards), cost tracking, settings UI, role-weighted retrieval fusion, config boost, graph depth tuning.
 - **Phase 4** (done, v0.4.0) — pymorphy3 Russian stemmer, git intelligence (churn/blame), static impact analysis + hotspot widget, adaptive graph clustering, UI project management, diff-aware edit packs.
 - **Phase 5** (done, v0.5.0) — Hook enforcement (PreToolUse/PostToolUse), dual-language retrieval (80+ ru↔en terms), 5 new relation types (tests_for, inherits, specifies), value metrics dashboard, scan coverage widget, 457 tests (0 failures).
-- **Phase 6** (done, v0.6.0) — Cross-language parsers (TypeScript/JS, Go, Rust via tree-sitter), Qdrant vector store with hybrid retrieval (RRF fusion), Obsidian vault sync, VS Code extension MVP, cross-project pattern detection, wiki knowledge module (LLM-synthesized articles, lint, architecture page), 632 tests (0 failures).
+- **Phase 6** (done, v0.6.0) — Cross-language parsers (TypeScript/JS, Go, Rust via tree-sitter), Qdrant vector store with hybrid retrieval (RRF fusion), Obsidian vault sync, VS Code extension MVP, cross-project pattern detection, wiki knowledge module (LLM-synthesized articles, lint, architecture page).
+- **Stabilization 0.6.1** (done) — GitHub Actions quality gates, repository-wide green `ruff` / `mypy`, warning-free embeddings and Qdrant runtime, 653 CI-gated tests.
 - **Phase 7** (next) — Java/Kotlin/Swift parsers, Obsidian debounced/nightly sync, VS Code marketplace, LLM-based rerank, vector retrieval eval tuning.
 
 ## Contributing

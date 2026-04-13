@@ -86,7 +86,7 @@ class ProjectStatus(BaseModel):
     sparklines: list[SparklineSeries] = Field(default_factory=list)
     graph: GraphDump | None = None
     hotspots: list[HotspotInfo] = Field(default_factory=list)
-    scan_coverage: dict | None = None
+    scan_coverage: dict[str, object] | None = None
 
 
 class WorkspaceStatus(BaseModel):

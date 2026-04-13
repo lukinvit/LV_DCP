@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -59,7 +60,7 @@ async def test_settings_post_writes_config(isolated: Path) -> None:
         )
     assert response.status_code in (200, 303)
 
-    cfg_data = yaml.safe_load(isolated.read_text())
+    cfg_data = yaml.safe_load(await asyncio.to_thread(isolated.read_text))
     assert cfg_data["llm"]["provider"] == "anthropic"
     assert cfg_data["llm"]["enabled"] is True
     assert cfg_data["llm"]["monthly_budget_usd"] == 50.0

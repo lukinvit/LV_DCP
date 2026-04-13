@@ -8,13 +8,14 @@ Porter stemmer handles English). Lazy-loads the analyzer on first use
 from __future__ import annotations
 
 import re
+from typing import Any
 
 _CYRILLIC_RE = re.compile(r"[а-яёА-ЯЁ]")
 _WORD_RE = re.compile(r"[a-zA-Zа-яёА-ЯЁ0-9_]+")
-_analyzer = None
+_analyzer: Any | None = None
 
 
-def _get_analyzer():  # type: ignore[no-untyped-def]
+def _get_analyzer() -> Any:
     global _analyzer  # noqa: PLW0603
     if _analyzer is None:
         import pymorphy3  # noqa: PLC0415

@@ -118,7 +118,7 @@ class OpenAIClient:
         if not candidates:
             return []
 
-        # Build prompt: ask LLM to score each candidate 0.0–1.0
+        # Build prompt: ask LLM to score each candidate 0.0-1.0
         candidate_lines = "\n".join(
             f"{i+1}. [{c.id}] {c.summary[:200]}" for i, c in enumerate(candidates)
         )

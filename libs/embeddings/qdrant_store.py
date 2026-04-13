@@ -7,6 +7,7 @@ Collections: devctx_summaries, devctx_symbols, devctx_chunks, devctx_patterns.
 from __future__ import annotations
 
 import uuid
+from typing import TypedDict
 
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import (
@@ -29,6 +30,21 @@ COLLECTIONS = (
 _PAYLOAD_INDEXES = ("project_id", "language", "entity_type", "privacy_mode")
 
 
+class SummaryVectorItem(TypedDict, total=False):
+    id: str
+    text: str
+    vector: list[float]
+    file_path: str
+    content_hash: str
+    language: str
+    entity_type: str
+
+
+class SummarySearchHit(TypedDict):
+    file_path: str
+    score: float
+
+
 class QdrantStore:
     """Async Qdrant wrapper with fixed-collection, payload-isolated design."""
 
@@ -39,8 +55,9 @@ class QdrantStore:
         api_key: str | None = None,
         location: str | None = None,
     ) -> None:
+        self._is_local = location == ":memory:"
         if location == ":memory:":
-            self._client = AsyncQdrantClient(location=":memory:")
+            self._client = AsyncQdrantClient(location=":memory:", check_compatibility=False)
         elif url and url.startswith("https://"):
             # qdrant-client needs host/port/https for HTTPS URLs
             from urllib.parse import urlparse  # noqa: PLC0415
@@ -52,9 +69,15 @@ class QdrantStore:
                 https=True,
                 api_key=api_key,
                 timeout=30,
+                check_compatibility=False,
             )
         else:
-            self._client = AsyncQdrantClient(url=url, api_key=api_key, timeout=30)
+            self._client = AsyncQdrantClient(
+                url=url,
+                api_key=api_key,
+                timeout=30,
+                check_compatibility=False,
+            )
 
     async def ensure_collections(self, *, dimension: int) -> None:
         """Create all 4 collections if they don't exist, with payload indexes."""
@@ -66,18 +89,19 @@ class QdrantStore:
                     collection_name=name,
                     vectors_config=VectorParams(size=dimension, distance=Distance.COSINE),
                 )
-                for field in _PAYLOAD_INDEXES:
-                    await self._client.create_payload_index(
-                        collection_name=name,
-                        field_name=field,
-                        field_schema=PayloadSchemaType.KEYWORD,
-                    )
+                if not self._is_local:
+                    for field in _PAYLOAD_INDEXES:
+                        await self._client.create_payload_index(
+                            collection_name=name,
+                            field_name=field,
+                            field_schema=PayloadSchemaType.KEYWORD,
+                        )
 
     async def upsert_summaries(
         self,
         *,
         project_id: str,
-        items: list[dict],
+        items: list[SummaryVectorItem],
     ) -> None:
         """Upsert file/module summary vectors."""
         points = [
@@ -103,7 +127,7 @@ class QdrantStore:
         vector: list[float],
         project_id: str,
         limit: int = 10,
-    ) -> list[dict]:
+    ) -> list[SummarySearchHit]:
         """Search summary vectors filtered by project_id."""
         results = await self._client.query_points(
             collection_name="devctx_summaries",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 from pathlib import Path
 from typing import Literal
@@ -16,6 +17,7 @@ from apps.agent.config import add_project
 __all__ = ["CACHE_REL", "FTS_REL", "scan"]
 
 DEFAULT_CONFIG_PATH = Path.home() / ".lvdcp" / "config.yaml"
+log = logging.getLogger(__name__)
 
 
 _PROJECT_MARKERS = (".git", "pyproject.toml", "package.json", "go.mod", "Cargo.toml")
@@ -115,12 +117,12 @@ def scan(
                 )
             elif _cfg.embedding.provider == "fake":
                 typer.echo(
-                    "ℹ Qdrant enabled with fake embeddings (for testing). "
+                    "i Qdrant enabled with fake embeddings (for testing). "
                     "Set embedding.provider=openai in ~/.lvdcp/config.yaml for real vectors.",
                     err=True,
                 )
     except Exception:
-        pass
+        log.warning("failed to inspect embedding configuration after scan", exc_info=True)
 
     _auto_register(DEFAULT_CONFIG_PATH, resolved)
     _ensure_claude_md_section(resolved)

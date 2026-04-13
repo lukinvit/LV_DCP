@@ -48,7 +48,7 @@ async def summarize_project(  # noqa: PLR0913
 
     Per-file errors are logged in `errors` but do not halt the pipeline.
     """
-    root = root.resolve()
+    root = await asyncio.to_thread(root.resolve)
     start = time.perf_counter()
 
     with ProjectIndex.open(root) as idx:

@@ -6,7 +6,7 @@ from pathlib import Path
 from libs.claude_usage.reader import UsageEvent, read_session_file  # noqa: F401
 
 
-def _assistant_record(ts: str, input_tokens: int = 10, output_tokens: int = 5) -> dict:
+def _assistant_record(ts: str, input_tokens: int = 10, output_tokens: int = 5) -> dict[str, object]:
     return {
         "type": "assistant",
         "timestamp": ts,
@@ -22,7 +22,7 @@ def _assistant_record(ts: str, input_tokens: int = 10, output_tokens: int = 5) -
     }
 
 
-def _user_record(ts: str) -> dict:
+def _user_record(ts: str) -> dict[str, object]:
     return {"type": "user", "timestamp": ts, "sessionId": "sess-1"}
 
 

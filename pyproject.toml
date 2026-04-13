@@ -1,6 +1,6 @@
 [project]
 name = "lv-dcp"
-version = "0.6.0"
+version = "0.6.1"
 description = "LV_DCP — Developer Context Platform. Local-first engineering memory for macOS."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -85,6 +85,9 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S", "PL", "RUF001"]
 "libs/retrieval/stemmer.py" = ["RUF001"]
+"libs/retrieval/term_dict.py" = ["RUF001"]
+"libs/status/value_metrics.py" = ["S608"]
+"libs/wiki/pack_enrichment.py" = ["RUF001"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -104,6 +107,10 @@ exclude = ["tests/eval/fixtures/"]
 module = ["watchdog.*"]
 ignore_missing_imports = true
 disallow_untyped_calls = false
+
+[[tool.mypy.overrides]]
+module = ["pymorphy3"]
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["apps.agent.daemon", "tests.integration.test_ctx_watch"]

@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import math
 import struct
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -81,7 +81,7 @@ class OpenAIEmbeddingAdapter:
 
         self._model = model
         self._dimension = 1536  # default for text-embedding-3-small
-        kwargs: dict = {}
+        kwargs: dict[str, Any] = {}
         if api_key:
             kwargs["api_key"] = api_key
         if base_url:

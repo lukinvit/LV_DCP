@@ -7,6 +7,7 @@ FastMCP wrapper in `apps/mcp/server.py` decorates these with `@mcp.tool()`.
 from __future__ import annotations
 
 import dataclasses
+import logging
 from collections import Counter
 from pathlib import Path
 from typing import Literal
@@ -19,6 +20,8 @@ from libs.status.aggregator import build_project_status, build_workspace_status,
 from libs.status.budget import compute_budget_status
 from libs.status.models import BudgetInfo, ProjectStatus, WorkspaceStatus
 from pydantic import BaseModel, Field
+
+log = logging.getLogger(__name__)
 
 
 class ScanResultResponse(BaseModel):
@@ -133,7 +136,11 @@ def lvdcp_pack(
                     vector_search(config=cfg, query=query, project_id=root.name, limit=limit * 2)
                 ) or None
         except Exception:
-            pass  # Degraded mode — vector search unavailable
+            log.warning(
+                "vector search unavailable during pack build for %s",
+                root.name,
+                exc_info=True,
+            )
 
         result = idx.retrieve(query, mode=mode, limit=limit, vector_scores=v_scores)
 
@@ -155,7 +162,11 @@ def lvdcp_pack(
                 result.files.sort(key=lambda f: -reranked.get(f, 0.0))
                 result.scores.update(reranked)
         except Exception:
-            pass  # Degraded mode
+            log.warning(
+                "llm rerank unavailable during pack build for %s",
+                root.name,
+                exc_info=True,
+            )
 
         if mode == "edit":
             pack = build_edit_pack(
@@ -178,7 +189,10 @@ def lvdcp_pack(
     # Wiki enrichment (best-effort, prepends relevant wiki articles)
     final_markdown = pack.assembled_markdown
     try:
-        from libs.wiki.pack_enrichment import enrich_pack_markdown, find_relevant_articles  # noqa: PLC0415
+        from libs.wiki.pack_enrichment import (  # noqa: PLC0415
+            enrich_pack_markdown,
+            find_relevant_articles,
+        )
 
         wiki_dir = root / ".context" / "wiki"
         if wiki_dir.exists():
@@ -186,7 +200,11 @@ def lvdcp_pack(
             if articles:
                 final_markdown = enrich_pack_markdown(final_markdown, articles)
     except Exception:
-        pass  # Degraded mode — wiki unavailable
+        log.warning(
+            "wiki enrichment unavailable during pack build for %s",
+            root.name,
+            exc_info=True,
+        )
 
     return PackResult(
         markdown=final_markdown,

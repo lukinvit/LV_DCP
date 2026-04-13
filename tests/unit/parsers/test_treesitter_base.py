@@ -7,12 +7,11 @@ the base class logic without needing a second language grammar.
 from __future__ import annotations
 
 import tree_sitter_python as tspython
-from tree_sitter import Language
-
 from libs.core.entities import RelationType, SymbolType
 from libs.core.paths import is_test_path
 from libs.parsers.base import FileParser, ParseResult
 from libs.parsers.treesitter_base import TreeSitterParser
+from tree_sitter import Language
 
 
 class DummyPythonParser(TreeSitterParser):

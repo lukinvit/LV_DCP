@@ -6,6 +6,7 @@ import json
 import shutil
 import sys
 from pathlib import Path
+from typing import Any
 
 import typer
 from libs.core.version import LVDCP_VERSION
@@ -79,7 +80,7 @@ def _install_hooks() -> list[str]:
 
     # Merge hook config into settings.json
     settings_path = Path.home() / ".claude" / "settings.json"
-    settings: dict = {}
+    settings: dict[str, Any] = {}
     if settings_path.exists():
         settings = json.loads(settings_path.read_text(encoding="utf-8"))
 

@@ -214,7 +214,7 @@ class TreeSitterParser(ABC):
     # Tree walk
     # ------------------------------------------------------------------
 
-    def _walk(
+    def _walk(  # noqa: PLR0913
         self,
         *,
         node: Node,

@@ -5,6 +5,8 @@ No Jinja2 dependency — plain f-strings and str.join for all rendering.
 
 from __future__ import annotations
 
+from libs.obsidian.models import ObsidianGitInfo
+
 
 def _frontmatter(tags: list[str], **fields: str) -> str:
     """Build YAML frontmatter block."""
@@ -56,7 +58,7 @@ See the [[Modules]] folder for per-module breakdowns.
     return f"{fm}\n\n{body}"
 
 
-def render_module_page(
+def render_module_page(  # noqa: PLR0913
     *,
     module_name: str,
     project_name: str,
@@ -106,7 +108,7 @@ def render_module_page(
 def render_recent_changes(
     *,
     project_name: str,
-    changes: list[dict],
+    changes: list[ObsidianGitInfo],
     scan_date: str,
 ) -> str:
     """Render a recent changes page.
@@ -146,7 +148,7 @@ Last scan: {scan_date}
 def render_tech_debt(
     *,
     project_name: str,
-    hotspots: list[dict],
+    hotspots: list[ObsidianGitInfo],
     scan_date: str,
 ) -> str:
     """Render a tech debt / hotspots page.

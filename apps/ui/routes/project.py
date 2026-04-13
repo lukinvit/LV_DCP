@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from libs.core.projects_config import load_config
+from libs.obsidian.models import ObsidianFileInfo, ObsidianModuleData, ObsidianSymbolInfo
 from libs.status.aggregator import build_project_status, build_workspace_status, resolve_config_path
 from libs.status.budget import compute_budget_status
 from libs.status.models import WorkspaceStatus
@@ -88,14 +89,14 @@ def obsidian_sync(slug: str) -> HTMLResponse:
     cache = SqliteCache(cache_path)
     try:
         cache.migrate()
-        files = [{"path": f.path, "language": f.language} for f in cache.iter_files()]
-        symbols = [
+        files: list[ObsidianFileInfo] = [{"path": f.path, "language": f.language} for f in cache.iter_files()]
+        symbols: list[ObsidianSymbolInfo] = [
             {"name": s.name, "file_path": s.file_path, "symbol_type": s.symbol_type}
             for s in cache.iter_symbols()
         ]
 
         # Group files into modules (top-level directory or package)
-        modules: dict[str, dict] = defaultdict(
+        modules: dict[str, ObsidianModuleData] = defaultdict(
             lambda: {
                 "file_count": 0,
                 "symbol_count": 0,

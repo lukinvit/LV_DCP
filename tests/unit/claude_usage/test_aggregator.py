@@ -7,7 +7,13 @@ from libs.claude_usage.aggregator import TokenTotals, UsageAggregator
 from libs.claude_usage.cache import UsageCache
 
 
-def _assistant(ts_iso: str, i: int = 10, c_create: int = 0, c_read: int = 0, o: int = 5) -> dict:
+def _assistant(
+    ts_iso: str,
+    i: int = 10,
+    c_create: int = 0,
+    c_read: int = 0,
+    o: int = 5,
+) -> dict[str, object]:
     return {
         "type": "assistant",
         "timestamp": ts_iso,

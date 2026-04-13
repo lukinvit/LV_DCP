@@ -9,7 +9,7 @@ from libs.llm.ollama_client import OllamaClient
 
 
 @pytest.fixture
-def fake_generate_response() -> dict:
+def fake_generate_response() -> dict[str, object]:
     return {
         "model": "qwen2.5-coder:7b",
         "created_at": "2026-04-11T00:00:00Z",
@@ -20,7 +20,7 @@ def fake_generate_response() -> dict:
     }
 
 
-async def test_summarize_returns_summary_result(fake_generate_response: dict) -> None:
+async def test_summarize_returns_summary_result(fake_generate_response: dict[str, object]) -> None:
     client = OllamaClient()
     mock_response = MagicMock(
         status_code=200,

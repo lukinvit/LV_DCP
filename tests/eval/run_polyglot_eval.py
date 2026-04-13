@@ -9,9 +9,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
-
 from libs.core.projects_config import list_projects
 from libs.project_index.index import ProjectIndex, ProjectNotIndexedError
+
 from tests.eval.metrics import recall_at_k
 
 EVAL_DIR = Path(__file__).resolve().parent

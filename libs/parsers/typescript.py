@@ -12,8 +12,9 @@ import re
 import tree_sitter_javascript as tsjavascript
 import tree_sitter_typescript as tstypescript
 from tree_sitter import Language, Node
+from tree_sitter import Parser as TSParser
 
-from libs.core.entities import Symbol, SymbolType
+from libs.core.entities import Relation, RelationType, Symbol, SymbolType
 from libs.parsers.base import ParseResult
 from libs.parsers.treesitter_base import TreeSitterParser
 
@@ -82,15 +83,13 @@ class TypeScriptParser(TreeSitterParser):
         result = super().parse(file_path=file_path, data=data)
 
         # Re-parse to walk root children for constants
-        from tree_sitter import Parser as TSParser
-
         parser = TSParser(self._get_ts_language())
         tree = parser.parse(data)
         root = tree.root_node
 
         module_fq = self._module_fq(file_path)
         extra_symbols: list[Symbol] = []
-        extra_relations: list[object] = []
+        extra_relations: list[Relation] = []
 
         for child in root.children:
             if child.type in ("lexical_declaration", "variable_declaration"):
@@ -101,8 +100,6 @@ class TypeScriptParser(TreeSitterParser):
                             continue
                         name = (name_node.text or b"").decode("utf-8", errors="replace")
                         if _UPPER_SNAKE_RE.match(name):
-                            from libs.core.entities import Relation, RelationType
-
                             fq = f"{module_fq}.{name}"
                             sym = Symbol(
                                 name=name,
@@ -130,7 +127,7 @@ class TypeScriptParser(TreeSitterParser):
                 language=result.language,
                 role=result.role,
                 symbols=result.symbols + tuple(extra_symbols),
-                relations=result.relations + tuple(extra_relations),  # type: ignore[arg-type]
+                relations=result.relations + tuple(extra_relations),
                 errors=result.errors,
             )
         return result

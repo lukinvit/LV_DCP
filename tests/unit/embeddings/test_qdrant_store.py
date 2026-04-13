@@ -4,7 +4,6 @@ Uses the in-memory Qdrant client (no server needed).
 """
 
 import pytest
-
 from libs.embeddings.adapter import FakeEmbeddingAdapter
 from libs.embeddings.qdrant_store import COLLECTIONS, QdrantStore
 

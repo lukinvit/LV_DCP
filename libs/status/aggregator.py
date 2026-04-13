@@ -144,12 +144,10 @@ def _file_expects_symbols(f_path: str, f_language: str, f_size: int) -> bool:
     if f_size < 20:
         return False
     basename = f_path.rsplit("/", 1)[-1]
-    if basename == "__init__.py":
-        return False
-    return True
+    return basename != "__init__.py"
 
 
-def _build_scan_coverage(root: Path) -> dict | None:
+def _build_scan_coverage(root: Path) -> dict[str, object] | None:
     """Compute scan coverage stats: symbol/file ratio, languages, relation types.
 
     Coverage % is calculated only over files that are *expected* to have
@@ -407,10 +405,7 @@ def _load_tsconfig_paths(known_paths: set[str], root: Path) -> dict[str, str]:
             alias_prefix = alias_pattern[:-1]  # "@app/*" → "@app/"
             target_prefix = target[:-1]  # "src/app/*" → "src/app/"
             # Combine with resolved base
-            if resolved_base:
-                fs_prefix = resolved_base + "/" + target_prefix
-            else:
-                fs_prefix = target_prefix
+            fs_prefix = resolved_base + "/" + target_prefix if resolved_base else target_prefix
             # Normalize (remove ./ etc)
             fs_prefix = posixpath.normpath(fs_prefix) + "/"
             mapping[alias_prefix] = fs_prefix
@@ -430,7 +425,7 @@ def _try_resolve_with_extensions(base: str, known_paths: set[str]) -> str | None
     return None
 
 
-def _resolve_import_to_file(
+def _resolve_import_to_file(  # noqa: PLR0911, PLR0912
     src_file: str,
     module_ref: str,
     known_paths: set[str],

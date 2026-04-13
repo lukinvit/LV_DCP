@@ -6,7 +6,14 @@ from collections import defaultdict
 from pathlib import Path
 
 import typer
-from libs.obsidian.models import VaultConfig
+from libs.obsidian.models import (
+    ObsidianFileInfo,
+    ObsidianGitInfo,
+    ObsidianModuleData,
+    ObsidianRelationInfo,
+    ObsidianSymbolInfo,
+    VaultConfig,
+)
 from libs.obsidian.publisher import ObsidianPublisher
 from libs.storage.sqlite_cache import SqliteCache
 
@@ -14,12 +21,12 @@ app = typer.Typer(name="obsidian", help="Obsidian vault sync commands")
 
 
 def _build_modules(
-    files: list[dict],
-    symbols: list[dict],
-    relations: list[dict],
-) -> dict[str, dict]:
+    files: list[ObsidianFileInfo],
+    symbols: list[ObsidianSymbolInfo],
+    relations: list[ObsidianRelationInfo],
+) -> dict[str, ObsidianModuleData]:
     """Group files/symbols by top-level module directory."""
-    modules: dict[str, dict] = {}
+    modules: dict[str, ObsidianModuleData] = {}
     file_to_module: dict[str, str] = {}
 
     # Assign each file to a module (first path component, or "_root")
@@ -55,9 +62,9 @@ def _build_modules(
             mod_deps[src_mod].add(dst_mod)
             mod_dependents[dst_mod].add(src_mod)
 
-    for mod_name in modules:
-        modules[mod_name]["dependencies"] = sorted(mod_deps.get(mod_name, set()))
-        modules[mod_name]["dependents"] = sorted(mod_dependents.get(mod_name, set()))
+    for mod_name, mod_data in modules.items():
+        mod_data["dependencies"] = sorted(mod_deps.get(mod_name, set()))
+        mod_data["dependents"] = sorted(mod_dependents.get(mod_name, set()))
 
     return modules
 
@@ -94,10 +101,12 @@ def sync(
         cache.migrate()
 
         # Read files
-        files = [{"path": f.path, "language": f.language} for f in cache.iter_files()]
+        files: list[ObsidianFileInfo] = [
+            {"path": f.path, "language": f.language} for f in cache.iter_files()
+        ]
 
         # Read symbols
-        symbols = [
+        symbols: list[ObsidianSymbolInfo] = [
             {
                 "name": s.name,
                 "fq_name": s.fq_name,
@@ -108,16 +117,16 @@ def sync(
         ]
 
         # Read relations
-        relations = [
+        relations: list[ObsidianRelationInfo] = [
             {"src_ref": r.src_ref, "dst_ref": r.dst_ref, "relation_type": r.relation_type.value}
             for r in cache.iter_relations()
         ]
 
         # Git stats for hotspots / recent changes
-        hotspots: list[dict] = []
-        recent_changes: list[dict] = []
+        hotspots: list[ObsidianGitInfo] = []
+        recent_changes: list[ObsidianGitInfo] = []
         for gs in cache.iter_git_stats():
-            entry = {
+            entry: ObsidianGitInfo = {
                 "file_path": gs.file_path,
                 "churn_30d": gs.churn_30d,
                 "commit_count": gs.commit_count,

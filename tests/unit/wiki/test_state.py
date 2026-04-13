@@ -6,7 +6,6 @@ import sqlite3
 from types import SimpleNamespace
 
 import pytest
-
 from libs.wiki.state import (
     compute_module_hash,
     ensure_wiki_table,

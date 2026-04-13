@@ -5,12 +5,15 @@ All numbers are measured, not estimated. No marketing math.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from libs.core.projects_config import list_projects
+
+_SRC_LANGS = ("python", "typescript", "javascript", "go", "rust")
 
 
 @dataclass
@@ -53,7 +56,7 @@ class ValueMetrics:
     project_coverage: list[ProjectCoverage] = field(default_factory=list)
 
 
-def collect_value_metrics(config_path: Path) -> ValueMetrics:
+def collect_value_metrics(config_path: Path) -> ValueMetrics:  # noqa: PLR0912, PLR0915
     """Collect value metrics from retrieval_traces across all registered projects."""
     projects = list_projects(config_path)
     m = ValueMetrics(projects_total=len(projects))
@@ -84,21 +87,25 @@ def collect_value_metrics(config_path: Path) -> ValueMetrics:
 
                 # Coverage over parseable source files only (exclude __init__.py,
                 # config-only languages, and tiny files)
-                _SRC_LANGS = ("python", "typescript", "javascript", "go", "rust")
-                parseable = conn.execute(
+                placeholders = ",".join("?" for _ in _SRC_LANGS)
+                parseable_query = (
                     "SELECT COUNT(*) FROM files "
-                    "WHERE language IN ({}) AND size_bytes >= 20 "
-                    "AND path NOT LIKE '%/__init__.py'".format(
-                        ",".join(f"'{l}'" for l in _SRC_LANGS)
-                    )
+                    f"WHERE language IN ({placeholders}) AND size_bytes >= 20 "
+                    "AND path NOT LIKE ?"
+                )
+                parseable = conn.execute(
+                    parseable_query,
+                    (*_SRC_LANGS, "%/__init__.py"),
                 ).fetchone()[0]
-                parseable_with_syms = conn.execute(
+                parseable_with_syms_query = (
                     "SELECT COUNT(DISTINCT f.path) FROM files f "
                     "JOIN symbols s ON f.path = s.file_path "
-                    "WHERE f.language IN ({}) AND f.size_bytes >= 20 "
-                    "AND f.path NOT LIKE '%/__init__.py'".format(
-                        ",".join(f"'{l}'" for l in _SRC_LANGS)
-                    )
+                    f"WHERE f.language IN ({placeholders}) AND f.size_bytes >= 20 "
+                    "AND f.path NOT LIKE ?"
+                )
+                parseable_with_syms = conn.execute(
+                    parseable_with_syms_query,
+                    (*_SRC_LANGS, "%/__init__.py"),
                 ).fetchone()[0]
                 pc.coverage_pct = (
                     parseable_with_syms / parseable * 100 if parseable else 100.0
@@ -128,8 +135,6 @@ def collect_value_metrics(config_path: Path) -> ValueMetrics:
                 conn.close()
                 m.project_coverage.append(pc)
                 continue
-
-            import json
 
             for mode, ts, coverage, trace_json in rows:
                 m.total_packs += 1

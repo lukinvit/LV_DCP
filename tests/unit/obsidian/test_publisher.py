@@ -27,7 +27,7 @@ class TestObsidianPublisher:
     def test_writes_module_pages(self, tmp_path: Path) -> None:
         config = VaultConfig(vault_path=tmp_path)
         publisher = ObsidianPublisher(config)
-        report = publisher.sync_project(
+        publisher.sync_project(
             project_name="TestProj",
             files=[{"path": "core/main.py", "language": "python"}],
             symbols=[{"name": "foo", "file_path": "core/main.py", "symbol_type": "function"}],
