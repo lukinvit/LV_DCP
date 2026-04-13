@@ -75,16 +75,13 @@ def save_settings(  # noqa: PLR0913
         )
 
     config = load_config(resolve_config_path())
-    config.llm = LLMConfig(
-        provider=provider,
-        summary_model=summary_model,
-        rerank_model=rerank_model,
-        api_key_env_var=api_key_env_var,
-        monthly_budget_usd=monthly_budget_usd,
-        enabled=enabled == "on",
-        prompt_version=config.llm.prompt_version,
-        summarize_roles=config.llm.summarize_roles,
-    )
+    # Only update LLM fields — preserve qdrant, embedding, and other sections
+    config.llm.provider = provider
+    config.llm.summary_model = summary_model
+    config.llm.rerank_model = rerank_model
+    config.llm.api_key_env_var = api_key_env_var
+    config.llm.monthly_budget_usd = monthly_budget_usd
+    config.llm.enabled = enabled == "on"
     save_config(resolve_config_path(), config)
     return RedirectResponse(url="/settings?saved=1", status_code=303)
 
