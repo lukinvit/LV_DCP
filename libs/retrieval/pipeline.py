@@ -180,6 +180,7 @@ class RetrievalPipeline:
         *,
         mode: str = "navigate",
         limit: int = 10,
+        vector_scores: dict[str, float] | None = None,
     ) -> RetrievalResult:
         stages: list[StageResult] = []
         file_scores: dict[str, float] = defaultdict(float)
@@ -211,6 +212,15 @@ class RetrievalPipeline:
         git_stats = self._get_git_stats()
         if git_stats:
             _apply_git_boost(file_scores, git_stats)
+
+        # Vector retrieval fusion (Phase 6)
+        if vector_scores:
+            fused = rrf_fuse([file_scores, vector_scores])
+            # RRF produces small values; scale back to original range
+            max_original = max(file_scores.values()) if file_scores else 1.0
+            max_fused = max(fused.values()) if fused else 1.0
+            scale = max_original / max_fused if max_fused > 0 else 1.0
+            file_scores = {k: v * scale for k, v in fused.items()}
 
         # Stage 4: score decay cutoff + final rank
         ordered, dropped = _apply_score_decay(file_scores)

@@ -119,7 +119,23 @@ def lvdcp_pack(
         raise ValueError(f"not_indexed: {exc}. Call lvdcp_scan(path={path!r}) first.") from exc
 
     with idx:
-        result = idx.retrieve(query, mode=mode, limit=limit)
+        # Vector search (best-effort, adds scores if Qdrant enabled)
+        v_scores: dict[str, float] | None = None
+        try:
+            import asyncio  # noqa: PLC0415
+
+            from libs.core.projects_config import load_config  # noqa: PLC0415
+            from libs.embeddings.service import vector_search  # noqa: PLC0415
+
+            cfg = load_config(Path.home() / ".lvdcp" / "config.yaml")
+            if cfg.qdrant.enabled:
+                v_scores = asyncio.run(
+                    vector_search(config=cfg, query=query, project_id=root.name, limit=limit * 2)
+                ) or None
+        except Exception:
+            pass  # Degraded mode — vector search unavailable
+
+        result = idx.retrieve(query, mode=mode, limit=limit, vector_scores=v_scores)
         if mode == "edit":
             pack = build_edit_pack(
                 project_slug=root.name,

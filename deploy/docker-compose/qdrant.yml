@@ -1,0 +1,20 @@
+version: "3.8"
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.13.6
+    container_name: dcp-qdrant
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"   # REST API
+      - "127.0.0.1:6334:6334"   # gRPC
+    volumes:
+      - dcp_qdrantdata:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+      QDRANT__STORAGE__PERFORMANCE__OPTIMIZERS_MAX_THREADS: 2
+      QDRANT__STORAGE__PERFORMANCE__HNSW_MAX_INDEXING_THREADS: 2
+
+volumes:
+  dcp_qdrantdata:
+    name: dcp_qdrantdata

@@ -51,10 +51,10 @@ def _process_and_index_files(  # noqa: PLR0912, PLR0915
     fts: FtsIndex,
     mode: Literal["full", "incremental"],
     only: set[str] | None = None,
-) -> tuple[list[File], list[Symbol], int, int, int, set[str]]:
+) -> tuple[list[File], list[Symbol], int, int, int, set[str], list[dict]]:
     """Walk files, parse, and index.
 
-    Return (files, symbols, total_symbols, total_relations, files_reparsed, visited).
+    Return (files, symbols, total_symbols, total_relations, files_reparsed, visited, changed_for_embed).
     """
     files_processed: list[File] = []
     all_symbols: list[Symbol] = []
@@ -62,6 +62,7 @@ def _process_and_index_files(  # noqa: PLR0912, PLR0915
     total_relations = 0
     files_reparsed = 0
     visited_paths: set[str] = set()
+    changed_for_embed: list[dict] = []
 
     for abs_path in _walk(root):
         try:
@@ -133,6 +134,20 @@ def _process_and_index_files(  # noqa: PLR0912, PLR0915
         total_relations += len(parse_result.relations)
         files_reparsed += 1
 
+        # Collect for embedding (non-secret source files only)
+        if not has_secrets and language not in ("json", "yaml", "toml"):
+            try:
+                text = data.decode("utf-8", errors="replace")
+            except (UnicodeDecodeError, AttributeError):
+                text = ""
+            if text:
+                changed_for_embed.append({
+                    "file_path": rel,
+                    "content": text,
+                    "content_hash": new_hash,
+                    "language": language,
+                })
+
     return (
         files_processed,
         all_symbols,
@@ -140,6 +155,7 @@ def _process_and_index_files(  # noqa: PLR0912, PLR0915
         total_relations,
         files_reparsed,
         visited_paths,
+        changed_for_embed,
     )
 
 
@@ -181,6 +197,7 @@ def scan_project(  # noqa: PLR0912, PLR0915
             total_relations,
             files_reparsed,
             visited_paths,
+            changed_for_embed,
         ) = _process_and_index_files(root, cache, fts, mode, only)
 
         # Git intelligence (full scans only, whole-project)
@@ -257,6 +274,23 @@ def scan_project(  # noqa: PLR0912, PLR0915
             total_relations=total_relations_cached,
         )
         write_symbol_index_md(project_root=root, symbols=all_cached_symbols)
+
+        # Embedding: upsert changed files to Qdrant (best-effort, never blocks scan)
+        if changed_for_embed and only is None:
+            try:
+                from libs.core.projects_config import load_config  # noqa: PLC0415
+                from libs.embeddings.service import embed_project_files  # noqa: PLC0415
+
+                cfg = load_config(Path.home() / ".lvdcp" / "config.yaml")
+                if cfg.qdrant.enabled:
+                    embed_project_files(
+                        config=cfg,
+                        project_root=root,
+                        project_slug=root.name,
+                        changed_files=changed_for_embed,
+                    )
+            except Exception:
+                pass  # Best-effort: embedding must never kill a scan
 
         elapsed = time.perf_counter() - start
         result = ScanResult(

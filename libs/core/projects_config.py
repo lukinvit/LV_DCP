@@ -30,10 +30,27 @@ class LLMConfig(BaseModel):
     summarize_roles: list[str] = Field(default_factory=lambda: ["source", "test"])
 
 
+class QdrantConfig(BaseModel):
+    enabled: bool = False
+    url: str = "http://127.0.0.1:6333"
+    api_key_env_var: str = ""  # env var name, not the key itself
+    collection_prefix: str = "devctx"
+
+
+class EmbeddingConfig(BaseModel):
+    provider: str = "openai"  # "openai" | "local" | "fake"
+    model: str = "text-embedding-3-small"
+    dimension: int = 1536
+    api_key_env_var: str = "OPENAI_API_KEY"
+    base_url: str = ""  # override for local/compatible endpoints
+
+
 class DaemonConfig(BaseModel):
     version: int = Field(default=1)
     projects: list[ProjectEntry] = Field(default_factory=list)
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    qdrant: QdrantConfig = Field(default_factory=QdrantConfig)
+    embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
 
 
 def load_config(path: Path) -> DaemonConfig:

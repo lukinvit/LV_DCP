@@ -70,26 +70,35 @@ class OpenAIEmbeddingAdapter:
     without it installed.
     """
 
-    MODEL = "text-embedding-3-small"
-    DIMENSION = 1536
+    def __init__(
+        self,
+        *,
+        model: str = "text-embedding-3-small",
+        api_key: str | None = None,
+        base_url: str | None = None,
+    ) -> None:
+        import openai  # lazy import  # noqa: PLC0415
 
-    def __init__(self, *, api_key: str | None = None) -> None:
-        import openai  # lazy import
-
-        self._client = openai.AsyncOpenAI(api_key=api_key)
+        self._model = model
+        self._dimension = 1536  # default for text-embedding-3-small
+        kwargs: dict = {}
+        if api_key:
+            kwargs["api_key"] = api_key
+        if base_url:
+            kwargs["base_url"] = base_url
+        self._client = openai.AsyncOpenAI(**kwargs)
 
     @property
     def dimension(self) -> int:
-        return self.DIMENSION
+        return self._dimension
 
     @property
     def model_name(self) -> str:
-        return self.MODEL
+        return self._model
 
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
-
         response = await self._client.embeddings.create(
             input=texts,
-            model=self.MODEL,
+            model=self._model,
         )
         return [item.embedding for item in response.data]
