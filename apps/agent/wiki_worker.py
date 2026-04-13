@@ -13,6 +13,8 @@ from libs.wiki.state import ensure_wiki_table, get_dirty_modules, mark_current
 
 log = logging.getLogger(__name__)
 
+_MAX_SYMBOLS = 20
+
 
 @dataclass(frozen=True)
 class _UpdateContext:
@@ -38,7 +40,9 @@ def _gather_module_data(
         "SELECT fq_name FROM symbols WHERE file_path LIKE ? OR file_path = ?",
         (f"{module_path}/%", module_path),
     ).fetchall()
-    mod_symbols = [r[0] for r in sym_rows[:20]]
+    mod_symbols = [r[0] for r in sym_rows[:_MAX_SYMBOLS]]
+    if len(sym_rows) > _MAX_SYMBOLS:
+        log.debug("wiki_worker: truncated symbols %s → %d/%d", module_path, _MAX_SYMBOLS, len(sym_rows))
 
     dep_rows = conn.execute(
         "SELECT DISTINCT dst_ref FROM relations "
@@ -48,7 +52,7 @@ def _gather_module_data(
     deps = sorted({
         "/".join(r[0].split("/")[:2]) if "/" in r[0] else r[0]
         for r in dep_rows
-        if not r[0].startswith(module_path)
+        if not (r[0].startswith(module_path + "/") or r[0] == module_path)
     })
 
     dep_on_rows = conn.execute(
@@ -59,7 +63,7 @@ def _gather_module_data(
     dependents = sorted({
         "/".join(r[0].split("/")[:2]) if "/" in r[0] else r[0]
         for r in dep_on_rows
-        if not r[0].startswith(module_path)
+        if not (r[0].startswith(module_path + "/") or r[0] == module_path)
     })
 
     return mod_files, mod_symbols, deps, dependents
@@ -97,7 +101,6 @@ def _process_module(ctx: _UpdateContext, mod: dict[str, object]) -> None:
 
     conn = sqlite3.connect(str(ctx.db_path))
     try:
-        ensure_wiki_table(conn)
         mark_current(conn, module_path, f"modules/{safe_name}.md", source_hash)
         conn.commit()
     finally:
@@ -151,7 +154,10 @@ def run_wiki_update(project_path: Path, config: WikiConfig) -> None:
             _process_module(ctx, mod)
         except Exception as exc:
             log.warning(
-                "wiki_worker: failed %s / %s: %s", project_name, mod["module_path"], exc
+                "wiki_worker: failed %s / %s: %s",
+                project_name,
+                mod.get("module_path", "<unknown>"),
+                exc,
             )
 
     try:

@@ -84,11 +84,12 @@ def mark_current(
     wiki_file: str,
     source_hash: str,
 ) -> None:
-    """Update a module to current after successful wiki generation."""
+    """Insert or replace a module as current after successful wiki generation."""
     conn.execute(
-        "UPDATE wiki_state SET status = 'current', wiki_file = ?, "
-        "source_hash = ?, last_generated_ts = ? WHERE module_path = ?",
-        (wiki_file, source_hash, time.time(), module_path),
+        "INSERT OR REPLACE INTO wiki_state "
+        "(module_path, wiki_file, source_hash, last_generated_ts, status) "
+        "VALUES (?, ?, ?, ?, 'current')",
+        (module_path, wiki_file, source_hash, time.time()),
     )
 
 

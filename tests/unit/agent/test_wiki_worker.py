@@ -57,7 +57,7 @@ def project(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def test_calls_generate_for_dirty_modules(project: Path) -> None:
+def test_runs_for_dirty_modules(project: Path) -> None:
     config = WikiConfig(article_max_tokens=500)
     article_text = "# libs/core\n\n## Purpose\nCore module.\n"
     with (
@@ -114,6 +114,7 @@ def test_continues_on_module_error(project: Path) -> None:
         run_wiki_update(project, config)
 
     assert "libs/scanning" in results
+    assert "libs/core" not in results
 
 
 def test_no_op_when_no_cache_db(tmp_path: Path) -> None:
@@ -123,7 +124,7 @@ def test_no_op_when_no_cache_db(tmp_path: Path) -> None:
     mock_gen.assert_not_called()
 
 
-def test_no_op_when_no_dirty_modules(project: Path) -> None:
+def test_skips_clean_modules(project: Path) -> None:
     db = project / ".context" / "cache.db"
     conn = sqlite3.connect(str(db))
     conn.execute("UPDATE wiki_state SET status = 'current' WHERE module_path = 'libs/core'")
@@ -164,4 +165,29 @@ def test_respects_max_modules_per_run(project: Path) -> None:
     ):
         run_wiki_update(project, config)
 
-    assert len(generated) <= 2
+    assert len(generated) == 2
+
+
+def test_rebuilds_index_after_run(project: Path) -> None:
+    """write_index must be called exactly once after all modules are processed."""
+    config = WikiConfig()
+    article_text = "# libs/core\n\n## Purpose\nCore module.\n"
+    with (
+        patch("apps.agent.wiki_worker.generate_wiki_article", return_value=article_text),
+        patch("apps.agent.wiki_worker.write_index") as mock_idx,
+    ):
+        run_wiki_update(project, config)
+    mock_idx.assert_called_once()
+
+
+def test_no_architecture_page(project: Path) -> None:
+    """Background task must never generate architecture.md."""
+    config = WikiConfig()
+    article_text = "# libs/core\n\n## Purpose\nCore module.\n"
+    with (
+        patch("apps.agent.wiki_worker.generate_wiki_article", return_value=article_text),
+        patch("apps.agent.wiki_worker.write_index"),
+    ):
+        run_wiki_update(project, config)
+    arch_path = project / ".context" / "wiki" / "architecture.md"
+    assert not arch_path.exists()
