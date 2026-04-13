@@ -76,7 +76,12 @@ async def _embed_and_upsert(
             "entity_type": fd.get("entity_type", "file"),
         })
 
-    await store.upsert_summaries(project_id=project_id, items=items)
+    # Batch upsert (max 100 points at a time to avoid Qdrant timeouts)
+    upsert_batch = 100
+    for i in range(0, len(items), upsert_batch):
+        batch = items[i : i + upsert_batch]
+        await store.upsert_summaries(project_id=project_id, items=batch)
+
     return len(items)
 
 
