@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ProjectEntry(BaseModel):
@@ -17,6 +17,19 @@ class ProjectEntry(BaseModel):
     registered_at_iso: str
     last_scan_at_iso: str | None = None
     last_scan_status: str = "pending"
+
+
+def _validate_env_var_name(v: str) -> str:
+    """Ensure the field contains an env var NAME, not an actual secret."""
+    if v.startswith(("sk-", "key-", "token-", "ghp_", "ghs_", "AKIA")):
+        msg = (
+            f"api_key_env_var must be an environment variable NAME "
+            f"(e.g. 'OPENAI_API_KEY'), not the key itself. "
+            f"Got value starting with '{v[:6]}...'. "
+            f"Set the actual key via: export OPENAI_API_KEY='your-key'"
+        )
+        raise ValueError(msg)
+    return v
 
 
 class LLMConfig(BaseModel):
@@ -28,6 +41,11 @@ class LLMConfig(BaseModel):
     prompt_version: str = "v2"
     enabled: bool = False
     summarize_roles: list[str] = Field(default_factory=lambda: ["source", "test"])
+
+    @field_validator("api_key_env_var")
+    @classmethod
+    def _check_not_secret(cls, v: str) -> str:
+        return _validate_env_var_name(v)
 
 
 class QdrantConfig(BaseModel):
@@ -43,6 +61,11 @@ class EmbeddingConfig(BaseModel):
     dimension: int = 1536
     api_key_env_var: str = "OPENAI_API_KEY"
     base_url: str = ""  # override for local/compatible endpoints
+
+    @field_validator("api_key_env_var")
+    @classmethod
+    def _check_not_secret(cls, v: str) -> str:
+        return _validate_env_var_name(v)
 
 
 class DaemonConfig(BaseModel):

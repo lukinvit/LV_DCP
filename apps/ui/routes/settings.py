@@ -35,6 +35,7 @@ def _api_key_status(llm: LLMConfig) -> str:
 def settings_page(
     request: Request,
     saved: bool = Query(False),
+    error: str = Query(""),
 ) -> _TemplateResponse:
     config = load_config(resolve_config_path())
     budget = compute_budget_status(config.llm)
@@ -50,6 +51,7 @@ def settings_page(
             "ws_usage_7d": None,  # base template expects this
             "api_key_status": _api_key_status(config.llm),
             "saved": saved,
+            "error": error,
         },
     )
 
@@ -63,6 +65,15 @@ def save_settings(  # noqa: PLR0913
     monthly_budget_usd: float = Form(...),
     enabled: str | None = Form(None),
 ) -> RedirectResponse:
+    # Protect against pasting the actual key instead of the env var name
+    if api_key_env_var.startswith(("sk-", "key-", "token-", "ghp_", "ghs_", "AKIA")):
+        # User pasted the secret — reject and redirect with error
+        return RedirectResponse(
+            url="/settings?error=api_key_env_var+must+be+an+environment+variable+NAME"
+            "+like+OPENAI_API_KEY+not+the+key+itself.+Set+the+key+via+export+OPENAI_API_KEY",
+            status_code=303,
+        )
+
     config = load_config(resolve_config_path())
     config.llm = LLMConfig(
         provider=provider,

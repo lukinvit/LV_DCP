@@ -9,6 +9,9 @@
     {% if saved %}
     <div class="flash flash-success">&#10003; Settings saved</div>
     {% endif %}
+    {% if error %}
+    <div class="flash flash-error" style="background:#fde8e8;border:1px solid #d32f2f;color:#d32f2f;padding:12px;border-radius:6px;margin-bottom:12px;">&#10007; {{ error }}</div>
+    {% endif %}
     <form class="settings-form" method="POST" action="/settings">
         <div class="form-row">
             <label>Provider</label>
@@ -31,8 +34,9 @@
 
         <div class="form-row">
             <label>API key env var</label>
-            <input type="text" name="api_key_env_var" value="{{ llm_config.api_key_env_var }}">
+            <input type="text" name="api_key_env_var" value="{{ llm_config.api_key_env_var }}" placeholder="OPENAI_API_KEY">
             <span class="env-var-status status-{{ api_key_status }}">{{ api_key_status }}</span>
+            <div style="font-size:11px;color:#888;margin-top:2px;">Name of the environment variable (e.g. <code>OPENAI_API_KEY</code>), not the key itself. Set the key via <code>export OPENAI_API_KEY=sk-...</code> in your shell.</div>
         </div>
 
         <div class="form-row">

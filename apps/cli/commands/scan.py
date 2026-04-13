@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -98,6 +99,28 @@ def scan(
         f"{result.relations_reparsed} reparsed / {result.relations_cached} total relations "
         f"in {result.elapsed_seconds:.2f}s"
     )
+
+    # Qdrant / embedding status hint
+    try:
+        from libs.core.projects_config import load_config as _load_cfg  # noqa: PLC0415
+
+        _cfg = _load_cfg(DEFAULT_CONFIG_PATH)
+        if _cfg.qdrant.enabled:
+            _key_var = _cfg.embedding.api_key_env_var
+            if _cfg.embedding.provider == "openai" and not os.environ.get(_key_var):
+                typer.echo(
+                    f"⚠ Qdrant enabled but {_key_var} not set — "
+                    f"vector embeddings skipped. Set the key in ~/.zshrc or .env",
+                    err=True,
+                )
+            elif _cfg.embedding.provider == "fake":
+                typer.echo(
+                    "ℹ Qdrant enabled with fake embeddings (for testing). "
+                    "Set embedding.provider=openai in ~/.lvdcp/config.yaml for real vectors.",
+                    err=True,
+                )
+    except Exception:
+        pass
 
     _auto_register(DEFAULT_CONFIG_PATH, resolved)
     _ensure_claude_md_section(resolved)
