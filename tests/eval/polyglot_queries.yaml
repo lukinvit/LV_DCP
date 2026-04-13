@@ -1,0 +1,93 @@
+version: 1
+description: |
+  Polyglot eval queries for Go + TypeScript + mixed-language projects.
+  Calibrated 2026-04-13 against actual pipeline output.
+  Projects use generic names per publish-check convention.
+
+projects:
+  # X5_BM — Go microservices + TypeScript frontend (FSD architecture)
+  GoTS_Project:
+    queries:
+      # Go backend — repository pattern
+      - id: gts01-voting-repository
+        text: "voting service repository"
+        mode: navigate
+        expected:
+          files:
+            - services/voting-service/internal/repository/repository.go
+
+      # TypeScript frontend — auth feature
+      - id: gts02-auth-login
+        text: "user authentication login form"
+        mode: navigate
+        expected:
+          files:
+            - frontend/src/features/auth/ui/LoginForm.tsx
+
+      # Go backend — service layer
+      - id: gts03-voting-service
+        text: "VotingService CreateVoting ballot"
+        mode: navigate
+        expected:
+          files:
+            - services/voting-service/internal/service/service.go
+
+      # TypeScript frontend — feature component
+      - id: gts04-meetings-prefs
+        text: "useMeetingsListPrefs sorting period"
+        mode: navigate
+        expected:
+          files:
+            - frontend/src/features/meetings-list/model/useMeetingsListPrefs.ts
+
+      # Go backend — config model
+      - id: gts05-voting-config
+        text: "voting-service internal config Config struct"
+        mode: navigate
+        expected:
+          files:
+            - services/voting-service/internal/config/config.go
+
+      # TypeScript frontend — company feature
+      - id: gts06-company-form
+        text: "CompanyFormModal company management"
+        mode: navigate
+        expected:
+          files:
+            - frontend/src/features/company-management/ui/CompanyFormModal.tsx
+
+      # Cross-language: edit task touching Go + TS
+      - id: gts07-voting-edit
+        text: "add new voting type to the system"
+        mode: edit
+        expected:
+          files:
+            - services/voting-service/internal/model/voting.go
+            - services/voting-service/internal/service/service.go
+
+  # X5_Agrement_Cheker — Python analysis + TS frontend
+  PythonTS_Project:
+    queries:
+      # Python — analysis scripts
+      - id: pts01-brief-analysis
+        text: "brief analysis requirements extraction"
+        mode: navigate
+        expected:
+          files:
+            - analyze_brief.py
+
+      # Python — code metrics
+      - id: pts02-code-complexity
+        text: "code complexity metrics visualization"
+        mode: navigate
+        expected:
+          files:
+            - analyze_with_speckit.py
+
+      # Python — document review agent
+      - id: pts03-document-review
+        text: "document review analysis agent"
+        mode: navigate
+        expected:
+          files:
+            - src/agents/document_review/vl_analysis_agent.py
