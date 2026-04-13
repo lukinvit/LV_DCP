@@ -43,6 +43,7 @@ class ScanResult:
     relations_reparsed: int
     relations_cached: int
     elapsed_seconds: float
+    wiki_dirty_count: int = 0  # modules marked dirty in this scan
 
 
 def _process_and_index_files(  # noqa: PLR0912, PLR0915
@@ -141,12 +142,14 @@ def _process_and_index_files(  # noqa: PLR0912, PLR0915
             except (UnicodeDecodeError, AttributeError):
                 text = ""
             if text:
-                changed_for_embed.append({
-                    "file_path": rel,
-                    "content": text,
-                    "content_hash": new_hash,
-                    "language": language,
-                })
+                changed_for_embed.append(
+                    {
+                        "file_path": rel,
+                        "content": text,
+                        "content_hash": new_hash,
+                        "language": language,
+                    }
+                )
 
     return (
         files_processed,
@@ -276,12 +279,13 @@ def scan_project(  # noqa: PLR0912, PLR0915
         write_symbol_index_md(project_root=root, symbols=all_cached_symbols)
 
         # Wiki dirty tracking (best-effort, never blocks scan)
+        _wiki_dirty_count = 0
         try:
             from libs.wiki.state import ensure_wiki_table, update_dirty_state  # noqa: PLC0415
 
             wiki_conn = cache._connect()
             ensure_wiki_table(wiki_conn)
-            update_dirty_state(wiki_conn, files_processed)
+            _wiki_dirty_count = update_dirty_state(wiki_conn, files_processed)
             wiki_conn.commit()
         except Exception:
             pass  # Best-effort: wiki tracking must never kill a scan
@@ -312,6 +316,7 @@ def scan_project(  # noqa: PLR0912, PLR0915
             relations_reparsed=total_relations,
             relations_cached=total_relations_cached,
             elapsed_seconds=elapsed,
+            wiki_dirty_count=_wiki_dirty_count,
         )
         # Only write a history event for whole-project scans (no `only` filter).
         # Daemon-triggered partial scans write their own event via process_pending_events.
