@@ -68,12 +68,19 @@ class EmbeddingConfig(BaseModel):
         return _validate_env_var_name(v)
 
 
+class ObsidianConfig(BaseModel):
+    enabled: bool = False
+    vault_path: str = ""
+    sync_mode: str = "manual"
+
+
 class DaemonConfig(BaseModel):
     version: int = Field(default=1)
     projects: list[ProjectEntry] = Field(default_factory=list)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     qdrant: QdrantConfig = Field(default_factory=QdrantConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
+    obsidian: ObsidianConfig = Field(default_factory=ObsidianConfig)
 
 
 def load_config(path: Path) -> DaemonConfig:

@@ -5,7 +5,9 @@ All heavy lifting happens here so dashboard routes and the MCP tool remain thin.
 
 from __future__ import annotations
 
+import json
 import os
+import posixpath
 import time
 from pathlib import Path
 
@@ -360,16 +362,86 @@ def _cluster_files(
     return clusters[:max_clusters]
 
 
+def _load_tsconfig_paths(known_paths: set[str], root: Path) -> dict[str, str]:
+    """Pre-load tsconfig.json path aliases from the project.
+
+    Scans known_paths for tsconfig*.json files, reads them from disk,
+    parses compilerOptions.paths, and returns a mapping of
+    import prefix → filesystem prefix (relative to project root).
+
+    E.g. for tsconfig at "frontend/tsconfig.json" with baseUrl="." and
+    paths {"@app/*": ["src/app/*"]}, returns {"@app/": "frontend/src/app/"}.
+    """
+    mapping: dict[str, str] = {}
+    tsconfig_files = [p for p in known_paths if p.endswith("tsconfig.json")]
+
+    for tsconfig_rel in tsconfig_files:
+        tsconfig_path = root / tsconfig_rel
+        if not tsconfig_path.is_file():
+            continue
+        try:
+            raw = tsconfig_path.read_text(encoding="utf-8")
+            data = json.loads(raw)
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+            continue
+
+        compiler_opts = data.get("compilerOptions", {})
+        paths = compiler_opts.get("paths")
+        if not paths:
+            continue
+
+        base_url = compiler_opts.get("baseUrl", ".")
+        tsconfig_dir = posixpath.dirname(tsconfig_rel)
+        # Resolve baseUrl relative to tsconfig directory
+        resolved_base = posixpath.normpath(posixpath.join(tsconfig_dir, base_url))
+        if resolved_base == ".":
+            resolved_base = ""
+
+        for alias_pattern, targets in paths.items():
+            if not alias_pattern.endswith("/*") or not targets:
+                continue
+            target = targets[0]
+            if not target.endswith("/*"):
+                continue
+            # Strip trailing "/*"
+            alias_prefix = alias_pattern[:-1]  # "@app/*" → "@app/"
+            target_prefix = target[:-1]  # "src/app/*" → "src/app/"
+            # Combine with resolved base
+            if resolved_base:
+                fs_prefix = resolved_base + "/" + target_prefix
+            else:
+                fs_prefix = target_prefix
+            # Normalize (remove ./ etc)
+            fs_prefix = posixpath.normpath(fs_prefix) + "/"
+            mapping[alias_prefix] = fs_prefix
+
+    return mapping
+
+
+_TS_JS_EXTENSIONS = ("", ".ts", ".tsx", ".js", ".jsx", "/index.ts", "/index.tsx", "/index.js")
+
+
+def _try_resolve_with_extensions(base: str, known_paths: set[str]) -> str | None:
+    """Try base path with common TS/JS extensions."""
+    for ext in _TS_JS_EXTENSIONS:
+        candidate = base + ext
+        if candidate in known_paths:
+            return candidate
+    return None
+
+
 def _resolve_import_to_file(
     src_file: str,
     module_ref: str,
     known_paths: set[str],
+    tsconfig_paths: dict[str, str] | None = None,
 ) -> str | None:
     """Best-effort resolve of an import module ref to a project file path.
 
     Handles:
     - Python dotted imports: "libs.core.entities" → "libs/core/entities.py"
     - TS/JS relative imports: "./models/user" → resolved relative to src_file
+    - TS/JS tsconfig path aliases: "@app/foo" → "frontend/src/app/foo.ts"
     - Go internal imports: looks for suffix match in known_paths
     """
     # Python-style dotted imports (no slashes, no dots in file extensions)
@@ -390,15 +462,21 @@ def _resolve_import_to_file(
 
     # TS/JS relative imports: "./foo", "../bar/baz"
     if module_ref.startswith("./") or module_ref.startswith("../"):
-        import posixpath
-
         src_dir = posixpath.dirname(src_file)
         resolved = posixpath.normpath(posixpath.join(src_dir, module_ref))
-        # Try common extensions
-        for ext in ("", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", "/index.ts", "/index.js"):
-            candidate = resolved + ext
-            if candidate in known_paths:
-                return candidate
+        result = _try_resolve_with_extensions(resolved, known_paths)
+        if result:
+            return result
+
+    # TS/JS tsconfig path aliases: "@app/foo", "@shared/ui/Button"
+    if tsconfig_paths and not module_ref.startswith("."):
+        for alias_prefix, fs_prefix in tsconfig_paths.items():
+            if module_ref.startswith(alias_prefix):
+                remainder = module_ref[len(alias_prefix):]
+                resolved = fs_prefix + remainder
+                result = _try_resolve_with_extensions(resolved, known_paths)
+                if result:
+                    return result
 
     # Go internal imports: match suffix (e.g., "myproject/internal/auth" → find "internal/auth/*.go")
     # Just try suffix matching against known paths
@@ -427,6 +505,9 @@ def _build_graph_dump(root: Path) -> GraphDump | None:
         all_nodes.append(GraphNode(id=f.path, label=f.path, role=_role_for_file(f.path)))
         seen.add(f.path)
 
+    # Pre-load tsconfig path aliases (read once, used in loop)
+    tsconfig_paths = _load_tsconfig_paths(seen, root)
+
     # Map symbols to their defining files (for DEFINES relations)
     symbol_to_file: dict[str, str] = {}
     for rel in relations:
@@ -445,7 +526,7 @@ def _build_graph_dump(root: Path) -> GraphDump | None:
             and rel.dst_type == "module"
             and src_file
         ):
-            dst_file = _resolve_import_to_file(src_file, rel.dst_ref, seen)
+            dst_file = _resolve_import_to_file(src_file, rel.dst_ref, seen, tsconfig_paths)
 
         if src_file and dst_file and src_file != dst_file and src_file in seen and dst_file in seen:
             edge_pairs.add((src_file, dst_file))

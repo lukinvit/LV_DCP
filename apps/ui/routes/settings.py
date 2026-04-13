@@ -143,6 +143,37 @@ def save_embedding_settings(
     return RedirectResponse(url="/settings?saved=1", status_code=303)
 
 
+@router.post("/api/settings/re-embed", response_class=HTMLResponse)
+def re_embed_all() -> HTMLResponse:
+    """Trigger a full re-scan (with embedding) for every registered project."""
+    config = load_config(resolve_config_path())
+    if not config.qdrant.enabled:
+        return HTMLResponse(
+            '<span class="test-result test-error">&#10007; Qdrant is disabled</span>'
+        )
+
+    from libs.scanning.scanner import scan_project  # noqa: PLC0415
+
+    count = 0
+    errors: list[str] = []
+    for entry in config.projects:
+        try:
+            scan_project(entry.root, mode="full")
+            count += 1
+        except Exception as exc:
+            errors.append(f"{entry.root.name}: {str(exc)[:80]}")
+
+    if errors:
+        err_text = "; ".join(errors)
+        return HTMLResponse(
+            f'<span class="test-result test-error">'
+            f"&#10003; {count} re-embedded, errors: {err_text}</span>"
+        )
+    return HTMLResponse(
+        f'<span class="test-result test-ok">&#10003; {count} project(s) re-embedded</span>'
+    )
+
+
 @router.post("/api/settings/test-qdrant", response_class=HTMLResponse)
 def test_qdrant() -> HTMLResponse:
     config = load_config(resolve_config_path())

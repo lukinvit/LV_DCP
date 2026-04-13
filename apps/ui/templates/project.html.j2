@@ -33,4 +33,23 @@
     {% include "partials/hotspots.html.j2" %}
 
     {% include "partials/summaries_list.html.j2" %}
+
+    <section class="section">
+        <h2>Obsidian Sync</h2>
+        {% if obsidian_config.enabled and obsidian_config.vault_path %}
+        <p>Vault: <code>{{ obsidian_config.vault_path }}</code></p>
+        <button type="button"
+                hx-post="/api/project/{{ status.card.slug }}/obsidian-sync"
+                hx-target="#obsidian-sync-result"
+                hx-swap="innerHTML">
+            Sync to Obsidian
+        </button>
+        <span id="obsidian-sync-result"></span>
+        {% else %}
+        <p class="muted">Configure vault path in <code>~/.lvdcp/config.yaml</code> first:</p>
+        <pre><code>obsidian:
+  enabled: true
+  vault_path: /path/to/your/vault</code></pre>
+        {% endif %}
+    </section>
 {% endblock %}

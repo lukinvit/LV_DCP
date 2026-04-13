@@ -115,7 +115,55 @@ class OpenAIClient:
         *,
         model: str,
     ) -> list[RerankResult]:
-        raise NotImplementedError("rerank is Phase 3c.2")
+        if not candidates:
+            return []
+
+        # Build prompt: ask LLM to score each candidate 0.0–1.0
+        candidate_lines = "\n".join(
+            f"{i+1}. [{c.id}] {c.summary[:200]}" for i, c in enumerate(candidates)
+        )
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a code retrieval reranker. Given a query and a list of "
+                    "file candidates with summaries, score each file 0.0 to 1.0 on "
+                    "relevance to the query. Respond ONLY with JSON: "
+                    '[{"id": "file_path", "score": 0.85}, ...] '
+                    "Order by score descending. No explanation."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Query: {query}\n\nCandidates:\n{candidate_lines}",
+            },
+        ]
+
+        try:
+            response = await _complete_with_retries(
+                self._client, model=model, messages=messages,
+            )
+            import json  # noqa: PLC0415
+
+            text = response.choices[0].message.content.strip()
+            # Strip markdown code block if present
+            if text.startswith("```"):
+                text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+                if text.endswith("```"):
+                    text = text[:-3]
+                text = text.strip()
+            parsed = json.loads(text)
+            return [
+                RerankResult(id=item["id"], relevance_score=float(item.get("score", 0.0)))
+                for item in parsed
+                if "id" in item
+            ]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            # LLM returned unparseable output — return original order with flat scores
+            return [
+                RerankResult(id=c.id, relevance_score=1.0 - i * 0.01)
+                for i, c in enumerate(candidates)
+            ]
 
     async def test_connection(self) -> bool:
         try:

@@ -136,6 +136,27 @@ def lvdcp_pack(
             pass  # Degraded mode — vector search unavailable
 
         result = idx.retrieve(query, mode=mode, limit=limit, vector_scores=v_scores)
+
+        # LLM rerank (best-effort, rescores top candidates if llm.enabled)
+        try:
+            from libs.core.projects_config import load_config as _lc  # noqa: PLC0415
+            from libs.retrieval.reranker import rerank_candidates  # noqa: PLC0415
+
+            _cfg = _lc(Path.home() / ".lvdcp" / "config.yaml")
+            if _cfg.llm.enabled and result.scores:
+                reranked = rerank_candidates(
+                    query=query,
+                    file_scores=result.scores,
+                    file_summaries={f: f for f in result.files},
+                    llm_config=_cfg.llm,
+                    top_n=20,
+                )
+                # Re-sort files by reranked scores
+                result.files.sort(key=lambda f: -reranked.get(f, 0.0))
+                result.scores.update(reranked)
+        except Exception:
+            pass  # Degraded mode
+
         if mode == "edit":
             pack = build_edit_pack(
                 project_slug=root.name,

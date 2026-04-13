@@ -93,7 +93,15 @@
                     hx-swap="innerHTML">
                 Test connection
             </button>
+            <button type="button"
+                    hx-post="/api/settings/re-embed"
+                    hx-target="#re-embed-result"
+                    hx-swap="innerHTML"
+                    hx-confirm="Re-embed all projects? This may take a while.">
+                Re-embed all
+            </button>
             <span id="qdrant-test-result"></span>
+            <span id="re-embed-result"></span>
         </div>
     </form>
 </section>

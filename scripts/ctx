@@ -1,0 +1,5 @@
+#!/bin/bash
+# Wrapper for ctx CLI — runs via uv from the LV_DCP project directory.
+# Install: ln -sf "$(pwd)/scripts/ctx" /usr/local/bin/ctx
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec uv run --project "$SCRIPT_DIR" ctx "$@"
