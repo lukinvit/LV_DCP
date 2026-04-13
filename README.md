@@ -95,7 +95,9 @@ Release note: [docs/release/2026-04-13-v0.6.1-stabilization.md](docs/release/202
 
 ### Test suite
 
-653 CI-gated tests, 0 failures. Current green baseline: 651 non-eval + 2 eval. Eval harness: 32 synthetic queries; multi-project eval currently covers 9 advisory queries across 4 registered projects.
+662 tests in suite, 0 failures. Current green default baseline: 660 non-eval passed; eval: 1 passed + 1 skipped advisory polyglot check. Eval harness: 32 synthetic queries; multi-project eval currently covers 9 advisory queries across 4 registered projects.
+
+For advisory real-project eval setup and report commands, see [docs/eval/real-project-eval.md](docs/eval/real-project-eval.md).
 
 ## Dashboard
 

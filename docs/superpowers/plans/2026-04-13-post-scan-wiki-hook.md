@@ -1,6 +1,8 @@
 # Post-scan wiki hook — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
+
+**Status:** Implemented 2026-04-13
 
 **Goal:** After every daemon scan, automatically generate wiki articles for dirty modules in a background thread when `dirty_count >= configurable threshold`.
 
@@ -30,7 +32,7 @@
 - Modify: `libs/scanning/scanner.py:38-46`
 - Test: `tests/unit/core/test_projects_config.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 # tests/unit/core/test_projects_config.py  — add to existing file
@@ -48,14 +50,14 @@ def test_wiki_config_from_dict() -> None:
     assert cfg.max_workers == 2
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 uv run pytest tests/unit/core/test_projects_config.py -k "dirty_threshold or max_workers" -v
 ```
 Expected: `AttributeError: 'WikiConfig' object has no attribute 'dirty_threshold'`
 
-- [ ] **Step 3: Add fields to WikiConfig**
+- [x] **Step 3: Add fields to WikiConfig**
 
 In `libs/core/projects_config.py`, change `WikiConfig`:
 ```python
@@ -68,14 +70,14 @@ class WikiConfig(BaseModel):
     max_workers: int = 1        # max concurrent wiki update tasks
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```bash
 uv run pytest tests/unit/core/test_projects_config.py -k "dirty_threshold or max_workers" -v
 ```
 Expected: `3 passed`
 
-- [ ] **Step 5: Add wiki_dirty_count to ScanResult**
+- [x] **Step 5: Add wiki_dirty_count to ScanResult**
 
 In `libs/scanning/scanner.py`, change `ScanResult`:
 ```python
@@ -91,7 +93,7 @@ class ScanResult:
     wiki_dirty_count: int = 0  # modules marked dirty in this scan
 ```
 
-- [ ] **Step 6: Capture update_dirty_state return in scanner**
+- [x] **Step 6: Capture update_dirty_state return in scanner**
 
 In `libs/scanning/scanner.py`, find the wiki dirty tracking block (around line 278) and change:
 ```python
@@ -122,14 +124,14 @@ Then find where `ScanResult` is constructed (end of `scan_project`) and add `wik
         )
 ```
 
-- [ ] **Step 7: Run full scan tests**
+- [x] **Step 7: Run full scan tests**
 
 ```bash
 uv run pytest tests/unit/ tests/integration/test_cli_scan.py -q
 ```
 Expected: all pass, no regressions
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add libs/core/projects_config.py libs/scanning/scanner.py tests/unit/core/test_projects_config.py
@@ -144,7 +146,7 @@ git commit -m "feat(wiki): WikiConfig dirty_threshold/max_workers + ScanResult.w
 - Create: `apps/agent/wiki_worker.py`
 - Create: `tests/unit/agent/test_wiki_worker.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 # tests/unit/agent/test_wiki_worker.py
@@ -311,14 +313,14 @@ def test_respects_max_modules_per_run(project: Path) -> None:
     assert len(generated) <= 2
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 uv run pytest tests/unit/agent/test_wiki_worker.py -v
 ```
 Expected: `ModuleNotFoundError: No module named 'apps.agent.wiki_worker'`
 
-- [ ] **Step 3: Implement wiki_worker.py**
+- [x] **Step 3: Implement wiki_worker.py**
 
 ```python
 # apps/agent/wiki_worker.py
@@ -454,21 +456,21 @@ def run_wiki_update(project_path: Path, config: WikiConfig) -> None:
         logger.warning("wiki_worker: write_index failed for %s: %s", project_name, exc)
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```bash
 uv run pytest tests/unit/agent/test_wiki_worker.py -v
 ```
 Expected: `6 passed`
 
-- [ ] **Step 5: Lint check**
+- [x] **Step 5: Lint check**
 
 ```bash
 uv run ruff check apps/agent/wiki_worker.py tests/unit/agent/test_wiki_worker.py
 ```
 Expected: `All checks passed!`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/agent/wiki_worker.py tests/unit/agent/test_wiki_worker.py
@@ -483,7 +485,7 @@ git commit -m "feat(wiki): background wiki update worker for daemon post-scan ho
 - Modify: `apps/agent/daemon.py`
 - Test: `tests/integration/test_ctx_watch.py`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 Add to `tests/integration/test_ctx_watch.py`:
 
@@ -557,14 +559,14 @@ def test_process_pending_events_no_wiki_task_below_threshold(tmp_path: Path) -> 
         pool.shutdown(wait=False)
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 uv run pytest tests/integration/test_ctx_watch.py -k "wiki_task" -v
 ```
 Expected: `TypeError: process_pending_events() got unexpected keyword argument 'wiki_pool'`
 
-- [ ] **Step 3: Update daemon.py — imports**
+- [x] **Step 3: Update daemon.py — imports**
 
 At the top of `apps/agent/daemon.py`, add:
 ```python
@@ -574,7 +576,7 @@ from apps.agent.wiki_worker import run_wiki_update
 from libs.core.projects_config import WikiConfig, load_config
 ```
 
-- [ ] **Step 4: Update process_pending_events signature**
+- [x] **Step 4: Update process_pending_events signature**
 
 Change the function signature to:
 ```python
@@ -588,7 +590,7 @@ def process_pending_events(
 ) -> dict[Path, int]:
 ```
 
-- [ ] **Step 5: Add wiki submission after scan in process_pending_events**
+- [x] **Step 5: Add wiki submission after scan in process_pending_events**
 
 In the `if modified:` block, after `results[project_root] = result.files_reparsed`, add:
 ```python
@@ -610,7 +612,7 @@ In the `if modified:` block, after `results[project_root] = result.files_reparse
                     )
 ```
 
-- [ ] **Step 6: Update run_daemon to init pool and pass to process_pending_events**
+- [x] **Step 6: Update run_daemon to init pool and pass to process_pending_events**
 
 Replace the `run_daemon` body with:
 ```python
@@ -663,28 +665,28 @@ def run_daemon(
         wiki_pool.shutdown(wait=False)
 ```
 
-- [ ] **Step 7: Run all daemon + integration tests**
+- [x] **Step 7: Run all daemon + integration tests**
 
 ```bash
 uv run pytest tests/integration/test_ctx_watch.py tests/unit/agent/ -v
 ```
 Expected: all pass
 
-- [ ] **Step 8: Full suite smoke check**
+- [x] **Step 8: Full suite smoke check**
 
 ```bash
 uv run pytest tests/unit/ -q
 ```
 Expected: all pass, no regressions
 
-- [ ] **Step 9: Lint**
+- [x] **Step 9: Lint**
 
 ```bash
 uv run ruff check apps/agent/daemon.py
 ```
 Expected: `All checks passed!`
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add apps/agent/daemon.py
@@ -698,7 +700,7 @@ git commit -m "feat(wiki): wire ThreadPoolExecutor post-scan wiki hook into daem
 **Files:**
 - No code changes — just verify config YAML works end-to-end
 
-- [ ] **Step 1: Enable in local config**
+- [x] **Step 1: Enable in local config**
 
 Add to `~/.lvdcp/config.yaml` under the `wiki:` section:
 ```yaml
@@ -711,7 +713,7 @@ wiki:
   article_max_tokens: 2000
 ```
 
-- [ ] **Step 2: Verify config loads correctly**
+- [x] **Step 2: Verify config loads correctly**
 
 ```bash
 uv run python -c "
@@ -730,7 +732,7 @@ dirty_threshold: 3
 max_workers: 1
 ```
 
-- [ ] **Step 3: Commit config (if tracked)**
+- [x] **Step 3: Commit config (if tracked)**
 
 ```bash
 git add ~/.lvdcp/config.yaml 2>/dev/null || true
@@ -741,28 +743,28 @@ git add ~/.lvdcp/config.yaml 2>/dev/null || true
 
 ## Task 5: Final verification
 
-- [ ] **Step 1: Run full test suite**
+- [x] **Step 1: Run full test suite**
 
 ```bash
 uv run pytest tests/unit/ tests/integration/ -q --ignore=tests/eval
 ```
 Expected: all pass, 0 failures
 
-- [ ] **Step 2: Lint full project**
+- [x] **Step 2: Lint full project**
 
 ```bash
 uv run ruff check libs/scanning/scanner.py libs/core/projects_config.py apps/agent/
 ```
 Expected: `All checks passed!`
 
-- [ ] **Step 3: Typecheck changed files**
+- [x] **Step 3: Typecheck changed files**
 
 ```bash
 uv run mypy libs/scanning/scanner.py libs/core/projects_config.py apps/agent/daemon.py apps/agent/wiki_worker.py --ignore-missing-imports
 ```
 Expected: `Success: no issues found`
 
-- [ ] **Step 4: Final commit**
+- [x] **Step 4: Final commit**
 
 ```bash
 git add libs/scanning/scanner.py libs/core/projects_config.py
@@ -776,7 +778,7 @@ git commit -m "feat(wiki): post-scan wiki hook — daemon auto-generates article
 Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 5: Push**
+- [x] **Step 5: Push**
 
 ```bash
 git push origin main

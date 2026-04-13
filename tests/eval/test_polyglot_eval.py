@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.eval.real_project_eval import skip_summary
 from tests.eval.run_polyglot_eval import PolyglotReport, run_polyglot_eval
 
 pytestmark = pytest.mark.eval
@@ -22,7 +23,10 @@ def test_polyglot_eval_meets_thresholds() -> None:
     report: PolyglotReport = run_polyglot_eval()
 
     if not report.results:
-        pytest.skip("No polyglot projects available for eval")
+        pytest.skip(f"No polyglot projects available for eval ({skip_summary(report)})")
+
+    if report.skipped_projects:
+        print(f"Skipped projects: {report.skipped_projects}")
 
     # Print per-query results for debugging
     for r in report.results:
@@ -42,7 +46,9 @@ def test_polyglot_eval_meets_thresholds() -> None:
         )
 
     for proj, threshold in PER_PROJECT_THRESHOLDS.items():
-        actual = report.per_project_recall.get(proj, 0.0)
+        actual = report.per_project_recall.get(proj)
+        if actual is None:
+            continue
         if actual < threshold:
             failures.append(
                 f"{proj} recall@5 = {actual:.3f} < threshold {threshold:.3f}"

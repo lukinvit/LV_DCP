@@ -1,7 +1,7 @@
 # Post-scan wiki hook — design spec
 
 **Date:** 2026-04-13  
-**Status:** approved  
+**Status:** Implemented 2026-04-13  
 **Scope:** Phase 7 — automatic wiki update after daemon scan
 
 ---

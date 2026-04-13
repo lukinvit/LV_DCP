@@ -1,0 +1,13 @@
+version: 1
+description: |
+  Example local mapping for advisory real-project eval.
+  Keys are generic fixture names from tests/eval/*.yaml.
+  Values are the local directory names of already registered projects.
+
+projects:
+  GoTS_Project: GoTS_Project
+  PythonTS_Project: PythonTS_Project
+  Project_Large: Project_Large
+  Project_Medium_A: Project_Medium_A
+  Project_Medium_B: Project_Medium_B
+  Project_Small: Project_Small

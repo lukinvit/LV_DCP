@@ -1,4 +1,4 @@
-"""Advisory polyglot eval runner for real locally registered projects."""
+"""Advisory multi-project eval runner for real locally registered projects."""
 
 from __future__ import annotations
 
@@ -14,16 +14,16 @@ from tests.eval.real_project_eval import (
 )
 
 EVAL_DIR = Path(__file__).resolve().parent
-POLYGLOT_YAML = EVAL_DIR / "polyglot_queries.yaml"
+MULTIPROJECT_YAML = EVAL_DIR / "multiproject_queries.yaml"
 
-PolyglotQueryResult = RealProjectEvalQueryResult
-PolyglotReport = RealProjectEvalReport
+MultiprojectQueryResult = RealProjectEvalQueryResult
+MultiprojectReport = RealProjectEvalReport
 
 
-def run_polyglot_eval(project_map: LoadedProjectMap | None = None) -> PolyglotReport:
-    """Run advisory polyglot eval against locally registered projects."""
+def run_multiproject_eval(project_map: LoadedProjectMap | None = None) -> MultiprojectReport:
+    """Run advisory multi-project eval against locally registered projects."""
     return run_real_project_eval(
-        POLYGLOT_YAML,
+        MULTIPROJECT_YAML,
         config_path=DEFAULT_CONFIG_PATH,
         project_map=project_map or load_project_name_map(),
     )

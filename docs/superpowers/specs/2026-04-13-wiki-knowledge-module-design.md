@@ -175,7 +175,10 @@ wiki:
   article_max_tokens: 2000
 ```
 
-`auto_update_after_scan: true` makes `ctx scan` automatically run `ctx wiki update` at the end. Default false to keep scan fast.
+`auto_update_after_scan: true` enables the daemon-side post-scan wiki hook: after
+an automatic daemon scan, dirty modules can be regenerated in the background.
+Manual `ctx scan` remains scan-only. Default false to keep scan paths fast and
+predictable.
 
 ## 3. Files
 
@@ -229,7 +232,9 @@ Mitigation: `max_modules_per_run` config, dirty tracking (only changed modules),
 Mitigation: Structured prompt with explicit format. Incremental updates (existing article as context). Max 2000 token limit per article.
 
 **R4 — scan becomes slower due to dirty tracking.**
-Mitigation: Dirty tracking is hash comparison only (~10ms). No LLM calls during scan unless `auto_update_after_scan: true`.
+Mitigation: Dirty tracking is hash comparison only (~10ms). Manual `ctx scan`
+does not invoke LLM work. With `auto_update_after_scan: true`, the daemon may
+queue background wiki generation after the scan completes.
 
 **R5 — INDEX.md grows too large.**
 At 100 modules × 100 chars per line = 10KB. Fits in any context window. Not a risk for personal-scale projects.
