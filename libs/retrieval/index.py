@@ -5,12 +5,9 @@ Deterministic. Replaceable later by a proper inverted index or vector store.
 
 from __future__ import annotations
 
-import re
-
 from libs.core.entities import Symbol
 from libs.retrieval._stopwords import STOPWORDS
-
-_TOKEN_RE = re.compile(r"[a-zA-Z0-9]+")
+from libs.retrieval.identifiers import split_identifier_tokens
 
 # Common English words that appear in natural-language queries but should not
 # be used to match symbol names — shared with FtsIndex (see _stopwords.py).
@@ -18,15 +15,7 @@ _QUERY_STOPWORDS: frozenset[str] = STOPWORDS
 
 
 def _tokenize(text: str) -> list[str]:
-    parts = _TOKEN_RE.findall(text)
-    out: list[str] = []
-    for p in parts:
-        for s in p.split("_"):
-            if not s:
-                continue
-            chunks = re.split(r"(?<=[a-z])(?=[A-Z])", s)
-            out.extend(c.lower() for c in chunks if c)
-    return out
+    return split_identifier_tokens(text)
 
 
 def _tokenize_query(text: str) -> list[str]:

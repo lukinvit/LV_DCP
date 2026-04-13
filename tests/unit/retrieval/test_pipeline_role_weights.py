@@ -9,8 +9,11 @@ from libs.retrieval.pipeline import (
     DOCS_OVERRIDE_MULTIPLIER,
     GRAPH_EXPANSION_DEPTH,
     GRAPH_EXPANSION_DEPTH_EDIT,
+    PATH_BASENAME_TOKEN_BOOST,
+    PATH_PARENT_TOKEN_BOOST,
     ROLE_WEIGHTS_EDIT,
     ROLE_WEIGHTS_NAVIGATE,
+    _apply_path_token_boost,
     _apply_role_weights,
     _maybe_boost_config_files,
 )
@@ -264,3 +267,29 @@ class TestGraphDepthTuning:
             pipeline.retrieve("find something", mode="navigate")
 
         assert captured_depths == [3, 2]
+
+
+class TestPathTokenBoost:
+    """Phase 7C: identifier-aware path boost for already-scored candidates."""
+
+    def test_basename_match_can_outrank_generic_sibling(self) -> None:
+        file_scores = {
+            "src/web/server.py": 3.0,
+            "src/web/app.py": 2.4,
+        }
+        _apply_path_token_boost(
+            "FastAPI web app create_app router middleware",
+            file_scores,
+        )
+        assert file_scores["src/web/app.py"] > file_scores["src/web/server.py"]
+
+    def test_parent_and_basename_boost_are_bounded(self) -> None:
+        file_scores = {"src/temporal/workflows/pipeline.py": 1.0}
+        _apply_path_token_boost("temporal workflows schedule pipeline maintenance", file_scores)
+        expected = 1.0 + PATH_BASENAME_TOKEN_BOOST + PATH_PARENT_TOKEN_BOOST
+        assert file_scores["src/temporal/workflows/pipeline.py"] == expected
+
+    def test_no_path_overlap_leaves_score_unchanged(self) -> None:
+        file_scores = {"src/web/server.py": 2.0}
+        _apply_path_token_boost("keyword research service", file_scores)
+        assert file_scores["src/web/server.py"] == 2.0

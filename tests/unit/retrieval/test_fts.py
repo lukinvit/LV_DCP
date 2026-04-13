@@ -37,3 +37,15 @@ def test_delete_file_removes_from_index(fts: FtsIndex) -> None:
     fts.index_file("a.py", "content here")
     fts.delete_file("a.py")
     assert not fts.search("content", limit=5)
+
+
+def test_search_matches_snake_case_path_via_natural_language(fts: FtsIndex) -> None:
+    fts.index_file("src/services/keyword_research_service.py", "body without useful terms")
+    results = fts.search("keyword research service", limit=5)
+    assert any(path == "src/services/keyword_research_service.py" for path, _score in results)
+
+
+def test_search_splits_camel_case_query_for_path_match(fts: FtsIndex) -> None:
+    fts.index_file("frontend/src/features/auth/ui/LoginForm.tsx", "body without useful terms")
+    results = fts.search("LoginForm", limit=5)
+    assert any(path == "frontend/src/features/auth/ui/LoginForm.tsx" for path, _score in results)

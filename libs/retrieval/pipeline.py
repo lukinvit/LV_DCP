@@ -15,6 +15,7 @@ import time
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 
 from libs.core.entities import Symbol
 from libs.gitintel.models import GitFileStats
@@ -22,6 +23,7 @@ from libs.graph.builder import Graph
 from libs.retrieval.coverage import Coverage, compute_coverage
 from libs.retrieval.fts import FtsIndex
 from libs.retrieval.graph_expansion import expand_via_graph
+from libs.retrieval.identifiers import split_identifier_tokens
 from libs.retrieval.index import SymbolIndex
 from libs.retrieval.trace import Candidate, RetrievalTrace, StageResult
 from libs.storage.sqlite_cache import SqliteCache
@@ -83,6 +85,8 @@ CONFIG_TRIGGER_KEYWORDS: frozenset[str] = frozenset(
 )
 CONFIG_BOOST_FRACTION = 0.5
 CONFIG_BOOST_FLOOR = 0.5
+PATH_BASENAME_TOKEN_BOOST = 0.75
+PATH_PARENT_TOKEN_BOOST = 0.25
 
 GIT_CHURN_BOOST = 1.10
 GIT_NEW_FILE_BOOST = 1.05
@@ -144,6 +148,31 @@ def _apply_role_weights(
             file_scores[path] = score * DOCS_OVERRIDE_MULTIPLIER
         else:
             file_scores[path] = score * weights.get(role, 0.70)
+
+
+def _apply_path_token_boost(
+    query: str,
+    file_scores: dict[str, float],
+) -> None:
+    """Boost already-scored candidates whose path tokens match the query."""
+    query_tokens = set(split_identifier_tokens(query))
+    if not query_tokens:
+        return
+
+    for path in list(file_scores):
+        path_obj = PurePosixPath(path)
+        basename_tokens = set(split_identifier_tokens(path_obj.stem))
+        parent_tokens = set(split_identifier_tokens(path_obj.parent.name))
+
+        basename_overlap = len(query_tokens & basename_tokens)
+        parent_overlap = len(query_tokens & parent_tokens)
+        if basename_overlap == 0 and parent_overlap == 0:
+            continue
+
+        file_scores[path] += (
+            min(basename_overlap, 3) * PATH_BASENAME_TOKEN_BOOST
+            + min(parent_overlap, 2) * PATH_PARENT_TOKEN_BOOST
+        )
 
 
 @dataclass(frozen=True)
@@ -211,6 +240,7 @@ class RetrievalPipeline:
         # Config file boost (D2) — before role weights so config boost gets multiplied
         roles = self._get_file_roles()
         _maybe_boost_config_files(query, file_scores, roles)
+        _apply_path_token_boost(query, file_scores)
 
         # Role-weighted score fusion (D1)
         _apply_role_weights(file_scores, roles, query, mode)
