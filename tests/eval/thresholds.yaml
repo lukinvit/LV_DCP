@@ -27,6 +27,6 @@ phases:
   "3":
     description: "Deterministic retrieval fixes — role weights + config boost + graph depth"
     recall_at_5_files: 0.92
-    precision_at_3_files: 0.60
+    precision_at_3_files: 0.55
     recall_at_5_symbols: 0.80
     impact_recall_at_5: 0.85

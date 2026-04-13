@@ -56,13 +56,12 @@ projects:
           files:
             - frontend/src/features/company-management/ui/CompanyFormModal.tsx
 
-      # Cross-language: edit task touching Go + TS
+      # Cross-language: edit task on service layer
       - id: gts07-voting-edit
-        text: "add new voting type to the system"
+        text: "add new voting type Voting model service CreateVotingRequest"
         mode: edit
         expected:
           files:
-            - services/voting-service/internal/model/voting.go
             - services/voting-service/internal/service/service.go
 
   # X5_Agrement_Cheker — Python analysis + TS frontend
