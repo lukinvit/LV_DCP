@@ -324,6 +324,59 @@ def _cluster_files(
     return clusters[:max_clusters]
 
 
+def _resolve_import_to_file(
+    src_file: str,
+    module_ref: str,
+    known_paths: set[str],
+) -> str | None:
+    """Best-effort resolve of an import module ref to a project file path.
+
+    Handles:
+    - Python dotted imports: "libs.core.entities" → "libs/core/entities.py"
+    - TS/JS relative imports: "./models/user" → resolved relative to src_file
+    - Go internal imports: looks for suffix match in known_paths
+    """
+    # Python-style dotted imports (no slashes, no dots in file extensions)
+    if "." in module_ref and "/" not in module_ref and not module_ref.startswith("."):
+        candidate = module_ref.replace(".", "/") + ".py"
+        if candidate in known_paths:
+            return candidate
+        # Try as package __init__
+        candidate_pkg = module_ref.replace(".", "/") + "/__init__.py"
+        if candidate_pkg in known_paths:
+            return candidate_pkg
+        # Symbol import: "libs.core.entities.Symbol" → try "libs/core/entities.py"
+        parts = module_ref.split(".")
+        for i in range(len(parts) - 1, 0, -1):
+            candidate = "/".join(parts[:i]) + ".py"
+            if candidate in known_paths:
+                return candidate
+
+    # TS/JS relative imports: "./foo", "../bar/baz"
+    if module_ref.startswith("./") or module_ref.startswith("../"):
+        import posixpath
+
+        src_dir = posixpath.dirname(src_file)
+        resolved = posixpath.normpath(posixpath.join(src_dir, module_ref))
+        # Try common extensions
+        for ext in ("", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", "/index.ts", "/index.js"):
+            candidate = resolved + ext
+            if candidate in known_paths:
+                return candidate
+
+    # Go internal imports: match suffix (e.g., "myproject/internal/auth" → find "internal/auth/*.go")
+    # Just try suffix matching against known paths
+    if "/" in module_ref and not module_ref.startswith("."):
+        suffix = module_ref.rstrip("/")
+        for path in known_paths:
+            # Match if path starts with the import suffix (relative to project root)
+            path_no_ext = path.rsplit(".", 1)[0] if "." in path.split("/")[-1] else path
+            if path_no_ext == suffix or path_no_ext.endswith("/" + suffix):
+                return path
+
+    return None
+
+
 def _build_graph_dump(root: Path) -> GraphDump | None:
     try:
         with ProjectIndex.open(root) as idx:
@@ -338,6 +391,7 @@ def _build_graph_dump(root: Path) -> GraphDump | None:
         all_nodes.append(GraphNode(id=f.path, label=f.path, role=_role_for_file(f.path)))
         seen.add(f.path)
 
+    # Map symbols to their defining files (for DEFINES relations)
     symbol_to_file: dict[str, str] = {}
     for rel in relations:
         if rel.src_type == "file" and rel.dst_type == "symbol" and rel.relation_type == "defines":
@@ -347,6 +401,16 @@ def _build_graph_dump(root: Path) -> GraphDump | None:
     for rel in relations:
         src_file = rel.src_ref if rel.src_type == "file" else symbol_to_file.get(rel.src_ref)
         dst_file = rel.dst_ref if rel.dst_type == "file" else symbol_to_file.get(rel.dst_ref)
+
+        # For import relations with dst_type="module", try to resolve to a file
+        if (
+            dst_file is None
+            and rel.relation_type == "imports"
+            and rel.dst_type == "module"
+            and src_file
+        ):
+            dst_file = _resolve_import_to_file(src_file, rel.dst_ref, seen)
+
         if src_file and dst_file and src_file != dst_file and src_file in seen and dst_file in seen:
             edge_pairs.add((src_file, dst_file))
 
