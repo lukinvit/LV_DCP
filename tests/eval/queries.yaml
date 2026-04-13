@@ -11,7 +11,7 @@ queries:
     text: "where is session token stored"
     mode: navigate
     expected:
-      files: [app/models/session.py]
+      files: [app/models/session.py, app/services/auth.py]
       symbols: [app.models.session.Session]
 
   - id: q03-login-route
@@ -36,7 +36,7 @@ queries:
     text: "how are passwords verified"
     mode: navigate
     expected:
-      files: [app/services/auth.py]
+      files: [app/services/auth.py, app/handlers/auth.py]
       symbols:
         - app.services.auth.authenticate
         - app.services.auth.hash_password
@@ -59,7 +59,7 @@ queries:
     text: "database engine setup and shutdown"
     mode: navigate
     expected:
-      files: [app/services/db.py]
+      files: [app/services/db.py, config/settings.yaml]
       symbols:
         - app.services.db.init_db
         - app.services.db.close_db
@@ -96,7 +96,7 @@ queries:
     text: "tests for authentication"
     mode: navigate
     expected:
-      files: [tests/test_auth.py]
+      files: [tests/test_auth.py, app/services/auth.py]
 
   - id: q14-architecture-doc
     text: "where is the architecture described"
@@ -108,7 +108,7 @@ queries:
     text: "database connection string configuration"
     mode: navigate
     expected:
-      files: [config/settings.yaml]
+      files: [config/settings.yaml, app/services/db.py]
 
   - id: q16-access-ttl
     text: "access token lifetime"

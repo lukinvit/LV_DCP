@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from libs.retrieval.pipeline import (
-    CONFIG_BOOST_FLOOR,
     CONFIG_BOOST_FRACTION,
     CONFIG_TRIGGER_KEYWORDS,
     DOCS_OVERRIDE_KEYWORDS,
@@ -124,17 +123,32 @@ class TestRoleWeightedFusion:
 class TestConfigBoostHeuristic:
     """D2: config file boost on config-ish queries."""
 
-    def test_config_files_injected_on_timeout_query(self) -> None:
+    def test_config_files_boosted_when_already_scored(self) -> None:
+        """Config files already in the candidate pool are boosted to baseline."""
         file_scores: dict[str, float] = {
             "libs/auth.py": 3.0,
+            "config/settings.yaml": 0.3,  # already found by FTS/symbol
         }
         file_roles = {
             "libs/auth.py": "source",
             "config/settings.yaml": "config",
         }
         _maybe_boost_config_files("what is the timeout", file_scores, file_roles)
-        assert "config/settings.yaml" in file_scores
         assert file_scores["config/settings.yaml"] == 3.0 * CONFIG_BOOST_FRACTION
+
+    def test_zero_score_config_files_not_injected(self) -> None:
+        """Config files absent from candidate pool are not injected.
+
+        Prevents unrelated config files (e.g. logging.json) appearing for
+        database or timeout queries where they have no FTS signal.
+        """
+        file_scores: dict[str, float] = {"libs/auth.py": 3.0}
+        file_roles = {
+            "libs/auth.py": "source",
+            "config/logging.json": "config",  # not in candidate pool
+        }
+        _maybe_boost_config_files("timeout database", file_scores, file_roles)
+        assert "config/logging.json" not in file_scores
 
     def test_config_boost_does_not_override_higher_score(self) -> None:
         file_scores: dict[str, float] = {
@@ -155,21 +169,26 @@ class TestConfigBoostHeuristic:
         assert "config/settings.yaml" not in file_scores
 
     def test_case_insensitive_trigger(self) -> None:
-        file_scores: dict[str, float] = {}
-        file_roles = {"config/settings.yaml": "config"}
+        """Config boost still fires for uppercase query words."""
+        file_scores: dict[str, float] = {"libs/auth.py": 2.0, "config/settings.yaml": 0.1}
+        file_roles = {"config/settings.yaml": "config", "libs/auth.py": "source"}
         _maybe_boost_config_files("TIMEOUT handling", file_scores, file_roles)
-        assert "config/settings.yaml" in file_scores
-        assert file_scores["config/settings.yaml"] == CONFIG_BOOST_FLOOR
+        assert file_scores["config/settings.yaml"] == 2.0 * CONFIG_BOOST_FRACTION
 
     def test_only_config_role_files_boosted(self) -> None:
-        file_scores: dict[str, float] = {}
+        """Only files with role='config' are boosted; source files are untouched."""
+        file_scores: dict[str, float] = {
+            "config/settings.yaml": 0.5,
+            "libs/timeout.py": 1.0,
+        }
         file_roles = {
             "config/settings.yaml": "config",
             "libs/timeout.py": "source",
         }
+        before_source = file_scores["libs/timeout.py"]
         _maybe_boost_config_files("timeout", file_scores, file_roles)
-        assert "config/settings.yaml" in file_scores
-        assert "libs/timeout.py" not in file_scores
+        assert file_scores["config/settings.yaml"] >= 0.5
+        assert file_scores["libs/timeout.py"] == before_source
 
     def test_trigger_keywords_completeness(self) -> None:
         expected = {

@@ -17,6 +17,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 from libs.core.entities import Symbol
+from libs.gitintel.models import GitFileStats
 from libs.graph.builder import Graph
 from libs.retrieval.coverage import Coverage, compute_coverage
 from libs.retrieval.fts import FtsIndex
@@ -35,7 +36,7 @@ GRAPH_SEED_COUNT = 5  # how many top candidates seed graph expansion
 
 ROLE_WEIGHTS_NAVIGATE: dict[str, float] = {
     "source": 1.0,
-    "test": 0.85,
+    "test": 0.65,
     "config": 1.10,
     "docs": 0.35,
     "other": 0.70,
@@ -89,16 +90,16 @@ GIT_NEW_FILE_BOOST = 1.05
 
 def _apply_git_boost(
     file_scores: dict[str, float],
-    git_stats: dict[str, object],
+    git_stats: dict[str, GitFileStats],
 ) -> None:
     """Boost recently active files in ranking. Mutates file_scores."""
     for path in list(file_scores):
         stats = git_stats.get(path)
         if stats is None:
             continue
-        if stats.churn_30d > 0:  # type: ignore[union-attr]
+        if stats.churn_30d > 0:
             file_scores[path] *= GIT_CHURN_BOOST
-        if stats.age_days < 30:  # type: ignore[union-attr]
+        if stats.age_days < 30:
             file_scores[path] *= GIT_NEW_FILE_BOOST
 
 
@@ -107,7 +108,12 @@ def _maybe_boost_config_files(
     file_scores: dict[str, float],
     file_roles: dict[str, str],
 ) -> None:
-    """Inject config files into candidate pool when query mentions config terms."""
+    """Boost config files already in candidate pool when query mentions config terms.
+
+    Only files with an existing score (found by FTS or symbol match) are boosted.
+    Files with zero score are never injected — avoids unrelated config files
+    (e.g. logging.json) appearing for database queries.
+    """
     query_words = set(query.lower().split())
     if not query_words & CONFIG_TRIGGER_KEYWORDS:
         return
@@ -117,7 +123,8 @@ def _maybe_boost_config_files(
     for path, role in file_roles.items():
         if role == "config":
             current = file_scores.get(path, 0.0)
-            file_scores[path] = max(current, baseline)
+            if current > 0:  # only boost files already in the candidate pool
+                file_scores[path] = max(current, baseline)
 
 
 def _apply_role_weights(
@@ -162,9 +169,9 @@ class RetrievalPipeline:
         self._symbols = symbols
         self._graph = graph
         self._file_roles: dict[str, str] | None = None
-        self._git_stats: dict[str, object] | None = None
+        self._git_stats: dict[str, GitFileStats] | None = None
 
-    def _get_git_stats(self) -> dict[str, object]:
+    def _get_git_stats(self) -> dict[str, GitFileStats]:
         if self._git_stats is None:
             self._git_stats = {s.file_path: s for s in self._cache.iter_git_stats()}
         return self._git_stats
