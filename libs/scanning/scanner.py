@@ -9,6 +9,7 @@ Stale file detection (paths in cache but not on disk) runs in both modes.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -32,6 +33,8 @@ from libs.storage.sqlite_cache import SqliteCache
 
 CACHE_REL = Path(".context") / "cache.db"
 FTS_REL = Path(".context") / "fts.db"
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -287,8 +290,8 @@ def scan_project(  # noqa: PLR0912, PLR0915
             ensure_wiki_table(wiki_conn)
             _wiki_dirty_count = update_dirty_state(wiki_conn, files_processed)
             wiki_conn.commit()
-        except Exception:
-            pass  # Best-effort: wiki tracking must never kill a scan
+        except Exception as exc:
+            log.debug("wiki_dirty_tracking_failed", exc_info=exc)  # Best-effort: wiki tracking must never kill a scan
 
         # Embedding: upsert changed files to Qdrant (best-effort, never blocks scan)
         if changed_for_embed and only is None:
@@ -304,8 +307,8 @@ def scan_project(  # noqa: PLR0912, PLR0915
                         project_slug=root.name,
                         changed_files=changed_for_embed,
                     )
-            except Exception:
-                pass  # Best-effort: embedding must never kill a scan
+            except Exception as exc:
+                log.debug("embedding_upsert_failed", exc_info=exc)  # Best-effort: embedding must never kill a scan
 
         elapsed = time.perf_counter() - start
         result = ScanResult(

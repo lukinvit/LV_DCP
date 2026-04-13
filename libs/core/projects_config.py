@@ -79,8 +79,8 @@ class WikiConfig(BaseModel):
     auto_update_after_scan: bool = False
     max_modules_per_run: int = 10
     article_max_tokens: int = 2000
-    dirty_threshold: int = 3  # min dirty modules to trigger background update
-    max_workers: int = 1  # max concurrent wiki update tasks
+    dirty_threshold: int = Field(default=3, gt=0)  # min dirty modules to trigger background update
+    max_workers: int = Field(default=1, gt=0)  # max concurrent wiki update tasks
 
 
 class DaemonConfig(BaseModel):
