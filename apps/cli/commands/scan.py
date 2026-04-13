@@ -17,20 +17,21 @@ __all__ = ["CACHE_REL", "FTS_REL", "scan"]
 DEFAULT_CONFIG_PATH = Path.home() / ".lvdcp" / "config.yaml"
 
 
-_SKIP_PREFIXES = ("/private/var/", "/tmp/pytest-", "/var/folders/")
+_PROJECT_MARKERS = (".git", "pyproject.toml", "package.json", "go.mod", "Cargo.toml")
 
 
 def _auto_register(config_path: Path, root: Path) -> None:
     """Register project in config.yaml if not already present.
 
-    Skips temporary directories (pytest tmpdir, system tmp) to avoid
-    polluting the config with test artifacts.
+    Only registers directories that look like real projects (contain a
+    known project marker like .git, pyproject.toml, etc.). This prevents
+    test fixture directories from polluting the config.
     """
-    resolved = str(root.resolve())
-    if any(resolved.startswith(p) for p in _SKIP_PREFIXES):
+    resolved = root.resolve()
+    if not any((resolved / marker).exists() for marker in _PROJECT_MARKERS):
         return
     with contextlib.suppress(Exception):
-        add_project(config_path, root)
+        add_project(config_path, resolved)
 
 
 _MANAGED_SECTION = """\

@@ -13,6 +13,7 @@ def test_auto_register_adds_to_config(tmp_path: Path) -> None:
     project_root = tmp_path / "my_project"
     project_root.mkdir()
     (project_root / "main.py").write_text("print('hello')")
+    (project_root / "pyproject.toml").write_text("[project]\nname='test'\n")
 
     _auto_register(config_path, project_root)
 
@@ -28,6 +29,7 @@ def test_auto_register_idempotent(tmp_path: Path) -> None:
     config_path.write_text("version: 1\nprojects: []\n")
     project_root = tmp_path / "my_project"
     project_root.mkdir()
+    (project_root / ".git").mkdir()  # project marker
 
     _auto_register(config_path, project_root)
     _auto_register(config_path, project_root)

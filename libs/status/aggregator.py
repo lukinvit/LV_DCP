@@ -126,8 +126,34 @@ def build_workspace_status() -> WorkspaceStatus:
     )
 
 
+_EXPECT_SYMBOLS_LANGUAGES = frozenset(
+    {"python", "typescript", "javascript", "go", "rust"}
+)
+
+
+def _file_expects_symbols(f_path: str, f_language: str, f_size: int) -> bool:
+    """Return True if this file is expected to have symbols.
+
+    Excludes empty __init__.py, config-only files (YAML/JSON/TOML),
+    and tiny files (< 20 bytes) that are effectively empty.
+    """
+    if f_language not in _EXPECT_SYMBOLS_LANGUAGES:
+        return False
+    if f_size < 20:
+        return False
+    basename = f_path.rsplit("/", 1)[-1]
+    if basename == "__init__.py":
+        return False
+    return True
+
+
 def _build_scan_coverage(root: Path) -> dict | None:
-    """Compute scan coverage stats: symbol/file ratio, languages, relation types."""
+    """Compute scan coverage stats: symbol/file ratio, languages, relation types.
+
+    Coverage % is calculated only over files that are *expected* to have
+    symbols (source code in supported languages, excluding empty __init__.py
+    and config files). This gives a more meaningful metric than raw file count.
+    """
     try:
         with ProjectIndex.open(root) as idx:
             files = list(idx.iter_files())
@@ -139,7 +165,12 @@ def _build_scan_coverage(root: Path) -> dict | None:
     if not files:
         return None
 
-    files_with_symbols = len({s.file_path for s in symbols})
+    files_with_symbols = {s.file_path for s in symbols}
+    parseable = [
+        f for f in files if _file_expects_symbols(f.path, f.language, f.size_bytes)
+    ]
+    parseable_with_symbols = len([f for f in parseable if f.path in files_with_symbols])
+
     languages: dict[str, int] = {}
     for f in files:
         languages[f.language] = languages.get(f.language, 0) + 1
@@ -148,10 +179,15 @@ def _build_scan_coverage(root: Path) -> dict | None:
         rt = r.relation_type.value if hasattr(r.relation_type, "value") else str(r.relation_type)
         relation_types[rt] = relation_types.get(rt, 0) + 1
 
+    coverage_pct = (
+        parseable_with_symbols / len(parseable) * 100 if parseable else 100.0
+    )
+
     return {
         "files_total": len(files),
-        "files_with_symbols": files_with_symbols,
-        "coverage_pct": files_with_symbols / len(files) * 100,
+        "files_with_symbols": len(files_with_symbols),
+        "files_parseable": len(parseable),
+        "coverage_pct": coverage_pct,
         "symbols": len(symbols),
         "relations": len(relations),
         "languages": dict(sorted(languages.items(), key=lambda x: -x[1])),
