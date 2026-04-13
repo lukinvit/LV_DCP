@@ -17,8 +17,18 @@ __all__ = ["CACHE_REL", "FTS_REL", "scan"]
 DEFAULT_CONFIG_PATH = Path.home() / ".lvdcp" / "config.yaml"
 
 
+_SKIP_PREFIXES = ("/private/var/", "/tmp/pytest-", "/var/folders/")
+
+
 def _auto_register(config_path: Path, root: Path) -> None:
-    """Register project in config.yaml if not already present."""
+    """Register project in config.yaml if not already present.
+
+    Skips temporary directories (pytest tmpdir, system tmp) to avoid
+    polluting the config with test artifacts.
+    """
+    resolved = str(root.resolve())
+    if any(resolved.startswith(p) for p in _SKIP_PREFIXES):
+        return
     with contextlib.suppress(Exception):
         add_project(config_path, root)
 
