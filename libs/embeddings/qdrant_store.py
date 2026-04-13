@@ -41,8 +41,20 @@ class QdrantStore:
     ) -> None:
         if location == ":memory:":
             self._client = AsyncQdrantClient(location=":memory:")
+        elif url and url.startswith("https://"):
+            # qdrant-client needs host/port/https for HTTPS URLs
+            from urllib.parse import urlparse  # noqa: PLC0415
+
+            parsed = urlparse(url)
+            self._client = AsyncQdrantClient(
+                host=parsed.hostname,
+                port=parsed.port or 443,
+                https=True,
+                api_key=api_key,
+                timeout=30,
+            )
         else:
-            self._client = AsyncQdrantClient(url=url, api_key=api_key)
+            self._client = AsyncQdrantClient(url=url, api_key=api_key, timeout=30)
 
     async def ensure_collections(self, *, dimension: int) -> None:
         """Create all 4 collections if they don't exist, with payload indexes."""
