@@ -80,6 +80,55 @@ class TestFindRelevantArticles:
         assert "auth-service" in content
 
 
+def _setup_wiki_ru(tmp_path: Path) -> Path:
+    """Wiki dir with Russian-language summaries in INDEX.md."""
+    wiki_dir = tmp_path / "wiki_ru"
+    modules_dir = wiki_dir / "modules"
+    modules_dir.mkdir(parents=True)
+
+    (modules_dir / "auth-service.md").write_text(
+        "# auth-service\n\n## Назначение\nАутентификация и управление сессиями.\n",
+        encoding="utf-8",
+    )
+    (modules_dir / "scanner.md").write_text(
+        "# scanner\n\n## Назначение\nСканирование и индексация файлов проекта.\n",
+        encoding="utf-8",
+    )
+
+    index_content = """\
+# Wiki Index — TestProject
+
+## Modules
+- [auth-service](modules/auth-service.md) — Аутентификация и управление сессиями.
+- [scanner](modules/scanner.md) — Сканирование и индексация файлов проекта.
+"""
+    (wiki_dir / "INDEX.md").write_text(index_content, encoding="utf-8")
+    return wiki_dir
+
+
+class TestCyrillicTokenization:
+    def test_cyrillic_query_finds_article(self, tmp_path: Path) -> None:
+        """Russian query must match Russian INDEX.md summaries."""
+        wiki_dir = _setup_wiki_ru(tmp_path)
+        results = find_relevant_articles(wiki_dir, "аутентификация сессии")
+        assert len(results) >= 1
+        paths = [r[0] for r in results]
+        assert "modules/auth-service.md" in paths
+
+    def test_cyrillic_query_no_false_match(self, tmp_path: Path) -> None:
+        """Cyrillic query for scanner should not match auth-service."""
+        wiki_dir = _setup_wiki_ru(tmp_path)
+        results = find_relevant_articles(wiki_dir, "сканирование индексация", limit=1)
+        assert len(results) == 1
+        assert results[0][0] == "modules/scanner.md"
+
+    def test_russian_stop_words_filtered(self, tmp_path: Path) -> None:
+        """Pure stop-word Russian query should return no results."""
+        wiki_dir = _setup_wiki_ru(tmp_path)
+        results = find_relevant_articles(wiki_dir, "и в не на с")
+        assert results == []
+
+
 class TestEnrichPackMarkdown:
     def test_no_articles_returns_original(self) -> None:
         original = "## Top files\n- file1.py"

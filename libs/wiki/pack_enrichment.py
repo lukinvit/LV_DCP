@@ -10,18 +10,27 @@ import re
 from pathlib import Path
 
 _STOP_WORDS = frozenset({
+    # English
     "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
     "have", "has", "had", "do", "does", "did", "will", "would", "shall",
     "should", "may", "might", "can", "could", "of", "in", "to", "for",
     "with", "on", "at", "from", "by", "about", "as", "into", "through",
     "and", "or", "but", "not", "no", "if", "then", "than", "that", "this",
     "it", "its", "how", "what", "where", "when", "who", "which", "why",
+    # Russian
+    "и", "в", "не", "на", "с", "что", "как", "по", "это", "для",
+    "из", "или", "но", "от", "при", "же", "да", "его", "её", "их",
+    "он", "она", "они", "мы", "вы", "я", "так", "то", "бы", "ли",
+    "уже", "до", "за", "нет", "все", "был", "была", "были", "есть",
 })
 
 
 def _tokenize(text: str) -> set[str]:
-    """Split text into lowercase word tokens, excluding stop words."""
-    words = set(re.findall(r"[a-z0-9_]+", text.lower()))
+    """Split text into lowercase word tokens, excluding stop words.
+
+    Uses Unicode-aware \\w+ to capture both Latin and Cyrillic words.
+    """
+    words = set(re.findall(r"\w+", text.lower()))
     return words - _STOP_WORDS
 
 
