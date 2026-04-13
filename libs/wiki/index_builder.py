@@ -26,14 +26,18 @@ def build_index(wiki_dir: Path, project_name: str) -> str:
     """Build INDEX.md content from all .md files in wiki_dir/modules/.
 
     Returns the full INDEX.md content as a string.
+    Includes an Architecture section if architecture.md exists.
     """
     modules_dir = wiki_dir / "modules"
-    if not modules_dir.exists():
+    architecture_path = wiki_dir / "architecture.md"
+
+    has_modules = modules_dir.exists() and any(modules_dir.glob("*.md"))
+    has_architecture = architecture_path.exists()
+
+    if not has_modules and not has_architecture:
         return f"# Wiki Index — {project_name}\n\nNo modules found.\n"
 
-    articles = sorted(modules_dir.glob("*.md"))
-    if not articles:
-        return f"# Wiki Index — {project_name}\n\nNo modules found.\n"
+    articles = sorted(modules_dir.glob("*.md")) if has_modules else []
 
     lines: list[str] = [
         f"# Wiki Index — {project_name}",
@@ -41,21 +45,33 @@ def build_index(wiki_dir: Path, project_name: str) -> str:
         f"Updated: {time.strftime('%Y-%m-%d %H:%M:%S')}",
         f"Modules: {len(articles)}",
         "",
-        "## Modules",
     ]
 
-    for article_path in articles:
-        name = article_path.stem
-        try:
-            text = article_path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        summary = _extract_purpose_first_sentence(text)
-        rel_path = f"modules/{article_path.name}"
-        if summary:
-            lines.append(f"- [{name}]({rel_path}) — {summary}")
-        else:
-            lines.append(f"- [{name}]({rel_path})")
+    # Architecture section
+    if has_architecture:
+        lines.append("## Architecture")
+        lines.append("")
+        lines.append("- [Architecture Overview](architecture.md)")
+        lines.append("")
+
+    # Modules section
+    if articles:
+        lines.append("## Modules")
+
+        for article_path in articles:
+            name = article_path.stem
+            try:
+                text = article_path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            summary = _extract_purpose_first_sentence(text)
+            rel_path = f"modules/{article_path.name}"
+            if summary:
+                lines.append(f"- [{name}]({rel_path}) — {summary}")
+            else:
+                lines.append(f"- [{name}]({rel_path})")
+    elif not has_architecture:
+        lines.append("## Modules")
 
     lines.append("")  # trailing newline
     return "\n".join(lines)

@@ -49,7 +49,7 @@ class TestBuildIndex:
         result = build_index(tmp_path, "SortTest")
 
         lines = result.splitlines()
-        module_lines = [l for l in lines if l.startswith("- [")]
+        module_lines = [line for line in lines if line.startswith("- [")]
         assert len(module_lines) == 2
         # Sorted alphabetically by filename
         assert "alpha-module" in module_lines[0]
@@ -65,6 +65,45 @@ class TestBuildIndex:
         assert "[no-purpose](modules/no-purpose.md)" in result
         # Should still appear, just without summary
         assert "—" not in result.split("[no-purpose]")[1].split("\n")[0]
+
+
+class TestArchitectureSection:
+    def test_architecture_included_when_file_exists(self, tmp_path: Path) -> None:
+        _create_article(
+            tmp_path / "modules",
+            "my-module",
+            "# my-module\n\n## Purpose\nDoes stuff.\n",
+        )
+        # Create architecture.md
+        (tmp_path / "architecture.md").write_text(
+            "# Architecture\n\nOverview of the system.\n", encoding="utf-8"
+        )
+        result = build_index(tmp_path, "ArchTest")
+
+        assert "## Architecture" in result
+        assert "[Architecture Overview](architecture.md)" in result
+        assert "## Modules" in result
+        assert "[my-module]" in result
+
+    def test_no_architecture_section_when_missing(self, tmp_path: Path) -> None:
+        _create_article(
+            tmp_path / "modules",
+            "my-module",
+            "# my-module\n\n## Purpose\nDoes stuff.\n",
+        )
+        result = build_index(tmp_path, "NoArch")
+
+        assert "## Architecture" not in result
+        assert "## Modules" in result
+
+    def test_architecture_only_no_modules(self, tmp_path: Path) -> None:
+        (tmp_path / "architecture.md").write_text("# Architecture\n\nOverview.\n", encoding="utf-8")
+        result = build_index(tmp_path, "ArchOnly")
+
+        assert "## Architecture" in result
+        assert "[Architecture Overview](architecture.md)" in result
+        # No modules section when there are no articles
+        assert "No modules found" not in result
 
 
 class TestWriteIndex:

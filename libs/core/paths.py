@@ -31,6 +31,9 @@ DEFAULT_IGNORE_PREFIXES: tuple[str, ...] = (
     "data/",
     "secrets/",
     "credentials/",
+    "gen/",  # proto-generated code (Go protobuf, gRPC stubs)
+    "vendor/",  # vendored dependencies (Go, PHP)
+    "generated/",  # any generated code
 )
 
 DEFAULT_IGNORE_FILENAME_EXACT: tuple[str, ...] = (

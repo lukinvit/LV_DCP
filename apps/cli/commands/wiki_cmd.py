@@ -1,15 +1,15 @@
-"""`ctx wiki update` and `ctx wiki status` subcommands."""
+"""`ctx wiki update`, `ctx wiki status`, `ctx wiki lint`, `ctx wiki cross-project` subcommands."""
 
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 
 import typer
-
 from libs.storage.sqlite_cache import SqliteCache
-from libs.wiki.generator import generate_wiki_article
-from libs.wiki.index_builder import write_index
+from libs.wiki.generator import generate_architecture_article, generate_wiki_article
+from libs.wiki.index_builder import build_index, write_index
 from libs.wiki.state import (
     ensure_wiki_table,
     get_all_modules,
@@ -21,7 +21,7 @@ app = typer.Typer(name="wiki", help="Wiki knowledge module commands")
 
 
 @app.command("update")
-def update(
+def update(  # noqa: PLR0912, PLR0915
     project_path: Path = typer.Argument(  # noqa: B008
         ...,
         exists=True,
@@ -57,10 +57,7 @@ def update(
         ensure_wiki_table(conn)
         conn.commit()
 
-        if all_modules:
-            modules = get_all_modules(conn)
-        else:
-            modules = get_dirty_modules(conn)
+        modules = get_all_modules(conn) if all_modules else get_dirty_modules(conn)
 
         if not modules:
             typer.echo("No modules to update.")
@@ -79,15 +76,11 @@ def update(
 
             # Files in this module
             mod_files = [
-                fp for fp in all_files
-                if fp.startswith(module_path + "/") or fp == module_path
+                fp for fp in all_files if fp.startswith(module_path + "/") or fp == module_path
             ]
 
             # Symbols in this module
-            mod_symbols = [
-                s.fq_name for s in all_symbols
-                if s.file_path in mod_files
-            ]
+            mod_symbols = [s.fq_name for s in all_symbols if s.file_path in mod_files]
 
             # Dependencies and dependents
             mod_file_set = set(mod_files)
@@ -135,6 +128,50 @@ def update(
                 typer.echo(f"    Error: {exc}", err=True)
                 continue
 
+        # Architecture page: generate if missing or >30% modules newly generated
+        architecture_path = wiki_dir / "architecture.md"
+        generated_count = len(modules)
+        total_count = len(get_all_modules(conn))
+        should_generate_arch = not architecture_path.exists() or (
+            total_count > 0 and generated_count / total_count > 0.30
+        )
+
+        if should_generate_arch:
+            typer.echo("Generating architecture page...")
+            try:
+                # Build module summaries from INDEX.md
+                index_content = build_index(wiki_dir, project_name)
+                module_summaries: dict[str, str] = {}
+                for line in index_content.splitlines():
+                    m = re.match(r"^- \[(.+?)\]\(.+?\)(?:\s*—\s*(.*))?$", line)
+                    if m:
+                        module_summaries[m.group(1)] = m.group(2) or ""
+
+                # Collect top 20 inter-module dependencies
+                top_deps: list[tuple[str, str]] = []
+                for r in all_relations:
+                    src_parts = r.src_ref.split("/")
+                    dst_parts = r.dst_ref.split("/")
+                    src_mod = "/".join(src_parts[:2]) if len(src_parts) >= 2 else src_parts[0]
+                    dst_mod = "/".join(dst_parts[:2]) if len(dst_parts) >= 2 else dst_parts[0]
+                    if src_mod != dst_mod:
+                        pair = (src_mod, dst_mod)
+                        if pair not in top_deps:
+                            top_deps.append(pair)
+                        if len(top_deps) >= 20:
+                            break
+
+                arch_content = generate_architecture_article(
+                    project_root=project_path,
+                    project_name=project_name,
+                    module_summaries=module_summaries,
+                    top_dependencies=top_deps,
+                )
+                architecture_path.write_text(arch_content, encoding="utf-8")
+                typer.echo(f"  Saved: {architecture_path.relative_to(project_path)}")
+            except Exception as exc:
+                typer.echo(f"  Architecture generation error: {exc}", err=True)
+
         # Rebuild INDEX.md
         write_index(wiki_dir, project_name)
         typer.echo(f"Index rebuilt: {wiki_dir / 'INDEX.md'}")
@@ -176,8 +213,52 @@ def status(
     typer.echo("-" * 75)
     for mod in modules:
         ts = mod["last_generated_ts"]
-        if ts > 0:
-            generated = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
-        else:
-            generated = "never"
+        generated = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)) if ts > 0 else "never"
         typer.echo(f"{mod['module_path']:<40} {mod['status']:<10} {generated}")
+
+
+@app.command("lint")
+def lint(
+    project_path: Path = typer.Argument(  # noqa: B008
+        ...,
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        resolve_path=True,
+        help="Path to the scanned project.",
+    ),
+) -> None:
+    """Check wiki for orphaned, missing, stale, empty articles and INDEX mismatches."""
+    from libs.wiki.lint import lint_wiki  # noqa: PLC0415
+
+    issues = lint_wiki(project_path)
+    if not issues:
+        typer.echo("No issues found.")
+        return
+
+    errors = [i for i in issues if i.severity == "error"]
+    warnings = [i for i in issues if i.severity == "warning"]
+
+    for issue in issues:
+        prefix = "ERROR" if issue.severity == "error" else "WARN"
+        typer.echo(f"  [{prefix}] {issue.module_path}: {issue.message}")
+
+    typer.echo(f"\n{len(errors)} error(s), {len(warnings)} warning(s)")
+    if errors:
+        raise typer.Exit(code=1)
+
+
+@app.command("cross-project")
+def cross_project(
+    config_path: Path = typer.Option(  # noqa: B008
+        Path.home() / ".lvdcp" / "config.yaml",  # noqa: B008
+        "--config",
+        help="Path to the global LV_DCP config.",
+    ),
+) -> None:
+    """Generate cross-project wiki from all registered projects."""
+    from libs.wiki.cross_project import generate_cross_project_wiki  # noqa: PLC0415
+
+    wiki_dir = Path.home() / ".lvdcp" / "wiki"
+    count = generate_cross_project_wiki(config_path, wiki_dir)
+    typer.echo(f"Cross-project wiki generated: {count} pattern(s) written to {wiki_dir}")

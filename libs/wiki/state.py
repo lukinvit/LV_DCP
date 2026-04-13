@@ -53,8 +53,7 @@ def get_dirty_modules(conn: sqlite3.Connection) -> list[dict]:
 def get_all_modules(conn: sqlite3.Connection) -> list[dict]:
     """Return all modules from wiki_state."""
     rows = conn.execute(
-        "SELECT module_path, wiki_file, last_generated_ts, source_hash, status "
-        "FROM wiki_state"
+        "SELECT module_path, wiki_file, last_generated_ts, source_hash, status FROM wiki_state"
     ).fetchall()
     return [
         {
@@ -105,10 +104,7 @@ def update_dirty_state(conn: sqlite3.Connection, files: list) -> int:
     modules: dict[str, list[str]] = {}
     for f in files:
         parts = f.path.split("/")
-        if len(parts) >= 2:
-            module_path = "/".join(parts[:2])
-        else:
-            module_path = parts[0]
+        module_path = "/".join(parts[:2]) if len(parts) >= 2 else parts[0]
         modules.setdefault(module_path, []).append(f.content_hash)
 
     dirty_count = 0

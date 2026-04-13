@@ -86,11 +86,11 @@ $ ctx pack . "refresh token rotation" --mode edit
 | 3c.2 | 0.3.4 | Done | Role-weighted fusion, config boost, graph depth tuning |
 | 4 | 0.4.0 | Done | pymorphy3 stemmer, git intelligence, impact analysis, hotspots, adaptive graph clustering, UI project management, diff-aware edit packs |
 | 5 | 0.5.0 | Done | Hook enforcement, dual-language retrieval, 5 new relation types (tests_for, inherits, specifies), value metrics dashboard, scan coverage, 457 tests passing |
-| 6 | **0.6.0** | **Done** | Cross-language parsers (TS/JS/Go/Rust), Qdrant vector store, Obsidian vault sync, VS Code extension MVP, cross-project patterns, 587 tests passing |
+| 6 | **0.6.0** | **Done** | Cross-language parsers (TS/JS/Go/Rust), Qdrant vector store, Obsidian vault sync, VS Code extension MVP, cross-project patterns, 587 tests passing (632 with wiki module) |
 
 ### Test suite
 
-587 tests, 0 failures. Eval harness with 32 synthetic + 10 multi-project queries.
+632 tests, 0 failures. Eval harness with 32 synthetic + 10 multi-project queries.
 
 ## Dashboard
 
@@ -314,7 +314,7 @@ make test          # pytest, excluding eval and llm markers
 make eval          # retrieval evaluation harness
 ```
 
-Phase 6 complete: 586 passing tests, eval harness with 32 synthetic + 10 multi-project queries, tagged `phase-6-complete`.
+Phase 6 complete: 632 passing tests (including wiki module), eval harness with 32 synthetic + 10 multi-project queries, tagged `phase-6-complete`.
 
 ### Running the daemon
 
@@ -333,7 +333,7 @@ The daemon uses `watchdog.observers.Observer` which auto-selects `FSEventsObserv
 - **Phase 3** (done, v0.3.0–0.3.4) — LLM summaries with content-hash cache, dashboard UI (D3 graph, sparklines, health cards), cost tracking, settings UI, role-weighted retrieval fusion, config boost, graph depth tuning.
 - **Phase 4** (done, v0.4.0) — pymorphy3 Russian stemmer, git intelligence (churn/blame), static impact analysis + hotspot widget, adaptive graph clustering, UI project management, diff-aware edit packs.
 - **Phase 5** (done, v0.5.0) — Hook enforcement (PreToolUse/PostToolUse), dual-language retrieval (80+ ru↔en terms), 5 new relation types (tests_for, inherits, specifies), value metrics dashboard, scan coverage widget, 457 tests (0 failures).
-- **Phase 6** (done, v0.6.0) — Cross-language parsers (TypeScript/JS, Go, Rust via tree-sitter), Qdrant vector store with hybrid retrieval (RRF fusion), Obsidian vault sync, VS Code extension MVP, cross-project pattern detection, 586 tests (0 failures).
+- **Phase 6** (done, v0.6.0) — Cross-language parsers (TypeScript/JS, Go, Rust via tree-sitter), Qdrant vector store with hybrid retrieval (RRF fusion), Obsidian vault sync, VS Code extension MVP, cross-project pattern detection, wiki knowledge module (LLM-synthesized articles, lint, architecture page), 632 tests (0 failures).
 - **Phase 7** (next) — Java/Kotlin/Swift parsers, Obsidian debounced/nightly sync, VS Code marketplace, LLM-based rerank, vector retrieval eval tuning.
 
 ## Contributing

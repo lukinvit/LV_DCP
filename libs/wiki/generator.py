@@ -51,7 +51,7 @@ Rules:
 """
 
 
-def generate_wiki_article(
+def generate_wiki_article(  # noqa: PLR0913
     *,
     project_root: Path,
     project_name: str,
@@ -86,7 +86,7 @@ def generate_wiki_article(
         max_tokens=max_tokens,
     )
 
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: S603
         [
             claude_bin,
             "-p",
@@ -100,6 +100,103 @@ def generate_wiki_article(
         text=True,
         timeout=60,
         cwd=str(project_root),
+        check=False,
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Claude CLI exited with code {result.returncode}: {result.stderr.strip()}"
+        )
+
+    return result.stdout.strip()
+
+
+_ARCHITECTURE_PROMPT_TEMPLATE = """\
+You are writing an Architecture overview page for the project '{project_name}'.
+
+Modules and their purpose (from INDEX.md):
+{module_list}
+
+Top inter-module dependencies:
+{dependency_list}
+
+Write a concise architecture overview (max 3000 tokens) in this format:
+
+# Architecture — {project_name}
+
+## High-level Architecture
+What kind of project this is, main layers, and how they relate.
+
+## Data Flow
+How data moves through the system — from input to output, through which layers.
+
+## Key Integration Points
+Where modules connect, what are the main interfaces and shared abstractions.
+
+## Technology Stack Summary
+Inferred from module names and patterns — languages, frameworks, key libraries.
+
+Rules:
+- Be specific, reference actual module names
+- Focus on structure, not implementation details
+- No generic filler text
+- If only a few modules exist, keep it brief\
+"""
+
+
+def generate_architecture_article(
+    *,
+    project_root: Path,
+    project_name: str,
+    module_summaries: dict[str, str],
+    top_dependencies: list[tuple[str, str]],
+) -> str:
+    """Generate an Architecture overview page using Claude CLI as subagent.
+
+    Args:
+        project_root: path to the project
+        project_name: human-readable project name
+        module_summaries: mapping of module_path -> one-sentence purpose
+        top_dependencies: list of (source_module, target_module) pairs
+
+    Raises RuntimeError if the ``claude`` CLI is not found on PATH.
+    """
+    claude_bin = shutil.which("claude")
+    if claude_bin is None:
+        raise RuntimeError(
+            "Claude CLI ('claude') not found on PATH. "
+            "Install it: npm install -g @anthropic-ai/claude-code"
+        )
+
+    module_list = "\n".join(
+        f"- {mod}: {summary}" if summary else f"- {mod}"
+        for mod, summary in sorted(module_summaries.items())
+    )
+    dependency_list = (
+        "\n".join(f"- {src} -> {dst}" for src, dst in top_dependencies[:20]) or "(none detected)"
+    )
+
+    prompt = _ARCHITECTURE_PROMPT_TEMPLATE.format(
+        project_name=project_name,
+        module_list=module_list or "(no modules yet)",
+        dependency_list=dependency_list,
+    )
+
+    result = subprocess.run(  # noqa: S603
+        [
+            claude_bin,
+            "-p",
+            "--output-format",
+            "text",
+            "--max-turns",
+            "3",
+            prompt,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=90,
+        cwd=str(project_root),
+        check=False,
     )
 
     if result.returncode != 0:
