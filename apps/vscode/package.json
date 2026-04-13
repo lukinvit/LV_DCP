@@ -3,7 +3,7 @@
     "displayName": "LV_DCP — Developer Context Platform",
     "description": "Context packs and impact analysis for your codebase",
     "version": "0.6.0",
-    "publisher": "lukinvit",
+    "publisher": "lv-dcp",
     "engines": {
         "vscode": "^1.85.0"
     },
