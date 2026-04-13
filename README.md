@@ -53,9 +53,9 @@ $ ctx pack . "refresh token rotation" --mode edit
 
 ## Status
 
-**Stabilization release 0.6.1 (2026-04-13)** — Phase 6 feature work is now backed by mandatory GitHub Actions quality gates, repository-wide green `ruff` / `mypy`, and warning-free runtime hardening for embeddings and Qdrant.
+**Phase 7a complete (2026-04-13)** — Identifier-aware path retrieval ships path aliases into the FTS index (camelCase/snake_case tokenization), lifting precision@3 from 0.568 to 0.693. Wiki knowledge module gets a post-scan background hook. Cyrillic support in pack enrichment. Real-project eval harness added.
 
-Phase 6 remains complete: cross-language parsers (TS/JS/Go/Rust), Qdrant vector store, Obsidian vault sync, VS Code extension MVP, cross-project patterns, wiki knowledge module.
+Stabilization 0.6.1 baseline: mandatory GitHub Actions quality gates, green `ruff` / `mypy`, runtime-hardened embeddings and Qdrant.
 
 Release note: [docs/release/2026-04-13-v0.6.1-stabilization.md](docs/release/2026-04-13-v0.6.1-stabilization.md)
 
@@ -64,7 +64,7 @@ Release note: [docs/release/2026-04-13-v0.6.1-stabilization.md](docs/release/202
 | Metric | Value | Threshold | Delta from Phase 2 |
 |---|---|---|---|
 | recall@5 files | **0.964** | ≥ 0.92 | +0.073 |
-| precision@3 files | 0.568 | ≥ 0.55 | -0.052 |
+| precision@3 files | **0.693** | ≥ 0.63 | +0.073 |
 | recall@5 symbols | 0.880 | ≥ 0.80 | +0.047 |
 | impact_recall@5 | **0.931** | ≥ 0.85 | +0.112 |
 
@@ -91,11 +91,12 @@ Release note: [docs/release/2026-04-13-v0.6.1-stabilization.md](docs/release/202
 | 4 | 0.4.0 | Done | pymorphy3 stemmer, git intelligence, impact analysis, hotspots, adaptive graph clustering, UI project management, diff-aware edit packs |
 | 5 | 0.5.0 | Done | Hook enforcement, dual-language retrieval, 5 new relation types (tests_for, inherits, specifies), value metrics dashboard, scan coverage, 457 tests passing |
 | 6 | **0.6.0** | **Done** | Phase 6 feature release: cross-language parsers (TS/JS/Go/Rust), Qdrant vector store, Obsidian vault sync, VS Code extension MVP, cross-project patterns, wiki knowledge module |
-| 6.1 | **0.6.1** | **Done** | Stabilization pass: mandatory CI quality gates, green `ruff` + `mypy`, async/Qdrant runtime hardening, 653 CI-gated tests passing |
+| 6.1 | **0.6.1** | **Done** | Stabilization pass: mandatory CI quality gates, green `ruff` + `mypy`, async/Qdrant runtime hardening, 662 tests passing |
+| 7a | — | **Done** | Identifier-aware path retrieval, wiki post-scan hook, real-project eval harness, precision@3 0.568→0.693 |
 
 ### Test suite
 
-662 tests in suite, 0 failures. Current green default baseline: 660 non-eval passed; eval: 1 passed + 1 skipped advisory polyglot check. Eval harness: 32 synthetic queries; multi-project eval currently covers 9 advisory queries across 4 registered projects.
+662 tests in suite, 0 failures. Current green baseline: 659 non-eval passed (1 deselected); eval: 1 passed + 1 skipped advisory polyglot check. Eval harness: 32 synthetic queries; multi-project eval currently covers 9 advisory queries across 4 registered projects.
 
 For advisory real-project eval setup and report commands, see [docs/eval/real-project-eval.md](docs/eval/real-project-eval.md).
 
@@ -321,7 +322,7 @@ make test          # pytest, excluding eval and llm markers
 make eval          # retrieval evaluation harness
 ```
 
-Stabilization 0.6.1: 653 CI-gated tests passing (651 non-eval + 2 eval), eval harness with 32 synthetic queries, plus 9 advisory multi-project queries. Phase 6 feature baseline remains tagged `phase-6-complete`.
+Current: 662 tests (659 non-eval + 1 eval + 1 advisory skipped), eval harness with 32 synthetic queries, plus 9 advisory multi-project queries. Phase 6 feature baseline tagged `phase-6-complete`.
 
 ### Running the daemon
 
@@ -341,7 +342,8 @@ The daemon uses `watchdog.observers.Observer` which auto-selects `FSEventsObserv
 - **Phase 4** (done, v0.4.0) — pymorphy3 Russian stemmer, git intelligence (churn/blame), static impact analysis + hotspot widget, adaptive graph clustering, UI project management, diff-aware edit packs.
 - **Phase 5** (done, v0.5.0) — Hook enforcement (PreToolUse/PostToolUse), dual-language retrieval (80+ ru↔en terms), 5 new relation types (tests_for, inherits, specifies), value metrics dashboard, scan coverage widget, 457 tests (0 failures).
 - **Phase 6** (done, v0.6.0) — Cross-language parsers (TypeScript/JS, Go, Rust via tree-sitter), Qdrant vector store with hybrid retrieval (RRF fusion), Obsidian vault sync, VS Code extension MVP, cross-project pattern detection, wiki knowledge module (LLM-synthesized articles, lint, architecture page).
-- **Stabilization 0.6.1** (done) — GitHub Actions quality gates, repository-wide green `ruff` / `mypy`, warning-free embeddings and Qdrant runtime, 653 CI-gated tests.
+- **Stabilization 0.6.1** (done) — GitHub Actions quality gates, repository-wide green `ruff` / `mypy`, warning-free embeddings and Qdrant runtime, 662 tests.
+- **Phase 7a** (done) — Identifier-aware path retrieval (path aliases in FTS index, camelCase/snake_case tokenization), wiki post-scan hook with ThreadPoolExecutor, Cyrillic tokenization in pack enrichment, real-project eval harness, precision@3 improved 0.568→0.693.
 - **Phase 7** (next) — Java/Kotlin/Swift parsers, Obsidian debounced/nightly sync, VS Code marketplace, LLM-based rerank, vector retrieval eval tuning.
 
 ## Contributing
