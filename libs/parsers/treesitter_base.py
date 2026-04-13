@@ -226,96 +226,97 @@ class TreeSitterParser(ABC):
         symbols: list[Symbol],
         relations: list[Relation],
     ) -> None:
-        """Recursively walk the CST, extracting symbols and relations."""
-        # --- handle symbol definitions ---
-        if node.type in sym_map:
-            sym_type = sym_map[node.type]
-            name = self._extract_name(node)
-            if name is not None:
-                parent_fq = scope_stack[-1]
-                fq_name = f"{parent_fq}.{name}"
+        """Iteratively walk the CST, extracting symbols and relations.
 
-                # Decide if method vs function
-                actual_type = sym_type
-                if sym_type == SymbolType.FUNCTION and self._is_class_scope(parent_fq, symbols):
-                    actual_type = SymbolType.METHOD
+        Uses an explicit work stack to avoid RecursionError on deeply
+        nested ASTs (e.g., large Go files with 500+ nested expressions).
+        """
+        # Each item: (node, scope_depth) — scope_depth tracks how deep
+        # in scope_stack we were when this node was enqueued.
+        work: list[tuple[Node, int]] = [(node, len(scope_stack))]
 
-                docstring = self._extract_docstring(node)
-                signature = (
-                    self._extract_signature(node)
-                    if actual_type in (SymbolType.FUNCTION, SymbolType.METHOD)
-                    else None
-                )
+        while work:
+            cur, expected_depth = work.pop()
 
-                sym = Symbol(
-                    name=name,
-                    fq_name=fq_name,
-                    symbol_type=actual_type,
-                    file_path=file_path,
-                    start_line=node.start_point.row + 1,
-                    end_line=node.end_point.row + 1,
-                    parent_fq_name=parent_fq,
-                    signature=signature,
-                    docstring=docstring,
-                )
-                symbols.append(sym)
-
-                # DEFINES relation
-                relations.append(
-                    Relation(
-                        src_type="file",
-                        src_ref=file_path,
-                        dst_type="symbol",
-                        dst_ref=fq_name,
-                        relation_type=RelationType.DEFINES,
-                    )
-                )
-
-                # Recurse into children with updated scope
-                scope_stack.append(fq_name)
-                for child in node.children:
-                    self._walk(
-                        node=child,
-                        file_path=file_path,
-                        module_fq=module_fq,
-                        scope_stack=scope_stack,
-                        sym_map=sym_map,
-                        import_types=import_types,
-                        symbols=symbols,
-                        relations=relations,
-                    )
+            # Pop scopes that were pushed by sibling subtrees already processed.
+            while len(scope_stack) > expected_depth:
                 scope_stack.pop()
-                return
 
-        # --- handle imports ---
-        if node.type in import_types:
-            ref = self._extract_import_ref(node)
-            if ref is not None:
-                dst_type, dst_ref = ref
-                relations.append(
-                    Relation(
-                        src_type="file",
-                        src_ref=file_path,
-                        dst_type=dst_type,
-                        dst_ref=dst_ref,
-                        relation_type=RelationType.IMPORTS,
+            # --- handle imports (leaf — no children enqueued) ---
+            if cur.type in import_types:
+                ref = self._extract_import_ref(cur)
+                if ref is not None:
+                    dst_type, dst_ref = ref
+                    relations.append(
+                        Relation(
+                            src_type="file",
+                            src_ref=file_path,
+                            dst_type=dst_type,
+                            dst_ref=dst_ref,
+                            relation_type=RelationType.IMPORTS,
+                        )
                     )
-                )
-            # Don't recurse into import nodes
-            return
+                continue
 
-        # --- recurse into all other nodes ---
-        for child in node.children:
-            self._walk(
-                node=child,
-                file_path=file_path,
-                module_fq=module_fq,
-                scope_stack=scope_stack,
-                sym_map=sym_map,
-                import_types=import_types,
-                symbols=symbols,
-                relations=relations,
-            )
+            # --- handle symbol definitions ---
+            pushed_scope = False
+            if cur.type in sym_map:
+                sym_type = sym_map[cur.type]
+                name = self._extract_name(cur)
+                if name is not None:
+                    parent_fq = scope_stack[-1]
+                    fq_name = f"{parent_fq}.{name}"
+
+                    actual_type = sym_type
+                    if sym_type == SymbolType.FUNCTION and self._is_class_scope(
+                        parent_fq, symbols
+                    ):
+                        actual_type = SymbolType.METHOD
+
+                    docstring = self._extract_docstring(cur)
+                    signature = (
+                        self._extract_signature(cur)
+                        if actual_type in (SymbolType.FUNCTION, SymbolType.METHOD)
+                        else None
+                    )
+
+                    symbols.append(
+                        Symbol(
+                            name=name,
+                            fq_name=fq_name,
+                            symbol_type=actual_type,
+                            file_path=file_path,
+                            start_line=cur.start_point.row + 1,
+                            end_line=cur.end_point.row + 1,
+                            parent_fq_name=parent_fq,
+                            signature=signature,
+                            docstring=docstring,
+                        )
+                    )
+
+                    relations.append(
+                        Relation(
+                            src_type="file",
+                            src_ref=file_path,
+                            dst_type="symbol",
+                            dst_ref=fq_name,
+                            relation_type=RelationType.DEFINES,
+                        )
+                    )
+
+                    scope_stack.append(fq_name)
+                    pushed_scope = True
+
+            # Enqueue children in reverse order (so first child is processed first).
+            child_depth = len(scope_stack)
+            for child in reversed(cur.children):
+                work.append((child, child_depth))
+
+            # If we pushed a scope, the children will inherit it via child_depth.
+            # After all children are processed, the scope will be popped by the
+            # depth-tracking logic at the top of the loop.
+            if pushed_scope:
+                pass  # No explicit pop — handled by expected_depth check above.
 
     @staticmethod
     def _is_class_scope(fq: str, symbols: list[Symbol]) -> bool:
