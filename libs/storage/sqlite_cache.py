@@ -351,12 +351,17 @@ class SqliteCache:
         for row in conn.execute(
             "SELECT src_type, src_ref, dst_type, dst_ref, relation_type, confidence, provenance FROM relations"
         ):
+            try:
+                rel_type = RelationType(row[4])
+            except ValueError:
+                # Skip relations with unknown types (forward-compat with newer schemas)
+                continue
             yield Relation(
                 src_type=row[0],
                 src_ref=row[1],
                 dst_type=row[2],
                 dst_ref=row[3],
-                relation_type=RelationType(row[4]),
+                relation_type=rel_type,
                 confidence=row[5],
                 provenance=row[6],
             )

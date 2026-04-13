@@ -1,5 +1,8 @@
 
-# Build / dist
+# Build / dist / VS Code extension
+apps/vscode/node_modules/
+apps/vscode/out/
+apps/vscode/*.vsix
 # Caches
 # Environment
 # IDE / OS
