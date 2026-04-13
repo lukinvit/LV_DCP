@@ -65,6 +65,80 @@
 </section>
 
 <section class="section">
+    <h2>Qdrant Vector Store</h2>
+    <form class="settings-form" method="POST" action="/settings/qdrant">
+        <div class="form-row">
+            <label>
+                <input type="checkbox" name="qdrant_enabled" {% if qdrant_config.enabled %}checked{% endif %}>
+                Enable Qdrant vector search
+            </label>
+        </div>
+
+        <div class="form-row">
+            <label>Qdrant URL</label>
+            <input type="text" name="qdrant_url" value="{{ qdrant_config.url }}" placeholder="http://127.0.0.1:6333">
+            <span class="env-var-status status-{{ qdrant_status }}">{{ qdrant_status }}</span>
+        </div>
+
+        <div class="form-row">
+            <label>Collection prefix</label>
+            <input type="text" name="collection_prefix" value="{{ qdrant_config.collection_prefix }}" placeholder="devctx">
+        </div>
+
+        <div class="form-row">
+            <button type="submit">Save</button>
+            <button type="button"
+                    hx-post="/api/settings/test-qdrant"
+                    hx-target="#qdrant-test-result"
+                    hx-swap="innerHTML">
+                Test connection
+            </button>
+            <span id="qdrant-test-result"></span>
+        </div>
+    </form>
+</section>
+
+<section class="section">
+    <h2>Embedding Model</h2>
+    <form class="settings-form" method="POST" action="/settings/embedding">
+        <div class="form-row">
+            <label>Provider</label>
+            <select name="embedding_provider">
+                {% for p in embedding_providers %}
+                    <option value="{{ p }}" {% if p == embedding_config.provider %}selected{% endif %}>{{ p }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-row">
+            <label>Model</label>
+            <input type="text" name="embedding_model" value="{{ embedding_config.model }}" placeholder="text-embedding-3-small">
+        </div>
+
+        <div class="form-row">
+            <label>Dimension</label>
+            <input type="number" name="embedding_dimension" value="{{ embedding_config.dimension }}" step="1">
+        </div>
+
+        <div class="form-row">
+            <label>API key env var</label>
+            <input type="text" name="embedding_api_key_env_var" value="{{ embedding_config.api_key_env_var }}" placeholder="OPENAI_API_KEY">
+            <span class="env-var-status status-{{ embedding_key_status }}">{{ embedding_key_status }}</span>
+            <div style="font-size:11px;color:#888;margin-top:2px;">Name of the environment variable, not the key itself.</div>
+        </div>
+
+        <div class="form-row">
+            <label>Base URL <small>(optional, for local/compatible APIs)</small></label>
+            <input type="text" name="embedding_base_url" value="{{ embedding_config.base_url }}" placeholder="http://localhost:11434/v1">
+        </div>
+
+        <div class="form-row">
+            <button type="submit">Save</button>
+        </div>
+    </form>
+</section>
+
+<section class="section">
     <h2>Budget</h2>
     <p>
         7d spent: ${{ '%.2f' | format(budget.spent_7d) }}<br>
