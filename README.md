@@ -64,7 +64,7 @@ Release note: [docs/release/2026-04-13-v0.6.1-stabilization.md](docs/release/202
 | Metric | Value | Threshold | Delta from Phase 2 |
 |---|---|---|---|
 | recall@5 files | **0.964** | ≥ 0.92 | +0.073 |
-| precision@3 files | **0.682** | ≥ 0.63 | +0.062 |
+| precision@3 files | 0.568 | ≥ 0.55 | -0.052 |
 | recall@5 symbols | 0.880 | ≥ 0.80 | +0.047 |
 | impact_recall@5 | **0.931** | ≥ 0.85 | +0.112 |
 

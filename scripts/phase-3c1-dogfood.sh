@@ -41,9 +41,9 @@ print('enabled')
 " | tee -a "$LOG"
 
 PROJECTS=(
-    "/Users/v.lukin/Nextcloud/lukinvit.tech/projects/LV_DCP"
-    "/Users/v.lukin/Nextcloud/lukinvit.tech/projects/TG_Proxy_enaibler_bot"
-    "/Users/v.lukin/Nextcloud/lukinvit.tech/projects/TG_RUSCOFFEE_ADMIN_BOT"
+    "/path/to/LV_DCP"
+    "/path/to/project-b"
+    "/path/to/project-c"
 )
 
 for PROJECT in "${PROJECTS[@]}"; do

@@ -4,9 +4,9 @@
 # Usage: scripts/phase-3a-dogfood.sh
 #
 # Projects exercised:
-#   - /Users/v.lukin/Nextcloud/lukinvit.tech/projects/LV_DCP
-#   - /Users/v.lukin/Nextcloud/lukinvit.tech/projects/TG_Proxy_enaibler_bot
-#   - /Users/v.lukin/Nextcloud/lukinvit.tech/projects/TG_RUSCOFFEE_ADMIN_BOT
+#   - /path/to/LV_DCP
+#   - /path/to/project-b
+#   - /path/to/project-c
 #
 # Outputs status per project. Non-zero exit code = at least one step failed.
 #
@@ -18,9 +18,9 @@ set -u
 set -o pipefail
 
 PROJECTS=(
-  "/Users/v.lukin/Nextcloud/lukinvit.tech/projects/LV_DCP"
-  "/Users/v.lukin/Nextcloud/lukinvit.tech/projects/TG_Proxy_enaibler_bot"
-  "/Users/v.lukin/Nextcloud/lukinvit.tech/projects/TG_RUSCOFFEE_ADMIN_BOT"
+  "/path/to/LV_DCP"
+  "/path/to/project-b"
+  "/path/to/project-c"
 )
 
 FAIL_COUNT=0
