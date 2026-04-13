@@ -92,3 +92,71 @@ def test_observer_emits_events_to_buffer(tmp_path: Path) -> None:
     # modified set contains new.py
     modified, _deleted = pending[project]
     assert "new.py" in modified
+
+
+def test_process_pending_events_submits_wiki_task_when_threshold_met(
+    tmp_path: Path,
+) -> None:
+    """Wiki update task is submitted when dirty_count >= threshold."""
+    from concurrent.futures import ThreadPoolExecutor
+    from unittest.mock import MagicMock, patch
+
+    from apps.agent.daemon import process_pending_events
+    from apps.agent.handler import DebounceBuffer
+    from libs.core.projects_config import WikiConfig
+
+    buffer = DebounceBuffer(debounce_seconds=0.0)
+    buffer.add(tmp_path, "libs/core/a.py", "modified")
+
+    mock_result = MagicMock()
+    mock_result.files_reparsed = 1
+    mock_result.wiki_dirty_count = 5  # above default threshold of 3
+
+    wiki_config = WikiConfig(auto_update_after_scan=True, dirty_threshold=3)
+    pool = ThreadPoolExecutor(max_workers=1)
+
+    try:
+        with patch("apps.agent.daemon.scan_project", return_value=mock_result):
+            with patch("apps.agent.daemon.run_wiki_update"):
+                pool_spy = MagicMock(wraps=pool)
+                process_pending_events(
+                    buffer,
+                    wiki_pool=pool_spy,
+                    wiki_config=wiki_config,
+                )
+                pool_spy.submit.assert_called_once()
+                assert pool_spy.submit.call_args.args[1] == tmp_path
+    finally:
+        pool.shutdown(wait=False)
+
+
+def test_process_pending_events_no_wiki_task_below_threshold(tmp_path: Path) -> None:
+    """Wiki task not submitted when dirty_count < threshold."""
+    from concurrent.futures import ThreadPoolExecutor
+    from unittest.mock import MagicMock, patch
+
+    from apps.agent.daemon import process_pending_events
+    from apps.agent.handler import DebounceBuffer
+    from libs.core.projects_config import WikiConfig
+
+    buffer = DebounceBuffer(debounce_seconds=0.0)
+    buffer.add(tmp_path, "libs/core/a.py", "modified")
+
+    mock_result = MagicMock()
+    mock_result.files_reparsed = 1
+    mock_result.wiki_dirty_count = 1  # below threshold of 3
+
+    wiki_config = WikiConfig(auto_update_after_scan=True, dirty_threshold=3)
+    pool = ThreadPoolExecutor(max_workers=1)
+
+    try:
+        with patch("apps.agent.daemon.scan_project", return_value=mock_result):
+            pool_spy = MagicMock(wraps=pool)
+            process_pending_events(
+                buffer,
+                wiki_pool=pool_spy,
+                wiki_config=wiki_config,
+            )
+            pool_spy.submit.assert_not_called()
+    finally:
+        pool.shutdown(wait=False)

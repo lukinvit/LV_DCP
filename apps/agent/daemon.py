@@ -16,11 +16,13 @@ import sqlite3
 import sys
 import time
 import typing
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event
 
 from libs.core.paths import is_ignored, normalize_path
+from libs.core.projects_config import WikiConfig, load_config
 from libs.project_index.index import ProjectIndex
 from libs.scan_history.store import (
     ScanEvent,
@@ -34,6 +36,7 @@ from watchdog.observers import Observer
 
 from apps.agent.config import list_projects, update_last_scan
 from apps.agent.handler import DebounceBuffer
+from apps.agent.wiki_worker import run_wiki_update
 
 DEFAULT_CONFIG_PATH = Path.home() / ".lvdcp" / "config.yaml"
 DEFAULT_LOG_DIR = Path.home() / "Library" / "Logs" / "lvdcp-agent"
@@ -74,6 +77,8 @@ def process_pending_events(
     logger: typing.Callable[[str], None] = lambda msg: None,
     *,
     config_path: Path | None = None,
+    wiki_pool: ThreadPoolExecutor | None = None,
+    wiki_config: WikiConfig | None = None,
 ) -> dict[Path, int]:
     """Flush buffer and process each project.
 
@@ -101,6 +106,18 @@ def process_pending_events(
                 result = scan_project(project_root, mode="incremental", only=modified)
                 results[project_root] = result.files_reparsed
                 logger(f"[scan] {project_root.name}: {result.files_reparsed} reparsed")
+
+                # Post-scan wiki hook (best-effort, never blocks daemon)
+                if (
+                    wiki_pool is not None
+                    and wiki_config is not None
+                    and result.wiki_dirty_count >= wiki_config.dirty_threshold
+                ):
+                    wiki_pool.submit(run_wiki_update, project_root, wiki_config)
+                    logger(
+                        f"[wiki] {project_root.name}: "
+                        f"{result.wiki_dirty_count} dirty modules, update queued"
+                    )
             else:
                 results[project_root] = 0
         except Exception as exc:
@@ -146,6 +163,9 @@ def run_daemon(
     observer = Observer()
     stop_event = Event()
 
+    cfg = load_config(config_path)
+    wiki_pool = ThreadPoolExecutor(max_workers=cfg.wiki.max_workers)
+
     def handle_signal(signum: int, frame: object) -> None:
         stop_event.set()
 
@@ -170,10 +190,17 @@ def run_daemon(
     try:
         while not stop_event.is_set():
             time.sleep(buffer.debounce_seconds)
-            process_pending_events(buffer, logger=print, config_path=config_path)
+            process_pending_events(
+                buffer,
+                logger=print,
+                config_path=config_path,
+                wiki_pool=wiki_pool if cfg.wiki.auto_update_after_scan else None,
+                wiki_config=cfg.wiki if cfg.wiki.auto_update_after_scan else None,
+            )
     finally:
         observer.stop()
         observer.join()
+        wiki_pool.shutdown(wait=False)
 
 
 if __name__ == "__main__":
