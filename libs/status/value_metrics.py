@@ -81,8 +81,27 @@ def collect_value_metrics(config_path: Path) -> ValueMetrics:
                 ).fetchone()[0]
                 pc.symbols = conn.execute("SELECT COUNT(*) FROM symbols").fetchone()[0]
                 pc.relations = conn.execute("SELECT COUNT(*) FROM relations").fetchone()[0]
+
+                # Coverage over parseable source files only (exclude __init__.py,
+                # config-only languages, and tiny files)
+                _SRC_LANGS = ("python", "typescript", "javascript", "go", "rust")
+                parseable = conn.execute(
+                    "SELECT COUNT(*) FROM files "
+                    "WHERE language IN ({}) AND size_bytes >= 20 "
+                    "AND path NOT LIKE '%/__init__.py'".format(
+                        ",".join(f"'{l}'" for l in _SRC_LANGS)
+                    )
+                ).fetchone()[0]
+                parseable_with_syms = conn.execute(
+                    "SELECT COUNT(DISTINCT f.path) FROM files f "
+                    "JOIN symbols s ON f.path = s.file_path "
+                    "WHERE f.language IN ({}) AND f.size_bytes >= 20 "
+                    "AND f.path NOT LIKE '%/__init__.py'".format(
+                        ",".join(f"'{l}'" for l in _SRC_LANGS)
+                    )
+                ).fetchone()[0]
                 pc.coverage_pct = (
-                    pc.files_with_symbols / pc.files_total * 100 if pc.files_total else 0
+                    parseable_with_syms / parseable * 100 if parseable else 100.0
                 )
                 m.total_files_in_projects += pc.files_total
 
