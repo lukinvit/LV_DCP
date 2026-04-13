@@ -117,7 +117,7 @@ def test_process_pending_events_submits_wiki_task_when_threshold_met(
 
     try:
         with patch("apps.agent.daemon.scan_project", return_value=mock_result):
-            with patch("apps.agent.daemon.run_wiki_update"):
+            with patch("apps.agent.daemon.run_wiki_update") as mock_worker:
                 pool_spy = MagicMock(wraps=pool)
                 process_pending_events(
                     buffer,
@@ -125,7 +125,10 @@ def test_process_pending_events_submits_wiki_task_when_threshold_met(
                     wiki_config=wiki_config,
                 )
                 pool_spy.submit.assert_called_once()
-                assert pool_spy.submit.call_args.args[1] == tmp_path
+                call_args = pool_spy.submit.call_args
+                assert call_args.args[0] is mock_worker
+                assert call_args.args[1] == tmp_path
+                assert call_args.args[2] == wiki_config
     finally:
         pool.shutdown(wait=False)
 
