@@ -26,7 +26,13 @@ def _looks_like_file_path(node: str) -> bool:
     File paths either contain a path separator '/' or end with a known file
     extension.  Symbol FQ-names (e.g. ``app.services.auth.authenticate``) are
     dot-separated identifiers with no file extension.
+
+    Rejects unresolved relative import specifiers (e.g. ``./flow-engine``,
+    ``../utils``) that TS/JS parsers store verbatim as dst_ref without
+    resolving to a real project path.
     """
+    if node.startswith("./") or node.startswith("../"):
+        return False
     if "/" in node:
         return True
     dot = node.rfind(".")
