@@ -81,3 +81,14 @@ def test_unresolved_relative_import_not_returned_as_file() -> None:
     paths = {c.path for c in expanded}
     assert "./flow-engine" not in paths
     assert "../utils" not in paths
+
+
+def test_tsconfig_alias_import_not_returned_as_file() -> None:
+    """tsconfig-style ``@/X`` specifiers must not leak through."""
+    graph = Graph()
+    graph.add_relation(_rel("src/lib/chat/llm-manager.ts", "@/lib/prisma"))
+    seeds = {"src/lib/chat/llm-manager.ts": 10.0}
+    expanded = expand_via_graph(seeds, graph, depth=2, decay=0.7)
+    paths = {c.path for c in expanded}
+    assert "@/lib/prisma" not in paths
+    assert not any(p.startswith("@/") for p in paths)

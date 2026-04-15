@@ -28,10 +28,11 @@ def _looks_like_file_path(node: str) -> bool:
     dot-separated identifiers with no file extension.
 
     Rejects unresolved relative import specifiers (e.g. ``./flow-engine``,
-    ``../utils``) that TS/JS parsers store verbatim as dst_ref without
-    resolving to a real project path.
+    ``../utils``) and tsconfig-style alias imports (``@/lib/foo``) that
+    TS/JS parsers store verbatim as dst_ref without resolving to a real
+    project path.
     """
-    if node.startswith("./") or node.startswith("../"):
+    if node.startswith(("./", "../", "@/")):
         return False
     if "/" in node:
         return True
