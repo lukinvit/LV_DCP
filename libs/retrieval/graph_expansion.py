@@ -16,30 +16,56 @@ from dataclasses import dataclass
 from libs.graph.builder import Graph
 
 _FILE_EXTENSIONS = frozenset(
-    [".py", ".md", ".yaml", ".yml", ".toml", ".txt", ".json", ".rst", ".cfg", ".ini"]
+    [
+        ".py",
+        ".md",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".txt",
+        ".json",
+        ".rst",
+        ".cfg",
+        ".ini",
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".mjs",
+        ".cjs",
+        ".go",
+        ".rs",
+    ]
+)
+_PROJECT_ROOTS = frozenset(
+    {"src", "libs", "apps", "app", "pkg", "internal", "modules", "tests", "scripts", "docs"}
 )
 
 
 def _looks_like_file_path(node: str) -> bool:
-    """Return True if *node* looks like a file path rather than a symbol FQ-name.
+    """Return True if *node* looks like a real file path rather than a module specifier.
 
-    File paths either contain a path separator '/' or end with a known file
-    extension.  Symbol FQ-names (e.g. ``app.services.auth.authenticate``) are
-    dot-separated identifiers with no file extension.
+    A file path either:
+    - ends with a known source/doc file extension, OR
+    - starts with a known project-internal root segment (``src/``, ``libs/`` …)
 
-    Rejects unresolved relative import specifiers (e.g. ``./flow-engine``,
-    ``../utils``) and tsconfig-style alias imports (``@/lib/foo``) that
-    TS/JS parsers store verbatim as dst_ref without resolving to a real
-    project path.
+    Rejects:
+    - Unresolved relative import specifiers (``./flow-engine``, ``../utils``)
+    - tsconfig-style alias imports (``@/lib/foo``)
+    - npm package specifiers with subpaths (``next-auth/jwt``, ``@playwright/test``)
+    - Symbol FQ-names (``app.services.auth.authenticate``)
     """
-    if node.startswith(("./", "../", "@/")):
+    if node.startswith(("./", "../", "@/", "@")):
         return False
-    if "/" in node:
-        return True
+    # Known file extension → definitely a file
     dot = node.rfind(".")
-    if dot == -1:
-        return False
-    return node[dot:] in _FILE_EXTENSIONS
+    if dot != -1 and node[dot:] in _FILE_EXTENSIONS:
+        return True
+    # Has slash → accept only if rooted at a project-internal segment
+    if "/" in node:
+        first_segment = node.split("/", 1)[0]
+        return first_segment in _PROJECT_ROOTS
+    return False
 
 
 @dataclass(frozen=True)

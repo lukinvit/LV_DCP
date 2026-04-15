@@ -92,3 +92,39 @@ def test_tsconfig_alias_import_not_returned_as_file() -> None:
     paths = {c.path for c in expanded}
     assert "@/lib/prisma" not in paths
     assert not any(p.startswith("@/") for p in paths)
+
+
+def test_npm_package_specifier_not_returned_as_file() -> None:
+    """npm package sub-paths like ``next-auth/jwt`` are not real files.
+
+    They contain "/" but don't start with a project-internal root. Must be
+    rejected to prevent them surfacing as targets in edit packs.
+    """
+    graph = Graph()
+    graph.add_relation(_rel("src/middleware.ts", "next-auth/jwt"))
+    graph.add_relation(_rel("src/middleware.ts", "@playwright/test"))
+    seeds = {"src/middleware.ts": 10.0}
+    expanded = expand_via_graph(seeds, graph, depth=2, decay=0.7)
+    paths = {c.path for c in expanded}
+    assert "next-auth/jwt" not in paths
+    assert "@playwright/test" not in paths
+
+
+def test_rooted_file_without_extension_still_accepted() -> None:
+    """src/foo/bar (no extension) is a valid project path — accept it."""
+    graph = Graph()
+    graph.add_relation(_rel("tests/test_x.ts", "src/lib/utils"))
+    seeds = {"tests/test_x.ts": 10.0}
+    expanded = expand_via_graph(seeds, graph, depth=2, decay=0.7)
+    paths = {c.path for c in expanded}
+    assert "src/lib/utils" in paths
+
+
+def test_ts_file_extension_recognized() -> None:
+    """foo.ts without a slash must be recognized as a file path."""
+    graph = Graph()
+    graph.add_relation(_rel("bar.ts", "foo.ts"))
+    seeds = {"bar.ts": 10.0}
+    expanded = expand_via_graph(seeds, graph, depth=2, decay=0.7)
+    paths = {c.path for c in expanded}
+    assert "foo.ts" in paths
