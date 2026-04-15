@@ -83,14 +83,25 @@ def is_test_path(relative_posix: str) -> bool:
     - Path rooted at ``tests/`` (e.g. ``tests/test_foo.py``)
     - File name suffix ``_test.py`` (pytest naming)
     - File name prefix ``test_`` at the root segment (e.g. ``test_bar.py``)
+    - TS/JS conventions: ``foo.test.ts``, ``foo.spec.tsx``, ``__tests__/foo.ts``
 
     Note: ``docs/test.md`` returns False because the *file name* ``test.md``
     does not start with ``test_`` and the path does not start with ``tests/``.
     """
     p = relative_posix.replace("\\", "/")
-    return (
-        "/tests/" in p or p.startswith("tests/") or p.endswith("_test.py") or p.startswith("test_")
-    )
+    if (
+        "/tests/" in p
+        or p.startswith("tests/")
+        or p.endswith("_test.py")
+        or p.startswith("test_")
+    ):
+        return True
+    if "/__tests__/" in p or p.startswith("__tests__/"):
+        return True
+    for ext in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"):
+        if p.endswith(".test" + ext) or p.endswith(".spec" + ext):
+            return True
+    return False
 
 
 def is_ignored(relative_posix: str) -> bool:

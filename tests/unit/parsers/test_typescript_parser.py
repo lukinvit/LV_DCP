@@ -222,3 +222,68 @@ class TestEdgeCases:
         imports = [r for r in result.relations if r.relation_type == RelationType.IMPORTS]
         refs = {r.dst_ref for r in imports}
         assert "express" in refs
+
+
+# ---------------------------------------------------------------------------
+# tests_for inference (Phase 7a follow-up)
+# ---------------------------------------------------------------------------
+
+
+TEST_WITH_ALIAS_IMPORT = b"""\
+import { LLMManager } from '@/lib/chat/llm-manager';
+import type { LLMRequest } from '@/types/llm';
+import { describe, it, expect } from 'vitest';
+"""
+
+TEST_WITH_RELATIVE_IMPORT = b"""\
+import { BusinessFlow } from '../business-flow';
+import { FlowEngine } from './flow-engine';
+import { describe, it, expect } from 'vitest';
+"""
+
+TEST_WITH_EXTERNAL_ONLY = b"""\
+import { describe, it, expect } from 'vitest';
+import { render } from '@testing-library/react';
+"""
+
+
+class TestTestsForInference:
+    def test_alias_import_in_unit_test_produces_tests_for(self) -> None:
+        parser = TypeScriptParser()
+        result = parser.parse(
+            file_path="tests/unit/chat/llm-manager.test.ts",
+            data=TEST_WITH_ALIAS_IMPORT,
+        )
+        tests_for = [r for r in result.relations if r.relation_type == RelationType.TESTS_FOR]
+        dsts = {r.dst_ref for r in tests_for}
+        assert "src/lib/chat/llm-manager.ts" in dsts
+
+    def test_relative_import_resolved_against_source_dir(self) -> None:
+        parser = TypeScriptParser()
+        result = parser.parse(
+            file_path="src/lib/chat/flows/__tests__/business-flow.test.ts",
+            data=TEST_WITH_RELATIVE_IMPORT,
+        )
+        tests_for = [r for r in result.relations if r.relation_type == RelationType.TESTS_FOR]
+        dsts = {r.dst_ref for r in tests_for}
+        assert "src/lib/chat/flows/business-flow.ts" in dsts
+        assert "src/lib/chat/flows/__tests__/flow-engine.ts" in dsts
+
+    def test_external_packages_skipped(self) -> None:
+        parser = TypeScriptParser()
+        result = parser.parse(
+            file_path="tests/unit/foo.test.ts",
+            data=TEST_WITH_EXTERNAL_ONLY,
+        )
+        tests_for = [r for r in result.relations if r.relation_type == RelationType.TESTS_FOR]
+        assert tests_for == []
+
+    def test_source_file_gets_no_tests_for(self) -> None:
+        """Non-test files must never produce TESTS_FOR relations."""
+        parser = TypeScriptParser()
+        result = parser.parse(
+            file_path="src/lib/chat/llm-manager.ts",
+            data=TEST_WITH_ALIAS_IMPORT,
+        )
+        tests_for = [r for r in result.relations if r.relation_type == RelationType.TESTS_FOR]
+        assert tests_for == []

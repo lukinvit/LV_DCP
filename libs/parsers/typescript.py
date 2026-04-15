@@ -7,6 +7,7 @@ active grammar is selected by ``self.language``.
 
 from __future__ import annotations
 
+import posixpath
 import re
 
 import tree_sitter_javascript as tsjavascript
@@ -15,10 +16,14 @@ from tree_sitter import Language, Node
 from tree_sitter import Parser as TSParser
 
 from libs.core.entities import Relation, RelationType, Symbol, SymbolType
+from libs.core.paths import is_test_path
 from libs.parsers.base import ParseResult
 from libs.parsers.treesitter_base import TreeSitterParser
 
 _UPPER_SNAKE_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+_TS_EXTS = (".ts", ".tsx")
+_JS_EXTS = (".js", ".jsx", ".mjs", ".cjs")
+_INTERNAL_ROOTS = frozenset({"src", "libs", "apps", "app", "pkg", "internal", "modules"})
 
 
 class TypeScriptParser(TreeSitterParser):
@@ -121,13 +126,73 @@ class TypeScriptParser(TreeSitterParser):
                                 )
                             )
 
-        if extra_symbols:
+        combined_relations = list(result.relations) + extra_relations
+        combined_relations.extend(self._infer_tests_for(file_path, combined_relations))
+
+        if extra_symbols or len(combined_relations) != len(result.relations):
             return ParseResult(
                 file_path=result.file_path,
                 language=result.language,
                 role=result.role,
                 symbols=result.symbols + tuple(extra_symbols),
-                relations=result.relations + tuple(extra_relations),
+                relations=tuple(combined_relations),
                 errors=result.errors,
             )
         return result
+
+    # ------------------------------------------------------------------
+    # tests_for inference (TS/JS) — ported from PythonParser with
+    # module-specifier resolution (relative, @/ alias, rooted paths)
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _infer_tests_for(cls, file_path: str, relations: list[Relation]) -> list[Relation]:
+        """If *file_path* is a test file, promote its imports to tests_for relations."""
+        if not is_test_path(file_path):
+            return []
+        exts = _JS_EXTS if file_path.endswith(_JS_EXTS) else _TS_EXTS
+        seen: set[str] = set()
+        result: list[Relation] = []
+        src_dir = posixpath.dirname(file_path)
+        for rel in relations:
+            if rel.relation_type != RelationType.IMPORTS:
+                continue
+            for candidate in cls._resolve_specifier(src_dir, rel.dst_ref, exts):
+                if candidate in seen:
+                    continue
+                seen.add(candidate)
+                result.append(
+                    Relation(
+                        src_type="file",
+                        src_ref=file_path,
+                        dst_type="file",
+                        dst_ref=candidate,
+                        relation_type=RelationType.TESTS_FOR,
+                    )
+                )
+        return result
+
+    @staticmethod
+    def _resolve_specifier(src_dir: str, specifier: str, exts: tuple[str, ...]) -> list[str]:
+        """Return candidate file paths for a TS/JS import specifier.
+
+        Handles:
+        - Relative:    ``./foo``, ``../foo`` — resolve against src_dir
+        - Alias:       ``@/foo`` — tsconfig-style, map to ``src/foo``
+        - Rooted:      ``src/lib/foo``, ``libs/x`` — keep as-is
+        - External:    ``react``, ``@playwright/test`` — skip (returns [])
+
+        Generates one candidate per extension in *exts* unless the specifier
+        already has a valid extension.
+        """
+        if specifier.startswith("./") or specifier.startswith("../"):
+            resolved = posixpath.normpath(posixpath.join(src_dir or ".", specifier))
+        elif specifier.startswith("@/"):
+            resolved = "src/" + specifier[2:]
+        elif specifier.split("/", 1)[0] in _INTERNAL_ROOTS:
+            resolved = specifier
+        else:
+            return []
+        if resolved.endswith(exts) or resolved.endswith(_JS_EXTS):
+            return [resolved]
+        return [resolved + ext for ext in exts]
