@@ -53,6 +53,8 @@ $ ctx pack . "refresh token rotation" --mode edit
 
 ## Status
 
+**Phase 7b complete (2026-04-16)** — TypeScript/JS graph enrichment: `tests_for` relations, tighter path-filter rejecting unresolved module specifiers and npm subpaths. Verified on a 926-file Next.js codebase.
+
 **Phase 7a complete (2026-04-13)** — Identifier-aware path retrieval ships path aliases into the FTS index (camelCase/snake_case tokenization), lifting precision@3 from 0.568 to 0.693. Wiki knowledge module gets a post-scan background hook. Cyrillic support in pack enrichment. Real-project eval harness added.
 
 Stabilization 0.6.1 baseline: mandatory GitHub Actions quality gates, green `ruff` / `mypy`, runtime-hardened embeddings and Qdrant.
@@ -93,10 +95,11 @@ Release note: [docs/release/2026-04-13-v0.6.1-stabilization.md](docs/release/202
 | 6 | **0.6.0** | **Done** | Phase 6 feature release: cross-language parsers (TS/JS/Go/Rust), Qdrant vector store, Obsidian vault sync, VS Code extension MVP, cross-project patterns, wiki knowledge module |
 | 6.1 | **0.6.1** | **Done** | Stabilization pass: mandatory CI quality gates, green `ruff` + `mypy`, async/Qdrant runtime hardening, 662 tests passing |
 | 7a | — | **Done** | Identifier-aware path retrieval, wiki post-scan hook, real-project eval harness, precision@3 0.568→0.693 |
+| 7b | — | **Done** | TS/JS `tests_for` relations, path-filter tightening (reject `./`, `../`, `@/`, npm subpaths), verified on ruscoffee (926 files, 82 tests_for edges) |
 
 ### Test suite
 
-662 tests in suite, 0 failures. Current green baseline: 659 non-eval passed (1 deselected); eval: 1 passed + 1 skipped advisory polyglot check. Eval harness: 32 synthetic queries; multi-project eval currently covers 9 advisory queries across 4 registered projects.
+677 tests in suite, 0 failures. Current green baseline: 674 non-eval passed (1 deselected); eval: 1 passed + 1 skipped advisory polyglot check. Eval harness: 32 synthetic queries; multi-project eval currently covers 9 advisory queries across 4 registered projects.
 
 For advisory real-project eval setup and report commands, see [docs/eval/real-project-eval.md](docs/eval/real-project-eval.md).
 
@@ -190,6 +193,28 @@ uv sync --all-extras
 make lint typecheck test  # verify toolchain
 ```
 
+### Project onboarding
+
+```bash
+# One guided command for a new project
+uv run ctx setup /absolute/path/to/your/project --open-ui
+```
+
+`ctx setup` reuses the existing install/scan/wiki/watch/UI primitives and ends
+with a readiness summary:
+
+- `base mode` = local scan/index/packs/UI baseline
+- `full mode` = hybrid/vector retrieval quality
+
+For `full mode`, LV_DCP requires:
+
+- `Qdrant`
+- a real embedding provider/API key (for example `OPENAI_API_KEY`)
+
+For wiki generation, LV_DCP also requires:
+
+- `claude` CLI on `PATH`
+
 ### Register with Claude Code (recommended)
 
 ```bash
@@ -228,6 +253,7 @@ uv run --directory /path/to/LV_DCP ctx inspect .
 | Command | Purpose |
 |---|---|
 | `ctx scan <path>` | Walk, parse, index. Incremental by default (skips unchanged files by content hash). Use `--full` to force reparse. |
+| `ctx setup <path>` | One-command onboarding: scan, MCP/hooks best-effort install, wiki enablement/build attempt, readiness summary, optional UI launch. |
 | `ctx pack <path> "<query>" [--mode navigate\|edit]` | Build a retrieval pack. Navigate mode for questions, edit mode for changes. |
 | `ctx inspect <path>` | Print index statistics (file count, symbols, relations by type). |
 | `ctx mcp serve` | Run the MCP server via stdio (called by Claude Code, not humans). |
@@ -322,7 +348,7 @@ make test          # pytest, excluding eval and llm markers
 make eval          # retrieval evaluation harness
 ```
 
-Current: 662 tests (659 non-eval + 1 eval + 1 advisory skipped), eval harness with 32 synthetic queries, plus 9 advisory multi-project queries. Phase 6 feature baseline tagged `phase-6-complete`.
+Current: 677 tests (674 non-eval + 1 eval + 1 advisory skipped), eval harness with 32 synthetic queries, plus 9 advisory multi-project queries. Phase 6 feature baseline tagged `phase-6-complete`.
 
 ### Running the daemon
 
@@ -342,8 +368,9 @@ The daemon uses `watchdog.observers.Observer` which auto-selects `FSEventsObserv
 - **Phase 4** (done, v0.4.0) — pymorphy3 Russian stemmer, git intelligence (churn/blame), static impact analysis + hotspot widget, adaptive graph clustering, UI project management, diff-aware edit packs.
 - **Phase 5** (done, v0.5.0) — Hook enforcement (PreToolUse/PostToolUse), dual-language retrieval (80+ ru↔en terms), 5 new relation types (tests_for, inherits, specifies), value metrics dashboard, scan coverage widget, 457 tests (0 failures).
 - **Phase 6** (done, v0.6.0) — Cross-language parsers (TypeScript/JS, Go, Rust via tree-sitter), Qdrant vector store with hybrid retrieval (RRF fusion), Obsidian vault sync, VS Code extension MVP, cross-project pattern detection, wiki knowledge module (LLM-synthesized articles, lint, architecture page).
-- **Stabilization 0.6.1** (done) — GitHub Actions quality gates, repository-wide green `ruff` / `mypy`, warning-free embeddings and Qdrant runtime, 662 tests.
+- **Stabilization 0.6.1** (done) — GitHub Actions quality gates, repository-wide green `ruff` / `mypy`, warning-free embeddings and Qdrant runtime, 677 tests.
 - **Phase 7a** (done) — Identifier-aware path retrieval (path aliases in FTS index, camelCase/snake_case tokenization), wiki post-scan hook with ThreadPoolExecutor, Cyrillic tokenization in pack enrichment, real-project eval harness, precision@3 improved 0.568→0.693.
+- **Phase 7b** (done) — TypeScript/JavaScript graph enrichment: `tests_for` relations ported from Python parser with TS-specific module resolution (`./`, `../`, `@/` alias, rooted paths), test-path heuristic extended for `.test.ts` / `.spec.tsx` / `__tests__/` conventions. Graph-expansion filter tightened to reject unresolved import specifiers and npm package subpaths (`./flow-engine`, `@/lib/foo`, `next-auth/jwt`). Verified on ruscoffee (926 TS files, 82 `tests_for` edges materialized).
 - **Phase 7** (next) — Java/Kotlin/Swift parsers, Obsidian debounced/nightly sync, VS Code marketplace, LLM-based rerank, vector retrieval eval tuning.
 
 ## Contributing
