@@ -157,6 +157,7 @@ class TypeScriptParser(TreeSitterParser):
                             )
 
         combined_relations = list(result.relations) + extra_relations
+        combined_relations.extend(self._extract_inherits(root, module_fq))
         combined_relations.extend(self._infer_tests_for(file_path, combined_relations))
 
         if extra_symbols or len(combined_relations) != len(result.relations):
@@ -169,6 +170,56 @@ class TypeScriptParser(TreeSitterParser):
                 errors=result.errors,
             )
         return result
+
+    # ------------------------------------------------------------------
+    # Inheritance extraction (extends / implements)
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _extract_inherits(cls, root: Node, module_fq: str) -> list[Relation]:
+        """Walk the AST and emit INHERITS relations for class/interface heritage.
+
+        Covers:
+        - ``class Foo extends Bar`` → INHERITS(Foo, Bar)
+        - ``class Foo implements A, B`` → two INHERITS edges
+        - ``interface Foo extends Bar`` → INHERITS(Foo, Bar)
+        """
+        relations: list[Relation] = []
+        stack: list[Node] = [root]
+        while stack:
+            node = stack.pop()
+            if node.type in ("class_declaration", "interface_declaration"):
+                name_node = node.child_by_field_name("name")
+                if name_node is not None and name_node.text:
+                    class_name = name_node.text.decode("utf-8", errors="replace")
+                    class_fq = f"{module_fq}.{class_name}"
+                    for base in cls._collect_heritage(node):
+                        relations.append(
+                            Relation(
+                                src_type="symbol",
+                                src_ref=class_fq,
+                                dst_type="symbol",
+                                dst_ref=base,
+                                relation_type=RelationType.INHERITS,
+                            )
+                        )
+            stack.extend(node.children)
+        return relations
+
+    @staticmethod
+    def _collect_heritage(class_node: Node) -> list[str]:
+        """Return list of base type names from a class or interface declaration."""
+        bases: list[str] = []
+        for child in class_node.children:
+            # class: class_heritage { extends_clause, implements_clause }
+            if child.type == "class_heritage":
+                for sub in child.children:
+                    if sub.type in ("extends_clause", "implements_clause"):
+                        bases.extend(_flatten_type_names(sub))
+            # interface: extends_type_clause directly
+            elif child.type == "extends_type_clause":
+                bases.extend(_flatten_type_names(child))
+        return bases
 
     # ------------------------------------------------------------------
     # tests_for inference (TS/JS) — ported from PythonParser with
@@ -234,3 +285,20 @@ class TypeScriptParser(TreeSitterParser):
         if resolved.endswith(exts) or resolved.endswith(_JS_EXTS):
             return [resolved]
         return [resolved + ext for ext in exts]
+
+
+def _flatten_type_names(node: Node) -> list[str]:
+    """Collect all type identifiers under *node* (extends/implements clause)."""
+    names: list[str] = []
+    stack: list[Node] = list(node.children)
+    while stack:
+        cur = stack.pop()
+        if cur.type in ("type_identifier", "identifier") and cur.text:
+            names.append(cur.text.decode("utf-8", errors="replace"))
+            continue
+        # member_expression like `ns.Base` — take full text
+        if cur.type == "member_expression" and cur.text:
+            names.append(cur.text.decode("utf-8", errors="replace"))
+            continue
+        stack.extend(cur.children)
+    return names

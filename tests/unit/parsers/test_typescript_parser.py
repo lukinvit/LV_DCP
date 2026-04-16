@@ -295,6 +295,51 @@ class TestTestsForInference:
         tests_for = [r for r in result.relations if r.relation_type == RelationType.TESTS_FOR]
         assert tests_for == []
 
+    def test_inherits_class_extends(self) -> None:
+        """`class Foo extends Bar` → INHERITS(Foo, Bar)."""
+        parser = TypeScriptParser()
+        code = b"class Foo extends Bar {}\n"
+        result = parser.parse(file_path="src/foo.ts", data=code)
+        inherits = [r for r in result.relations if r.relation_type == RelationType.INHERITS]
+        assert len(inherits) == 1
+        assert "Foo" in inherits[0].src_ref
+        assert inherits[0].dst_ref.endswith("Bar")
+
+    def test_inherits_class_implements_multiple(self) -> None:
+        """`class Foo implements A, B` → two INHERITS edges."""
+        parser = TypeScriptParser()
+        code = b"class Foo implements A, B {}\n"
+        result = parser.parse(file_path="src/foo.ts", data=code)
+        inherits = [r for r in result.relations if r.relation_type == RelationType.INHERITS]
+        dsts = {r.dst_ref for r in inherits}
+        assert any(d.endswith("A") for d in dsts)
+        assert any(d.endswith("B") for d in dsts)
+
+    def test_inherits_class_extends_and_implements(self) -> None:
+        """Both `extends Bar` and `implements Iface` produce INHERITS edges."""
+        parser = TypeScriptParser()
+        code = b"class Foo extends Bar implements Iface {}\n"
+        result = parser.parse(file_path="src/foo.ts", data=code)
+        inherits = [r for r in result.relations if r.relation_type == RelationType.INHERITS]
+        dsts = {r.dst_ref for r in inherits}
+        assert any(d.endswith("Bar") for d in dsts)
+        assert any(d.endswith("Iface") for d in dsts)
+
+    def test_inherits_interface_extends(self) -> None:
+        """`interface Foo extends Bar` produces INHERITS(Foo, Bar)."""
+        parser = TypeScriptParser()
+        code = b"interface Foo extends Bar { x: string; }\n"
+        result = parser.parse(file_path="src/foo.ts", data=code)
+        inherits = [r for r in result.relations if r.relation_type == RelationType.INHERITS]
+        assert any(r.dst_ref.endswith("Bar") for r in inherits)
+
+    def test_no_inherits_for_plain_class(self) -> None:
+        parser = TypeScriptParser()
+        code = b"class Foo { x: string = 'a'; }\n"
+        result = parser.parse(file_path="src/foo.ts", data=code)
+        inherits = [r for r in result.relations if r.relation_type == RelationType.INHERITS]
+        assert inherits == []
+
     def test_fsd_layer_aliases_resolved_to_src(self) -> None:
         """FSD path aliases like @entities/X map to src/entities/X.
 
