@@ -158,6 +158,7 @@ class TypeScriptParser(TreeSitterParser):
 
         combined_relations = list(result.relations) + extra_relations
         combined_relations.extend(self._extract_inherits(root, module_fq))
+        combined_relations.extend(self._extract_same_file_calls(root, module_fq, result.symbols))
         combined_relations.extend(self._infer_tests_for(file_path, combined_relations))
 
         if extra_symbols or len(combined_relations) != len(result.relations):
@@ -220,6 +221,115 @@ class TypeScriptParser(TreeSitterParser):
             elif child.type == "extends_type_clause":
                 bases.extend(_flatten_type_names(child))
         return bases
+
+    # ------------------------------------------------------------------
+    # Same-file call graph (function → function within the same file)
+    # ------------------------------------------------------------------
+
+    _FUNCTION_NODE_TYPES = frozenset(
+        {
+            "function_declaration",
+            "method_definition",
+            "arrow_function",
+            "function_expression",
+            "generator_function_declaration",
+        }
+    )
+
+    @classmethod
+    def _extract_same_file_calls(
+        cls,
+        root: Node,
+        module_fq: str,
+        symbols: tuple[Symbol, ...],
+    ) -> list[Relation]:
+        """Emit SAME_FILE_CALLS edges for call_expression nodes inside functions.
+
+        Recursively tracks the current enclosing function's fq_name:
+        - function_declaration / method_definition use symbol start-line match
+        - arrow_function / function_expression infer name from parent
+          variable_declarator (`const foo = () => …`) or property definition
+        Top-level calls (outside any function) are ignored.
+        """
+        symbols_by_start_line = {sym.start_line: sym for sym in symbols}
+        relations: list[Relation] = []
+
+        def walk(node: Node, enclosing: str | None) -> None:
+            current = enclosing
+            if node.type in cls._FUNCTION_NODE_TYPES:
+                derived = cls._derive_function_fq(node, module_fq, symbols_by_start_line)
+                if derived is not None:
+                    current = derived
+            elif node.type == "call_expression" and enclosing is not None:
+                callee = cls._call_target_name(node)
+                if callee is not None:
+                    relations.append(
+                        Relation(
+                            src_type="symbol",
+                            src_ref=enclosing,
+                            dst_type="symbol",
+                            dst_ref=f"{module_fq}.{callee}",
+                            relation_type=RelationType.SAME_FILE_CALLS,
+                            confidence=0.8,
+                        )
+                    )
+            for child in node.children:
+                walk(child, current)
+
+        walk(root, None)
+        return relations
+
+    @staticmethod
+    def _derive_function_fq(
+        fn_node: Node,
+        module_fq: str,
+        symbols_by_start_line: dict[int, Symbol],
+    ) -> str | None:
+        """Derive a fully-qualified name for a function-like node."""
+        sym = symbols_by_start_line.get(fn_node.start_point.row + 1)
+        if sym is not None:
+            return sym.fq_name
+        # Arrow / anonymous function — try to recover name from parent.
+        parent = fn_node.parent
+        if parent is None:
+            return None
+        if parent.type == "variable_declarator":
+            name_node = parent.child_by_field_name("name")
+            if name_node is not None and name_node.text:
+                return f"{module_fq}.{name_node.text.decode('utf-8', errors='replace')}"
+        if parent.type in ("pair", "property_signature", "public_field_definition"):
+            key = parent.child_by_field_name("name") or parent.child_by_field_name("key")
+            if key is not None and key.text:
+                return f"{module_fq}.{key.text.decode('utf-8', errors='replace')}"
+        return None
+
+    @staticmethod
+    def _call_target_name(call_node: Node) -> str | None:
+        """Resolve a callee name from a call_expression.
+
+        Handles:
+        - plain identifier:          foo() → "foo"
+        - this.method():             this.foo() → "foo"
+        - object.method():           obj.foo() → "obj.foo"
+        - dotted chains:             a.b.c() → "a.b.c"
+        Returns None for more complex callees (computed, parenthesised, etc.).
+        """
+        fn = call_node.child_by_field_name("function")
+        if fn is None:
+            return None
+        if fn.type == "identifier" and fn.text:
+            return fn.text.decode("utf-8", errors="replace")
+        if fn.type != "member_expression":
+            return None
+        obj = fn.child_by_field_name("object")
+        prop = fn.child_by_field_name("property")
+        if prop is None or not prop.text:
+            return None
+        prop_name = prop.text.decode("utf-8", errors="replace")
+        if obj is None or not obj.text or obj.type == "this":
+            return prop_name
+        obj_text = obj.text.decode("utf-8", errors="replace")
+        return f"{obj_text}.{prop_name}"
 
     # ------------------------------------------------------------------
     # tests_for inference (TS/JS) — ported from PythonParser with

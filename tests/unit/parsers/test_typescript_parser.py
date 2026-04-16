@@ -340,6 +340,45 @@ class TestTestsForInference:
         inherits = [r for r in result.relations if r.relation_type == RelationType.INHERITS]
         assert inherits == []
 
+    def test_same_file_calls_function_to_function(self) -> None:
+        """`function foo() { bar(); }` → SAME_FILE_CALLS(foo, bar)."""
+        parser = TypeScriptParser()
+        code = b"function bar() {}\nfunction foo() { bar(); }\n"
+        result = parser.parse(file_path="src/mod.ts", data=code)
+        calls = [r for r in result.relations if r.relation_type == RelationType.SAME_FILE_CALLS]
+        assert len(calls) >= 1
+        assert any(c.src_ref.endswith(".foo") and c.dst_ref.endswith("bar") for c in calls)
+
+    def test_same_file_calls_method_call_on_this(self) -> None:
+        """Method bodies that call `this.other()` should produce SAME_FILE_CALLS."""
+        parser = TypeScriptParser()
+        code = (
+            b"class Foo {\n"
+            b"  private helper() { return 1; }\n"
+            b"  public run() { return this.helper(); }\n"
+            b"}\n"
+        )
+        result = parser.parse(file_path="src/foo.ts", data=code)
+        calls = [r for r in result.relations if r.relation_type == RelationType.SAME_FILE_CALLS]
+        assert any("run" in c.src_ref and "helper" in c.dst_ref for c in calls)
+
+    def test_same_file_calls_ignores_top_level(self) -> None:
+        """Calls outside any function body must not produce SAME_FILE_CALLS."""
+        parser = TypeScriptParser()
+        code = b"function bar() {}\nbar();\n"
+        result = parser.parse(file_path="src/mod.ts", data=code)
+        calls = [r for r in result.relations if r.relation_type == RelationType.SAME_FILE_CALLS]
+        # Only the call inside a function counts — top-level invocation doesn't
+        assert calls == []
+
+    def test_same_file_calls_arrow_function(self) -> None:
+        """Arrow functions assigned to const should still count as callers."""
+        parser = TypeScriptParser()
+        code = b"function helper() {}\nconst run = () => { helper(); };\n"
+        result = parser.parse(file_path="src/mod.ts", data=code)
+        calls = [r for r in result.relations if r.relation_type == RelationType.SAME_FILE_CALLS]
+        assert any(c.dst_ref.endswith("helper") for c in calls)
+
     def test_fsd_layer_aliases_resolved_to_src(self) -> None:
         """FSD path aliases like @entities/X map to src/entities/X.
 
