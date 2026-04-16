@@ -23,7 +23,37 @@ from libs.parsers.treesitter_base import TreeSitterParser
 _UPPER_SNAKE_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 _TS_EXTS = (".ts", ".tsx")
 _JS_EXTS = (".js", ".jsx", ".mjs", ".cjs")
-_INTERNAL_ROOTS = frozenset({"src", "libs", "apps", "app", "pkg", "internal", "modules"})
+_INTERNAL_ROOTS = frozenset(
+    {
+        "src",
+        "libs",
+        "apps",
+        "app",
+        "pkg",
+        "internal",
+        "modules",
+        "domains",
+        "services",
+        "backend",
+        "frontend",
+        "packages",
+        "shared",
+        "core",
+    }
+)
+# FSD (Feature-Sliced Design) layer aliases that map to src/<layer>/X.
+# Covers typical tsconfig paths: "@shared/*": ["src/shared/*"], etc.
+_FSD_ALIASES = frozenset(
+    {
+        "app",
+        "pages",
+        "widgets",
+        "features",
+        "entities",
+        "shared",
+        "processes",
+    }
+)
 
 
 class TypeScriptParser(TreeSitterParser):
@@ -189,6 +219,14 @@ class TypeScriptParser(TreeSitterParser):
             resolved = posixpath.normpath(posixpath.join(src_dir or ".", specifier))
         elif specifier.startswith("@/"):
             resolved = "src/" + specifier[2:]
+        elif specifier.startswith("@") and "/" in specifier:
+            # FSD layer alias? "@shared/lib/foo" → "src/shared/lib/foo"
+            # Reject npm scoped packages: "@playwright/test", "@testing-library/react"
+            layer, _, rest = specifier[1:].partition("/")
+            if layer in _FSD_ALIASES:
+                resolved = f"src/{layer}/{rest}"
+            else:
+                return []
         elif specifier.split("/", 1)[0] in _INTERNAL_ROOTS:
             resolved = specifier
         else:

@@ -246,6 +246,13 @@ import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';
 """
 
+TEST_WITH_FSD_ALIAS = b"""\
+import { UserModel } from '@entities/user/model';
+import { apiClient } from '@shared/api/client';
+import { Header } from '@widgets/header';
+import { loginFeature } from '@features/auth/login';
+"""
+
 
 class TestTestsForInference:
     def test_alias_import_in_unit_test_produces_tests_for(self) -> None:
@@ -287,3 +294,22 @@ class TestTestsForInference:
         )
         tests_for = [r for r in result.relations if r.relation_type == RelationType.TESTS_FOR]
         assert tests_for == []
+
+    def test_fsd_layer_aliases_resolved_to_src(self) -> None:
+        """FSD path aliases like @entities/X map to src/entities/X.
+
+        Rejects npm scoped packages like @testing-library/react.
+        """
+        parser = TypeScriptParser()
+        result = parser.parse(
+            file_path="frontend/src/pages/__tests__/login.test.ts",
+            data=TEST_WITH_FSD_ALIAS,
+        )
+        tests_for = [r for r in result.relations if r.relation_type == RelationType.TESTS_FOR]
+        dsts = {r.dst_ref for r in tests_for}
+        assert "src/entities/user/model.ts" in dsts
+        assert "src/shared/api/client.ts" in dsts
+        assert "src/widgets/header.ts" in dsts
+        assert "src/features/auth/login.ts" in dsts
+        # Negative: no npm scoped package leaked in
+        assert not any("testing-library" in d for d in dsts)

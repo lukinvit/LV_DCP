@@ -90,3 +90,21 @@ def test_tests_for_skips_stdlib() -> None:
     tests_for = [r for r in result.relations if r.relation_type == RelationType.TESTS_FOR]
     # datetime and os are stdlib — no tests_for expected
     assert len(tests_for) == 0
+
+
+def test_tests_for_accepts_ddd_roots() -> None:
+    """DDD-style roots like `domains/` and `services/` count as internal.
+
+    LV_Presentation and similar DDD projects use `domains/identity/...`
+    as the source layout; tests there must still produce tests_for.
+    """
+    code = (
+        b"from domains.identity.mcp.server import create_identity_mcp_server\n\n"
+        b"def test_server():\n    pass\n"
+    )
+    result = parser.parse(
+        file_path="domains/identity/tests/unit/test_mcp_server.py",
+        data=code,
+    )
+    tests_for = [r for r in result.relations if r.relation_type == RelationType.TESTS_FOR]
+    assert any("domains/identity/mcp/server.py" in r.dst_ref for r in tests_for)

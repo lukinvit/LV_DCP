@@ -57,8 +57,25 @@ class PythonParser:
         return "test" if is_test_path(file_path) else "source"
 
     # Top-level directories that indicate a project-internal import.
+    # Includes classic Python conventions, DDD (domains), microservice monorepo
+    # layouts (services, backend, core), and common FastAPI/Django roots.
     _INTERNAL_PREFIXES: frozenset[str] = frozenset(
-        {"src", "libs", "apps", "bot", "app", "pkg", "internal", "modules"}
+        {
+            "src",
+            "libs",
+            "apps",
+            "bot",
+            "app",
+            "pkg",
+            "internal",
+            "modules",
+            "domains",
+            "services",
+            "backend",
+            "core",
+            "packages",
+            "shared",
+        }
     )
 
     @classmethod
