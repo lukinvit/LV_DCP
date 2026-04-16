@@ -95,11 +95,11 @@ Release note: [docs/release/2026-04-13-v0.6.1-stabilization.md](docs/release/202
 | 6 | **0.6.0** | **Done** | Phase 6 feature release: cross-language parsers (TS/JS/Go/Rust), Qdrant vector store, Obsidian vault sync, VS Code extension MVP, cross-project patterns, wiki knowledge module |
 | 6.1 | **0.6.1** | **Done** | Stabilization pass: mandatory CI quality gates, green `ruff` + `mypy`, async/Qdrant runtime hardening, 662 tests passing |
 | 7a | — | **Done** | Identifier-aware path retrieval, wiki post-scan hook, real-project eval harness, precision@3 0.568→0.693 |
-| 7b | — | **Done** | TS/JS `tests_for` relations, path-filter tightening (reject `./`, `../`, `@/`, npm subpaths), verified on ruscoffee (926 files, 82 tests_for edges) |
+| 7b | — | **Done** | TS/JS `tests_for` + `inherits` relations, DDD/FSD alias resolution, path-filter tightening (reject `./`, `../`, `@/`, npm subpaths). Verified on ruscoffee (82 tests_for, 29 inherits), X5_BM (440 tests_for, 26 inherits), LV_Presentation (131 tests_for) |
 
 ### Test suite
 
-677 tests in suite, 0 failures. Current green baseline: 674 non-eval passed (1 deselected); eval: 1 passed + 1 skipped advisory polyglot check. Eval harness: 32 synthetic queries; multi-project eval currently covers 9 advisory queries across 4 registered projects.
+684 tests in suite, 0 failures. Current green baseline: 681 non-eval passed (1 deselected); eval: 1 passed + 1 skipped advisory polyglot check. Eval harness: 32 synthetic queries; multi-project eval currently covers 9 advisory queries across 4 registered projects.
 
 For advisory real-project eval setup and report commands, see [docs/eval/real-project-eval.md](docs/eval/real-project-eval.md).
 
@@ -192,6 +192,32 @@ cd LV_DCP
 uv sync --all-extras
 make lint typecheck test  # verify toolchain
 ```
+
+### Global `ctx` CLI (optional)
+
+To run `ctx` from any directory without `uv run`:
+
+```bash
+mkdir -p ~/bin
+ln -sf "$(pwd)/.venv/bin/ctx" ~/bin/ctx
+# ensure ~/bin is on PATH (add to ~/.zshrc or ~/.bashrc if missing):
+#   export PATH="$HOME/bin:$PATH"
+```
+
+Then from any project directory:
+
+```bash
+cd /path/to/your-project
+ctx scan .                 # incremental index
+ctx scan --full .          # full re-parse
+ctx pack . "your question"
+ctx inspect .              # index stats
+ctx wiki update .          # refresh dirty wiki articles
+```
+
+Do **not** put `uv run` in front of a wrapper-installed `ctx` — the venv already
+knows its interpreter, and `uv run` inside another project's directory will try
+to resolve a non-existent local environment and recurse.
 
 ### Project onboarding
 
@@ -348,7 +374,7 @@ make test          # pytest, excluding eval and llm markers
 make eval          # retrieval evaluation harness
 ```
 
-Current: 677 tests (674 non-eval + 1 eval + 1 advisory skipped), eval harness with 32 synthetic queries, plus 9 advisory multi-project queries. Phase 6 feature baseline tagged `phase-6-complete`.
+Current: 684 tests (681 non-eval + 1 eval + 1 advisory skipped), eval harness with 32 synthetic queries, plus 9 advisory multi-project queries. Phase 6 feature baseline tagged `phase-6-complete`.
 
 ### Running the daemon
 
@@ -368,9 +394,9 @@ The daemon uses `watchdog.observers.Observer` which auto-selects `FSEventsObserv
 - **Phase 4** (done, v0.4.0) — pymorphy3 Russian stemmer, git intelligence (churn/blame), static impact analysis + hotspot widget, adaptive graph clustering, UI project management, diff-aware edit packs.
 - **Phase 5** (done, v0.5.0) — Hook enforcement (PreToolUse/PostToolUse), dual-language retrieval (80+ ru↔en terms), 5 new relation types (tests_for, inherits, specifies), value metrics dashboard, scan coverage widget, 457 tests (0 failures).
 - **Phase 6** (done, v0.6.0) — Cross-language parsers (TypeScript/JS, Go, Rust via tree-sitter), Qdrant vector store with hybrid retrieval (RRF fusion), Obsidian vault sync, VS Code extension MVP, cross-project pattern detection, wiki knowledge module (LLM-synthesized articles, lint, architecture page).
-- **Stabilization 0.6.1** (done) — GitHub Actions quality gates, repository-wide green `ruff` / `mypy`, warning-free embeddings and Qdrant runtime, 677 tests.
+- **Stabilization 0.6.1** (done) — GitHub Actions quality gates, repository-wide green `ruff` / `mypy`, warning-free embeddings and Qdrant runtime, 684 tests.
 - **Phase 7a** (done) — Identifier-aware path retrieval (path aliases in FTS index, camelCase/snake_case tokenization), wiki post-scan hook with ThreadPoolExecutor, Cyrillic tokenization in pack enrichment, real-project eval harness, precision@3 improved 0.568→0.693.
-- **Phase 7b** (done) — TypeScript/JavaScript graph enrichment: `tests_for` relations ported from Python parser with TS-specific module resolution (`./`, `../`, `@/` alias, rooted paths), test-path heuristic extended for `.test.ts` / `.spec.tsx` / `__tests__/` conventions. Graph-expansion filter tightened to reject unresolved import specifiers and npm package subpaths (`./flow-engine`, `@/lib/foo`, `next-auth/jwt`). Verified on ruscoffee (926 TS files, 82 `tests_for` edges materialized).
+- **Phase 7b** (done) — TypeScript/JavaScript graph enrichment: `tests_for` and `inherits` relations ported from Python parser. TS module resolution supports `./`, `../`, `@/` alias, FSD-style `@shared/` / `@entities/` / `@widgets/` / `@features/` / `@app/` / `@pages/` / `@processes/` aliases, rooted paths, and DDD-style roots (`domains`, `services`, `backend`, `frontend`). Test-path heuristic extended for `.test.ts` / `.spec.tsx` / `__tests__/` conventions. Graph-expansion filter tightened to reject unresolved import specifiers and npm package subpaths (`./flow-engine`, `@/lib/foo`, `next-auth/jwt`, `@playwright/test`). Verified on three real projects: ruscoffee (82 tests_for, 29 inherits), X5_BM (440 tests_for, 26 inherits), LV_Presentation (131 tests_for via DDD heuristic).
 - **Phase 7** (next) — Java/Kotlin/Swift parsers, Obsidian debounced/nightly sync, VS Code marketplace, LLM-based rerank, vector retrieval eval tuning.
 
 ## Contributing
