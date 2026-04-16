@@ -22,7 +22,7 @@ from pathlib import Path
 from threading import Event
 
 from libs.core.paths import is_ignored, normalize_path
-from libs.core.projects_config import WikiConfig, load_config
+from libs.core.projects_config import ObsidianConfig, WikiConfig, load_config
 from libs.project_index.index import ProjectIndex
 from libs.scan_history.store import (
     ScanEvent,
@@ -36,6 +36,7 @@ from watchdog.observers import Observer
 
 from apps.agent.config import list_projects, update_last_scan
 from apps.agent.handler import DebounceBuffer
+from apps.agent.obsidian_worker import run_obsidian_sync
 from apps.agent.wiki_worker import run_wiki_update
 
 DEFAULT_CONFIG_PATH = Path.home() / ".lvdcp" / "config.yaml"
@@ -72,13 +73,15 @@ class DaemonEventHandler(PatternMatchingEventHandler):
         self._buffer.add(self._project_root, rel, event.event_type)
 
 
-def process_pending_events(
+def process_pending_events(  # noqa: PLR0913
     buffer: DebounceBuffer,
     logger: typing.Callable[[str], None] = lambda msg: None,
     *,
     config_path: Path | None = None,
     wiki_pool: ThreadPoolExecutor | None = None,
     wiki_config: WikiConfig | None = None,
+    obsidian_pool: ThreadPoolExecutor | None = None,
+    obsidian_config: ObsidianConfig | None = None,
 ) -> dict[Path, int]:
     """Flush buffer and process each project.
 
@@ -118,6 +121,10 @@ def process_pending_events(
                         f"[wiki] {project_root.name}: "
                         f"{result.wiki_dirty_count} dirty modules, update queued"
                     )
+
+                # Post-scan Obsidian sync hook — debounced inside the worker
+                if obsidian_pool is not None and obsidian_config is not None:
+                    obsidian_pool.submit(run_obsidian_sync, project_root, obsidian_config)
             else:
                 results[project_root] = 0
         except Exception as exc:
@@ -165,6 +172,7 @@ def run_daemon(
 
     cfg = load_config(config_path)
     wiki_pool = ThreadPoolExecutor(max_workers=cfg.wiki.max_workers)
+    obsidian_pool = ThreadPoolExecutor(max_workers=1)
 
     def handle_signal(signum: int, frame: object) -> None:
         stop_event.set()
@@ -196,11 +204,14 @@ def run_daemon(
                 config_path=config_path,
                 wiki_pool=wiki_pool if cfg.wiki.auto_update_after_scan else None,
                 wiki_config=cfg.wiki if cfg.wiki.auto_update_after_scan else None,
+                obsidian_pool=obsidian_pool if cfg.obsidian.auto_sync_after_scan else None,
+                obsidian_config=cfg.obsidian if cfg.obsidian.auto_sync_after_scan else None,
             )
     finally:
         observer.stop()
         observer.join()
         wiki_pool.shutdown(wait=False)
+        obsidian_pool.shutdown(wait=False)
 
 
 if __name__ == "__main__":

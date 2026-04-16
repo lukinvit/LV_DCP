@@ -72,6 +72,8 @@ class ObsidianConfig(BaseModel):
     enabled: bool = False
     vault_path: str = ""
     sync_mode: str = "manual"
+    auto_sync_after_scan: bool = False
+    debounce_seconds: int = Field(default=3600, gt=0)  # min interval between auto-syncs
 
 
 class WikiConfig(BaseModel):
