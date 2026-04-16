@@ -92,14 +92,21 @@ def is_test_path(relative_posix: str) -> bool:
     if (
         "/tests/" in p
         or p.startswith("tests/")
-        or p.endswith("_test.py")
         or p.startswith("test_")
+        or "/__tests__/" in p
+        or p.startswith("__tests__/")
     ):
         return True
-    if "/__tests__/" in p or p.startswith("__tests__/"):
+    basename = p.rsplit("/", 1)[-1]
+    if basename.startswith("test_"):
         return True
-    for ext in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"):
-        if p.endswith(".test" + ext) or p.endswith(".spec" + ext):
+    # Suffix conventions: foo_test.go, foo_test.py, foo.test.ts, foo.spec.tsx
+    for ext in (".py", ".go", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".rs"):
+        if (
+            basename.endswith("_test" + ext)
+            or basename.endswith(".test" + ext)
+            or basename.endswith(".spec" + ext)
+        ):
             return True
     return False
 
