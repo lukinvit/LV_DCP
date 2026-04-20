@@ -157,22 +157,61 @@ def _apply_role_weights(
             file_scores[path] = score * weights.get(role, 0.70)
 
 
+def _recency_personalization(
+    git_stats: dict[str, GitFileStats] | None,
+) -> dict[str, float] | None:
+    """Build a PageRank personalization vector from git churn + age.
+
+    Returns ``None`` when git stats are unavailable so the caller falls back
+    to uniform teleport. A file's weight rises with ``churn_30d`` (recent
+    edits signal active code) and falls with age, so structural centrality
+    shifts toward areas the team is currently working in. Weights are
+    additive — a file with no recent commits still gets its uniform share.
+    """
+    if not git_stats:
+        return None
+    weights: dict[str, float] = {}
+    for path, stats in git_stats.items():
+        # churn_30d is commits in the last 30 days; age_days is total file age.
+        # 1 + churn / (1 + age/30) gives a smooth "how hot is this file" score
+        # that is 1.0 for files with zero churn and grows with active edits.
+        recency = stats.churn_30d / (1.0 + stats.age_days / 30.0)
+        if recency > 0:
+            weights[path] = 1.0 + recency
+    return weights or None
+
+
 def _apply_centrality_boost(
     file_scores: dict[str, float],
     graph: Graph,
+    git_stats: dict[str, GitFileStats] | None = None,
 ) -> None:
     """Boost already-scored files whose structural centrality is above the median.
 
-    Computes PageRank over the symbol/file relation graph (cached on the graph
-    instance) and multiplies each candidate's score by a factor in
-    [1.0, CENTRALITY_BOOST_MAX] based on its percentile among the candidates.
+    Computes PageRank over the symbol/file relation graph and multiplies each
+    candidate's score by a factor in [1.0, CENTRALITY_BOOST_MAX] based on its
+    percentile among the candidates.
 
-    Only file-path nodes are consulted here; symbol centrality is not rolled up
-    in this first pass to keep the boost conservative.
+    When *git_stats* is provided, the PageRank teleport vector is biased toward
+    recently-churned files. This makes centrality a *recency-aware* signal: a
+    file that is both widely referenced AND actively edited rises further than
+    either a stale hub or a fresh-but-isolated file. Mirrors ByteRover's
+    "Adaptive Knowledge Lifecycle" recency decay without needing a separate
+    storage layer. When *git_stats* is None or yields no weights, behavior
+    collapses to the uniform-teleport centrality from G1.
     """
     if not file_scores:
         return
-    centrality = graph.pagerank()
+
+    personalization = _recency_personalization(git_stats)
+    if personalization is None:
+        centrality = graph.pagerank()
+    else:
+        # Fresh personalized pagerank — don't pollute the uniform cache.
+        from libs.graph.centrality import pagerank  # noqa: PLC0415
+
+        centrality = pagerank(graph, personalization=personalization)
+
     if not centrality:
         return
 
@@ -300,12 +339,14 @@ class RetrievalPipeline:
 
         # Structural centrality boost (PageRank over the relation graph).
         # Applied after role weights so the boost scales the already-prioritized
-        # score, and before git boost so structural signal compounds with churn.
-        if self._graph is not None:
-            _apply_centrality_boost(file_scores, self._graph)
-
-        # Git intelligence boost
+        # score. The git stats are also fed in so centrality leans toward
+        # recently-churned hubs; `_apply_git_boost` below still applies its
+        # own per-file churn multiplier separately.
         git_stats = self._get_git_stats()
+        if self._graph is not None:
+            _apply_centrality_boost(file_scores, self._graph, git_stats)
+
+        # Git intelligence boost (per-file churn / new-file lifts).
         if git_stats:
             _apply_git_boost(file_scores, git_stats)
 

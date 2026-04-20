@@ -85,6 +85,22 @@ class CrossProjectPatternsResult(BaseModel):
     structural_patterns: list[CrossProjectPattern]
 
 
+class HistoryCommitModel(BaseModel):
+    sha: str
+    author: str
+    date_iso: str
+    subject: str
+    files: list[str]
+
+
+class HistoryResult(BaseModel):
+    project: str
+    since_days: int
+    filter_path: str | None
+    commits: list[HistoryCommitModel]
+    truncated: bool = Field(description="True when *limit* was reached — there may be more commits")
+
+
 class NeighborsResult(BaseModel):
     node: str = Field(description="The node that was queried")
     resolved_kind: Literal["file", "symbol", "unknown"] = Field(
@@ -456,4 +472,56 @@ def lvdcp_cross_project_patterns(min_projects: int = 2) -> CrossProjectPatternsR
             )
             for p in result.structural_patterns
         ],
+    )
+
+
+def lvdcp_history(
+    path: str,
+    since_days: int = 7,
+    filter_path: str | None = None,
+    limit: int = 20,
+) -> HistoryResult:
+    """Return recent git commits for a project, optionally filtered to a path.
+
+    CALL THIS WHEN:
+    - You want "what changed in this file / this module last week"
+    - You need to ground an edit decision in recent history
+      ("has this function been touched recently, by whom")
+    - You want a dated trail of subject lines — cheap alternative to reading diffs
+
+    DO NOT CALL FOR:
+    - Full diff content (use `git show <sha>` outside LV_DCP)
+    - Very old history (this is tuned for recent context, max 20 commits by
+      default; pass *limit* if you need more, but prefer lvdcp_pack for
+      historical architecture questions)
+
+    Reads via a single `git log` subprocess — no write side-effects. Returns
+    empty commit list and truncated=False for non-git directories so the
+    caller can differentiate "no activity" from "not a repo".
+    """
+    from libs.gitintel.history import read_recent_history  # noqa: PLC0415
+
+    root = Path(path).resolve()
+    commits = read_recent_history(
+        root,
+        since_days=since_days,
+        filter_path=filter_path,
+        limit=limit,
+    )
+
+    return HistoryResult(
+        project=root.name,
+        since_days=since_days,
+        filter_path=filter_path,
+        commits=[
+            HistoryCommitModel(
+                sha=c.sha,
+                author=c.author,
+                date_iso=c.date_iso,
+                subject=c.subject,
+                files=list(c.files),
+            )
+            for c in commits
+        ],
+        truncated=len(commits) >= limit,
     )

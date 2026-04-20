@@ -106,3 +106,20 @@ def test_lvdcp_neighbors_respects_limit(graph_project: Path) -> None:
     result = lvdcp_neighbors(path=str(graph_project), node="pkg/hub.py", limit=0)
     assert result.outgoing == []
     assert result.incoming == []
+
+
+def test_lvdcp_history_on_non_git_dir_returns_empty(tmp_path: Path) -> None:
+    from apps.mcp.tools import lvdcp_history
+
+    result = lvdcp_history(path=str(tmp_path))
+    assert result.commits == []
+    assert result.truncated is False
+    assert result.since_days == 7
+
+
+def test_lvdcp_history_reports_filter_and_since(tmp_path: Path) -> None:
+    from apps.mcp.tools import lvdcp_history
+
+    result = lvdcp_history(path=str(tmp_path), since_days=30, filter_path="src/")
+    assert result.since_days == 30
+    assert result.filter_path == "src/"

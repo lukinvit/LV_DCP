@@ -11,6 +11,9 @@ from apps.mcp.tools import (
     lvdcp_explain as _lvdcp_explain,
 )
 from apps.mcp.tools import (
+    lvdcp_history as _lvdcp_history,
+)
+from apps.mcp.tools import (
     lvdcp_inspect as _lvdcp_inspect,
 )
 from apps.mcp.tools import (
@@ -47,6 +50,7 @@ mcp.tool()(_lvdcp_explain)
 mcp.tool()(_lvdcp_status)
 mcp.tool()(_lvdcp_neighbors)
 mcp.tool()(_lvdcp_cross_project_patterns)
+mcp.tool()(_lvdcp_history)
 
 
 def run_stdio() -> None:
