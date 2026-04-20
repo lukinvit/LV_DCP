@@ -64,6 +64,25 @@ class ExplainResult(BaseModel):
     final_ranking: list[dict[str, object]]
 
 
+class NeighborsResult(BaseModel):
+    node: str = Field(description="The node that was queried")
+    resolved_kind: Literal["file", "symbol", "unknown"] = Field(
+        description=(
+            "Whether the node exists in the graph and, if so, whether it was "
+            "recognized as a file path, a symbol fq_name, or neither."
+        )
+    )
+    outgoing: list[str] = Field(
+        description="Nodes this one references (imports, calls, inherits, tests_for, defines)"
+    )
+    incoming: list[str] = Field(description="Nodes that reference this one — the impact radius")
+    centrality: float | None = Field(
+        default=None,
+        description="PageRank score in [0, 1] if the graph is non-empty",
+    )
+    truncated: bool = Field(description="True if neighbor lists were cut to the requested limit")
+
+
 def lvdcp_scan(path: str, full: bool = False) -> ScanResultResponse:
     """Scan a Python project and refresh its index.
 
@@ -309,4 +328,50 @@ def lvdcp_explain(path: str, trace_id: str) -> ExplainResult:
             final_ranking=[
                 {"path": c.path, "score": c.score, "source": c.source} for c in trace.final_ranking
             ],
+        )
+
+
+def lvdcp_neighbors(path: str, node: str, limit: int = 20) -> NeighborsResult:
+    """Return incoming + outgoing graph neighbors for a file path or symbol fq_name.
+
+    CALL THIS WHEN:
+    - You need "who calls foo" / "what does bar depend on" / "impact radius of X"
+    - You want a targeted follow-up after lvdcp_pack named an interesting symbol
+    - You want the PageRank centrality of a specific node
+
+    Unlike lvdcp_pack, this does no FTS/vector retrieval — it walks the already-
+    built relation graph. Fast (O(degree)) and deterministic. Incoming neighbors
+    are especially useful as the "impact radius" before editing a function.
+
+    - *node* can be a relative file path (e.g. "libs/foo.py") or a symbol fq_name
+      (e.g. "libs.foo.Bar.method"). The result's `resolved_kind` reports which.
+    - *limit* caps each of outgoing/incoming at N entries.
+    """
+    root = Path(path).resolve()
+    try:
+        idx = ProjectIndex.open(root)
+    except ProjectNotIndexedError as exc:
+        raise ValueError(f"not_indexed: {exc}. Call lvdcp_scan(path={path!r}) first.") from exc
+
+    with idx:
+        present = idx.graph_has_node(node)
+        out, inc = idx.graph_neighbors(node)
+        centrality = idx.graph_centrality(node) if present else None
+
+        resolved: Literal["file", "symbol", "unknown"]
+        if not present:
+            resolved = "unknown"
+        elif "/" in node or node.endswith((".py", ".ts", ".tsx", ".js", ".go", ".rs")):
+            resolved = "file"
+        else:
+            resolved = "symbol"
+
+        truncated = len(out) > limit or len(inc) > limit
+        return NeighborsResult(
+            node=node,
+            resolved_kind=resolved,
+            outgoing=out[:limit],
+            incoming=inc[:limit],
+            centrality=centrality,
+            truncated=truncated,
         )

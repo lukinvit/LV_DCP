@@ -1,7 +1,7 @@
 import asyncio
 
 
-def test_server_exposes_all_four_tools() -> None:
+def test_server_exposes_all_registered_tools() -> None:
     from apps.mcp.server import mcp
 
     tools = asyncio.run(mcp.list_tools())
@@ -12,6 +12,7 @@ def test_server_exposes_all_four_tools() -> None:
         "lvdcp_inspect",
         "lvdcp_explain",
         "lvdcp_status",
+        "lvdcp_neighbors",
     }
 
 
