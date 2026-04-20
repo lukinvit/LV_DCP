@@ -1,4 +1,5 @@
 """Bidirectional tech term dictionary for ru↔en query expansion."""
+
 from __future__ import annotations
 
 import re

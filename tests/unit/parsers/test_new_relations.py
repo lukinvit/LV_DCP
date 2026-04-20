@@ -59,8 +59,7 @@ def test_inherits_dotted_base() -> None:
 
 def test_tests_for_from_imports() -> None:
     code = (
-        b"from libs.retrieval.pipeline import RetrievalPipeline\n\n"
-        b"def test_pipeline():\n    pass\n"
+        b"from libs.retrieval.pipeline import RetrievalPipeline\n\ndef test_pipeline():\n    pass\n"
     )
     result = parser.parse(file_path="tests/test_pipeline.py", data=code)
     tests_for = [r for r in result.relations if r.relation_type == RelationType.TESTS_FOR]

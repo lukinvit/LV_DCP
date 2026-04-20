@@ -17,7 +17,7 @@ help:
 	@echo "  clean        - remove caches"
 
 install:
-	uv sync
+	uv sync --extra dev
 
 lint:
 	uv run ruff check .

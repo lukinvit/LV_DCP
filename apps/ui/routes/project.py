@@ -89,7 +89,9 @@ def obsidian_sync(slug: str) -> HTMLResponse:
     cache = SqliteCache(cache_path)
     try:
         cache.migrate()
-        files: list[ObsidianFileInfo] = [{"path": f.path, "language": f.language} for f in cache.iter_files()]
+        files: list[ObsidianFileInfo] = [
+            {"path": f.path, "language": f.language} for f in cache.iter_files()
+        ]
         symbols: list[ObsidianSymbolInfo] = [
             {"name": s.name, "file_path": s.file_path, "symbol_type": s.symbol_type}
             for s in cache.iter_symbols()

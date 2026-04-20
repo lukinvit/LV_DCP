@@ -128,9 +128,7 @@ def build_workspace_status() -> WorkspaceStatus:
     )
 
 
-_EXPECT_SYMBOLS_LANGUAGES = frozenset(
-    {"python", "typescript", "javascript", "go", "rust"}
-)
+_EXPECT_SYMBOLS_LANGUAGES = frozenset({"python", "typescript", "javascript", "go", "rust"})
 
 
 def _file_expects_symbols(f_path: str, f_language: str, f_size: int) -> bool:
@@ -166,9 +164,7 @@ def _build_scan_coverage(root: Path) -> dict[str, object] | None:
         return None
 
     files_with_symbols = {s.file_path for s in symbols}
-    parseable = [
-        f for f in files if _file_expects_symbols(f.path, f.language, f.size_bytes)
-    ]
+    parseable = [f for f in files if _file_expects_symbols(f.path, f.language, f.size_bytes)]
     parseable_with_symbols = len([f for f in parseable if f.path in files_with_symbols])
 
     languages: dict[str, int] = {}
@@ -179,9 +175,7 @@ def _build_scan_coverage(root: Path) -> dict[str, object] | None:
         rt = r.relation_type.value if hasattr(r.relation_type, "value") else str(r.relation_type)
         relation_types[rt] = relation_types.get(rt, 0) + 1
 
-    coverage_pct = (
-        parseable_with_symbols / len(parseable) * 100 if parseable else 100.0
-    )
+    coverage_pct = parseable_with_symbols / len(parseable) * 100 if parseable else 100.0
 
     return {
         "files_total": len(files),
@@ -467,7 +461,7 @@ def _resolve_import_to_file(  # noqa: PLR0911, PLR0912
     if tsconfig_paths and not module_ref.startswith("."):
         for alias_prefix, fs_prefix in tsconfig_paths.items():
             if module_ref.startswith(alias_prefix):
-                remainder = module_ref[len(alias_prefix):]
+                remainder = module_ref[len(alias_prefix) :]
                 resolved = fs_prefix + remainder
                 result = _try_resolve_with_extensions(resolved, known_paths)
                 if result:

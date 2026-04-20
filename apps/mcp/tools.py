@@ -132,9 +132,14 @@ def lvdcp_pack(
 
             cfg = load_config(Path.home() / ".lvdcp" / "config.yaml")
             if cfg.qdrant.enabled:
-                v_scores = asyncio.run(
-                    vector_search(config=cfg, query=query, project_id=root.name, limit=limit * 2)
-                ) or None
+                v_scores = (
+                    asyncio.run(
+                        vector_search(
+                            config=cfg, query=query, project_id=root.name, limit=limit * 2
+                        )
+                    )
+                    or None
+                )
         except Exception:
             log.warning(
                 "vector search unavailable during pack build for %s",

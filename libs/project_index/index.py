@@ -95,7 +95,10 @@ class ProjectIndex:
         vector_scores: dict[str, float] | None = None,
     ) -> RetrievalResult:
         return self._pipeline.retrieve(
-            query, mode=mode, limit=limit, vector_scores=vector_scores,
+            query,
+            mode=mode,
+            limit=limit,
+            vector_scores=vector_scores,
         )
 
     def file_count(self) -> int:

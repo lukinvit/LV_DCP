@@ -6,6 +6,7 @@ Loaded lazily during scan when qdrant.enabled=true. Handles:
 3. Embed changed files (summaries + symbols)
 4. Search for retrieval pipeline
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -82,13 +83,15 @@ async def _embed_and_upsert(
 
     items: list[SummaryVectorItem] = []
     for fd, vec in zip(files_data, all_vectors, strict=True):
-        items.append({
-            "vector": vec,
-            "file_path": fd["file_path"],
-            "content_hash": fd.get("content_hash", ""),
-            "language": fd.get("language", ""),
-            "entity_type": fd.get("entity_type", "file"),
-        })
+        items.append(
+            {
+                "vector": vec,
+                "file_path": fd["file_path"],
+                "content_hash": fd.get("content_hash", ""),
+                "language": fd.get("language", ""),
+                "entity_type": fd.get("entity_type", "file"),
+            }
+        )
 
     # Batch upsert (max 100 points at a time to avoid Qdrant timeouts)
     upsert_batch = 100
@@ -123,13 +126,15 @@ def embed_project_files(
         content = f.get("content", "")
         # Truncate to ~2000 chars for embedding (covers most functions/classes)
         text = content[:2000] if content else f["file_path"]
-        files_data.append({
-            "file_path": f["file_path"],
-            "text": text,
-            "content_hash": f.get("content_hash", ""),
-            "language": f.get("language", ""),
-            "entity_type": "file",
-        })
+        files_data.append(
+            {
+                "file_path": f["file_path"],
+                "text": text,
+                "content_hash": f.get("content_hash", ""),
+                "language": f.get("language", ""),
+                "entity_type": "file",
+            }
+        )
 
     try:
         try:
@@ -168,7 +173,10 @@ async def _do_embed(
 ) -> int:
     await store.ensure_collections(dimension=adapter.dimension)
     count = await _embed_and_upsert(
-        adapter=adapter, store=store, project_id=project_id, files_data=files_data,
+        adapter=adapter,
+        store=store,
+        project_id=project_id,
+        files_data=files_data,
     )
     await store.close()
     return count
@@ -195,7 +203,9 @@ async def vector_search(
         await store.ensure_collections(dimension=adapter.dimension)
         query_vec = (await adapter.embed_batch([query]))[0]
         results = await store.search_summaries(
-            vector=query_vec, project_id=project_id, limit=limit,
+            vector=query_vec,
+            project_id=project_id,
+            limit=limit,
         )
         await store.close()
         typed_results: list[SummarySearchHit] = results

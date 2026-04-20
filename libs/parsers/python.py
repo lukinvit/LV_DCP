@@ -79,9 +79,7 @@ class PythonParser:
     )
 
     @classmethod
-    def _infer_tests_for(
-        cls, file_path: str, relations: list[Relation]
-    ) -> list[Relation]:
+    def _infer_tests_for(cls, file_path: str, relations: list[Relation]) -> list[Relation]:
         """If *file_path* is a test file, promote its imports to tests_for relations."""
         if not is_test_path(file_path):
             return []
