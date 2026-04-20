@@ -13,6 +13,7 @@ def test_server_exposes_all_registered_tools() -> None:
         "lvdcp_explain",
         "lvdcp_status",
         "lvdcp_neighbors",
+        "lvdcp_cross_project_patterns",
     }
 
 

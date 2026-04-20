@@ -300,14 +300,27 @@ class RetrievalPipeline:
         if git_stats:
             _apply_git_boost(file_scores, git_stats)
 
-        # Vector retrieval fusion (Phase 6)
+        # Vector retrieval fusion (Phase 6 + adaptive weighting).
+        # The weight is derived from corpus size and top vector confidence —
+        # see compute_vector_fusion_weight. When the weight is zero, vector
+        # scores are ignored entirely and file_scores is unchanged.
         if vector_scores:
-            fused = rrf_fuse([file_scores, vector_scores])
-            # RRF produces small values; scale back to original range
-            max_original = max(file_scores.values()) if file_scores else 1.0
-            max_fused = max(fused.values()) if fused else 1.0
-            scale = max_original / max_fused if max_fused > 0 else 1.0
-            file_scores = {k: v * scale for k, v in fused.items()}
+            corpus_size = len(self._get_file_roles())
+            top_vector = max(vector_scores.values())
+            vector_weight = compute_vector_fusion_weight(
+                corpus_size=corpus_size,
+                top_vector_score=top_vector,
+            )
+            if vector_weight > 0.0:
+                fused = rrf_fuse(
+                    [file_scores, vector_scores],
+                    weights=[1.0, vector_weight],
+                )
+                # RRF produces small values; scale back to original range.
+                max_original = max(file_scores.values()) if file_scores else 1.0
+                max_fused = max(fused.values()) if fused else 1.0
+                scale = max_original / max_fused if max_fused > 0 else 1.0
+                file_scores = {k: v * scale for k, v in fused.items()}
 
         # Stage 4: score decay cutoff + final rank
         ordered, dropped = _apply_score_decay(file_scores)
@@ -466,15 +479,74 @@ def _apply_score_decay(
 def rrf_fuse(
     rankings: list[dict[str, float]],
     k: int = 60,
+    weights: list[float] | None = None,
 ) -> dict[str, float]:
     """Reciprocal Rank Fusion across multiple score dictionaries.
 
     Each ranking is a dict of {file_path: score}. Results are fused by
-    summing 1/(k + rank + 1) for each ranking. Higher k smooths differences.
+    summing weight / (k + rank + 1) for each ranking. Higher k smooths
+    differences. When *weights* is omitted every ranking contributes
+    equally (weight = 1.0), preserving the original behavior.
+
+    A zero weight disables the ranking entirely — useful for
+    dataset-adaptive vector fusion, where we only want vector results
+    to contribute when their signal-to-noise ratio is good.
     """
+    if weights is not None and len(weights) != len(rankings):
+        raise ValueError(
+            f"weights length {len(weights)} does not match rankings length {len(rankings)}"
+        )
     fused: dict[str, float] = {}
-    for ranking in rankings:
+    for idx, ranking in enumerate(rankings):
+        weight = weights[idx] if weights is not None else 1.0
+        if weight == 0.0:
+            continue
         sorted_items = sorted(ranking.items(), key=lambda x: -x[1])
         for rank, (key, _) in enumerate(sorted_items):
-            fused[key] = fused.get(key, 0.0) + 1.0 / (k + rank + 1)
+            fused[key] = fused.get(key, 0.0) + weight / (k + rank + 1)
     return fused
+
+
+# Vector retrieval fusion — adaptive weighting. Vector embeddings dilute
+# precision on small corpora (see docs/eval/2026-04-16-vector-vs-fts-*.md)
+# and when the top cosine similarity is weak. Rather than fuse blindly with
+# equal weight, scale the contribution by (a) corpus size and (b) the
+# confidence of the top vector hit.
+VECTOR_MIN_CORPUS_SIZE = 100  # below this, vector contribution is zero
+VECTOR_FULL_CORPUS_SIZE = 500  # above this, vector gets full weight
+VECTOR_MIN_TOP_SCORE = 0.45  # below this top cosine, vector is ignored
+VECTOR_FULL_TOP_SCORE = 0.70  # at-or-above this, full weight
+
+
+def compute_vector_fusion_weight(
+    *,
+    corpus_size: int,
+    top_vector_score: float,
+) -> float:
+    """Return the RRF weight to apply to the vector ranking, in [0.0, 1.0].
+
+    Zero when the corpus is too small to provide meaningful semantic
+    neighborhoods or when the top vector hit has weak similarity.
+    Ramps linearly between the two thresholds for both signals; the
+    overall weight is the product, so either axis can veto the fusion.
+    """
+    if top_vector_score <= VECTOR_MIN_TOP_SCORE:
+        return 0.0
+    if corpus_size <= VECTOR_MIN_CORPUS_SIZE:
+        return 0.0
+
+    if top_vector_score >= VECTOR_FULL_TOP_SCORE:
+        score_weight = 1.0
+    else:
+        score_weight = (top_vector_score - VECTOR_MIN_TOP_SCORE) / (
+            VECTOR_FULL_TOP_SCORE - VECTOR_MIN_TOP_SCORE
+        )
+
+    if corpus_size >= VECTOR_FULL_CORPUS_SIZE:
+        size_weight = 1.0
+    else:
+        size_weight = (corpus_size - VECTOR_MIN_CORPUS_SIZE) / (
+            VECTOR_FULL_CORPUS_SIZE - VECTOR_MIN_CORPUS_SIZE
+        )
+
+    return score_weight * size_weight
