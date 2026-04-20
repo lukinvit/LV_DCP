@@ -95,7 +95,10 @@ class ProjectIndex:
         vector_scores: dict[str, float] | None = None,
     ) -> RetrievalResult:
         return self._pipeline.retrieve(
-            query, mode=mode, limit=limit, vector_scores=vector_scores,
+            query,
+            mode=mode,
+            limit=limit,
+            vector_scores=vector_scores,
         )
 
     def file_count(self) -> int:
@@ -118,6 +121,24 @@ class ProjectIndex:
 
     def iter_relations(self) -> Iterator[Relation]:
         return self._cache.iter_relations()
+
+    def graph_neighbors(self, node: str) -> tuple[list[str], list[str]]:
+        """Return (outgoing, incoming) neighbors of *node* in the relation graph.
+
+        Outgoing = what this node references. Incoming = what references it
+        (the impact radius). Both lists are sorted for determinism.
+        """
+        out = sorted(self._graph.neighbors(node))
+        inc = sorted(self._graph.reverse_neighbors(node))
+        return out, inc
+
+    def graph_centrality(self, node: str) -> float | None:
+        """Return the PageRank score of *node*, or None if absent."""
+        scores = self._graph.pagerank()
+        return scores.get(node)
+
+    def graph_has_node(self, node: str) -> bool:
+        return self._graph.has_node(node)
 
     def save_trace(self, trace: RetrievalTrace) -> None:
         save_trace(self._cache, trace)

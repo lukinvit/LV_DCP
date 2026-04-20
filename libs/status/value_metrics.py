@@ -107,9 +107,7 @@ def collect_value_metrics(config_path: Path) -> ValueMetrics:  # noqa: PLR0912, 
                     parseable_with_syms_query,
                     (*_SRC_LANGS, "%/__init__.py"),
                 ).fetchone()[0]
-                pc.coverage_pct = (
-                    parseable_with_syms / parseable * 100 if parseable else 100.0
-                )
+                pc.coverage_pct = parseable_with_syms / parseable * 100 if parseable else 100.0
                 m.total_files_in_projects += pc.files_total
 
                 # Language breakdown

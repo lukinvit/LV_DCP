@@ -268,9 +268,7 @@ class TreeSitterParser(ABC):
                     fq_name = f"{parent_fq}.{name}"
 
                     actual_type = sym_type
-                    if sym_type == SymbolType.FUNCTION and self._is_class_scope(
-                        parent_fq, symbols
-                    ):
+                    if sym_type == SymbolType.FUNCTION and self._is_class_scope(parent_fq, symbols):
                         actual_type = SymbolType.METHOD
 
                     docstring = self._extract_docstring(cur)

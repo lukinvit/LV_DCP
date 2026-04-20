@@ -88,9 +88,7 @@ def test_run_real_project_eval_records_skip_reason_for_unregistered_project(tmp_
         report = run_real_project_eval(fixture_path, project_map=project_map)
 
     assert report.results == []
-    assert report.skipped_projects == {
-        "GenericProject": "not registered as 'GenericProject'"
-    }
+    assert report.skipped_projects == {"GenericProject": "not registered as 'GenericProject'"}
 
 
 def test_run_real_project_eval_uses_project_map_and_computes_recall(tmp_path: Path) -> None:

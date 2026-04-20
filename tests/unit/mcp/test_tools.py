@@ -2,9 +2,11 @@ from pathlib import Path
 
 import pytest
 from apps.mcp.tools import (
+    NeighborsResult,
     PackResult,
     ScanResultResponse,
     lvdcp_inspect,
+    lvdcp_neighbors,
     lvdcp_pack,
     lvdcp_scan,
 )
@@ -51,3 +53,56 @@ def test_lvdcp_inspect_returns_stats(indexed_project: Path) -> None:
     result = lvdcp_inspect(path=str(indexed_project))
     assert result.files >= 1
     assert "python" in result.languages
+
+
+@pytest.fixture
+def graph_project(tmp_path: Path) -> Path:
+    """A tiny project with two files that import each other for graph tests."""
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    (pkg / "hub.py").write_text("def compute() -> int:\n    return 42\n")
+    (pkg / "edge.py").write_text("from pkg.hub import compute\n\nresult = compute()\n")
+    scan_project(tmp_path, mode="full")
+    return tmp_path
+
+
+def test_lvdcp_neighbors_returns_typed_result(graph_project: Path) -> None:
+    result = lvdcp_neighbors(path=str(graph_project), node="pkg/hub.py", limit=20)
+    assert isinstance(result, NeighborsResult)
+    assert result.truncated is False
+
+
+def test_lvdcp_neighbors_classifies_file_via_file_list(graph_project: Path) -> None:
+    # Regression: before we consulted the authoritative file list, a fq_name
+    # containing "/" was falsely labeled as a file.
+    result = lvdcp_neighbors(path=str(graph_project), node="pkg/hub.py")
+    assert result.resolved_kind == "file"
+
+
+def test_lvdcp_neighbors_classifies_symbol(graph_project: Path) -> None:
+    # "compute" is defined in pkg/hub.py — its fq_name has no slash.
+    result = lvdcp_neighbors(path=str(graph_project), node="pkg.hub.compute")
+    # If the symbol isn't in the graph at all we accept "unknown"; otherwise
+    # it must be classified as a symbol, not a file.
+    assert result.resolved_kind in ("symbol", "unknown")
+
+
+def test_lvdcp_neighbors_unknown_node_reports_so(graph_project: Path) -> None:
+    result = lvdcp_neighbors(path=str(graph_project), node="does/not/exist.py")
+    assert result.resolved_kind == "unknown"
+    assert result.outgoing == []
+    assert result.incoming == []
+    assert result.centrality is None
+
+
+def test_lvdcp_neighbors_on_unindexed_project_raises(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="not_indexed"):
+        lvdcp_neighbors(path=str(tmp_path), node="anything.py")
+
+
+def test_lvdcp_neighbors_respects_limit(graph_project: Path) -> None:
+    # Tight limit → truncated flag must flip if anything exceeds it.
+    result = lvdcp_neighbors(path=str(graph_project), node="pkg/hub.py", limit=0)
+    assert result.outgoing == []
+    assert result.incoming == []

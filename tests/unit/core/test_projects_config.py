@@ -21,6 +21,7 @@ def test_wiki_config_from_dict() -> None:
 
 def test_daemon_config_wiki_dirty_threshold_propagates() -> None:
     from libs.core.projects_config import DaemonConfig
+
     cfg = DaemonConfig.model_validate({"wiki": {"dirty_threshold": 7, "max_workers": 2}})
     assert cfg.wiki.dirty_threshold == 7
     assert cfg.wiki.max_workers == 2

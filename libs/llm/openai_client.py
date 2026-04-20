@@ -120,7 +120,7 @@ class OpenAIClient:
 
         # Build prompt: ask LLM to score each candidate 0.0-1.0
         candidate_lines = "\n".join(
-            f"{i+1}. [{c.id}] {c.summary[:200]}" for i, c in enumerate(candidates)
+            f"{i + 1}. [{c.id}] {c.summary[:200]}" for i, c in enumerate(candidates)
         )
         messages = [
             {
@@ -141,7 +141,9 @@ class OpenAIClient:
 
         try:
             response = await _complete_with_retries(
-                self._client, model=model, messages=messages,
+                self._client,
+                model=model,
+                messages=messages,
             )
             import json  # noqa: PLC0415
 

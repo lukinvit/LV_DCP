@@ -1,4 +1,5 @@
 """Background wiki update task — runs in ThreadPoolExecutor after daemon scan."""
+
 from __future__ import annotations
 
 import logging
@@ -42,29 +43,33 @@ def _gather_module_data(
     ).fetchall()
     mod_symbols = [r[0] for r in sym_rows[:_MAX_SYMBOLS]]
     if len(sym_rows) > _MAX_SYMBOLS:
-        log.debug("wiki_worker: truncated symbols %s → %d/%d", module_path, _MAX_SYMBOLS, len(sym_rows))
+        log.debug(
+            "wiki_worker: truncated symbols %s → %d/%d", module_path, _MAX_SYMBOLS, len(sym_rows)
+        )
 
     dep_rows = conn.execute(
-        "SELECT DISTINCT dst_ref FROM relations "
-        "WHERE src_ref LIKE ? OR src_ref = ?",
+        "SELECT DISTINCT dst_ref FROM relations WHERE src_ref LIKE ? OR src_ref = ?",
         (f"{module_path}/%", module_path),
     ).fetchall()
-    deps = sorted({
-        "/".join(r[0].split("/")[:2]) if "/" in r[0] else r[0]
-        for r in dep_rows
-        if not (r[0].startswith(module_path + "/") or r[0] == module_path)
-    })
+    deps = sorted(
+        {
+            "/".join(r[0].split("/")[:2]) if "/" in r[0] else r[0]
+            for r in dep_rows
+            if not (r[0].startswith(module_path + "/") or r[0] == module_path)
+        }
+    )
 
     dep_on_rows = conn.execute(
-        "SELECT DISTINCT src_ref FROM relations "
-        "WHERE dst_ref LIKE ? OR dst_ref = ?",
+        "SELECT DISTINCT src_ref FROM relations WHERE dst_ref LIKE ? OR dst_ref = ?",
         (f"{module_path}/%", module_path),
     ).fetchall()
-    dependents = sorted({
-        "/".join(r[0].split("/")[:2]) if "/" in r[0] else r[0]
-        for r in dep_on_rows
-        if not (r[0].startswith(module_path + "/") or r[0] == module_path)
-    })
+    dependents = sorted(
+        {
+            "/".join(r[0].split("/")[:2]) if "/" in r[0] else r[0]
+            for r in dep_on_rows
+            if not (r[0].startswith(module_path + "/") or r[0] == module_path)
+        }
+    )
 
     return mod_files, mod_symbols, deps, dependents
 
@@ -82,9 +87,7 @@ def _process_module(ctx: _UpdateContext, mod: dict[str, object]) -> None:
 
     safe_name = module_path.replace("/", "-").replace("\\", "-")
     article_file = ctx.wiki_dir / "modules" / f"{safe_name}.md"
-    existing_article = (
-        article_file.read_text(encoding="utf-8") if article_file.exists() else ""
-    )
+    existing_article = article_file.read_text(encoding="utf-8") if article_file.exists() else ""
 
     article = generate_wiki_article(
         project_root=ctx.project_path,

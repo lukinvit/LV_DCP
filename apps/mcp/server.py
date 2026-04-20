@@ -5,10 +5,16 @@ from __future__ import annotations
 from mcp.server.fastmcp import FastMCP
 
 from apps.mcp.tools import (
+    lvdcp_cross_project_patterns as _lvdcp_cross_project_patterns,
+)
+from apps.mcp.tools import (
     lvdcp_explain as _lvdcp_explain,
 )
 from apps.mcp.tools import (
     lvdcp_inspect as _lvdcp_inspect,
+)
+from apps.mcp.tools import (
+    lvdcp_neighbors as _lvdcp_neighbors,
 )
 from apps.mcp.tools import (
     lvdcp_pack as _lvdcp_pack,
@@ -39,6 +45,8 @@ mcp.tool()(_lvdcp_pack)
 mcp.tool()(_lvdcp_inspect)
 mcp.tool()(_lvdcp_explain)
 mcp.tool()(_lvdcp_status)
+mcp.tool()(_lvdcp_neighbors)
+mcp.tool()(_lvdcp_cross_project_patterns)
 
 
 def run_stdio() -> None:

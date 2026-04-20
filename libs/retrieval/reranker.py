@@ -7,6 +7,7 @@ is ambiguous.
 Called from lvdcp_pack when llm.enabled=true and rerank_model is configured.
 Graceful degradation: if LLM fails, returns original scores.
 """
+
 from __future__ import annotations
 
 import asyncio

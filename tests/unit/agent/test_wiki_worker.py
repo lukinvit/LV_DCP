@@ -1,4 +1,5 @@
 """Tests for apps/agent/wiki_worker.py — background wiki update task."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -61,7 +62,9 @@ def test_runs_for_dirty_modules(project: Path) -> None:
     config = WikiConfig(article_max_tokens=500)
     article_text = "# libs/core\n\n## Purpose\nCore module.\n"
     with (
-        patch("apps.agent.wiki_worker.generate_wiki_article", return_value=article_text) as mock_gen,
+        patch(
+            "apps.agent.wiki_worker.generate_wiki_article", return_value=article_text
+        ) as mock_gen,
         patch("apps.agent.wiki_worker.write_index"),
     ):
         run_wiki_update(project, config)

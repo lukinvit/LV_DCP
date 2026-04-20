@@ -1,4 +1,5 @@
 """Tests for dual-language term dictionary."""
+
 from __future__ import annotations
 
 from libs.retrieval.term_dict import expand_query

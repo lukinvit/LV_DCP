@@ -208,7 +208,9 @@ def run_real_project_eval(
                 project_recalls.append(recall)
 
             if project_recalls:
-                report.per_project_recall[generic_name] = sum(project_recalls) / len(project_recalls)
+                report.per_project_recall[generic_name] = sum(project_recalls) / len(
+                    project_recalls
+                )
 
     recalls = [result.recall_5 for result in report.results]
     report.overall_recall = sum(recalls) / len(recalls) if recalls else 0.0
@@ -219,8 +221,7 @@ def skip_summary(report: RealProjectEvalReport) -> str:
     if not report.skipped_projects:
         return "no skipped projects"
     return "; ".join(
-        f"{project}: {reason}"
-        for project, reason in sorted(report.skipped_projects.items())
+        f"{project}: {reason}" for project, reason in sorted(report.skipped_projects.items())
     )
 
 
@@ -254,12 +255,18 @@ def generate_real_project_report(report: RealProjectEvalReport, *, title: str) -
     lines.extend(["## Per-project results", ""])
     for project in sorted(grouped):
         resolved = report.resolved_projects.get(project, project)
-        heading = f"### {project}" if resolved == project else f"### {project} (registered as `{resolved}`)"
+        heading = (
+            f"### {project}"
+            if resolved == project
+            else f"### {project} (registered as `{resolved}`)"
+        )
         lines.extend([heading, ""])
         lines.append("| id | recall@5 | missed |")
         lines.append("|---|---|---|")
         for result in grouped[project]:
-            missed = [path for path in result.expected_files if path not in result.retrieved_files[:5]]
+            missed = [
+                path for path in result.expected_files if path not in result.retrieved_files[:5]
+            ]
             missed_str = ", ".join(missed) if missed else "—"
             lines.append(f"| {result.query_id} | {result.recall_5:.2f} | {missed_str} |")
         avg = report.per_project_recall.get(project, 0.0)

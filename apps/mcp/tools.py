@@ -64,6 +64,46 @@ class ExplainResult(BaseModel):
     final_ranking: list[dict[str, object]]
 
 
+class CrossProjectPattern(BaseModel):
+    name: str = Field(description="Dependency name or directory leaf")
+    pattern_type: Literal["dependency", "structural"]
+    projects: list[str] = Field(description="Names of the projects sharing this pattern")
+    confidence: float = Field(
+        description="Share of inspected projects where the pattern appears (0 to 1)"
+    )
+
+
+class CrossProjectPatternsResult(BaseModel):
+    total_projects: int = Field(description="Number of registered projects considered")
+    inspected_projects: list[str] = Field(
+        description="Projects whose .context/cache.db was successfully read"
+    )
+    skipped_projects: list[dict[str, str]] = Field(
+        description="Projects that were skipped, with reason"
+    )
+    dependency_patterns: list[CrossProjectPattern]
+    structural_patterns: list[CrossProjectPattern]
+
+
+class NeighborsResult(BaseModel):
+    node: str = Field(description="The node that was queried")
+    resolved_kind: Literal["file", "symbol", "unknown"] = Field(
+        description=(
+            "Whether the node exists in the graph and, if so, whether it was "
+            "recognized as a file path, a symbol fq_name, or neither."
+        )
+    )
+    outgoing: list[str] = Field(
+        description="Nodes this one references (imports, calls, inherits, tests_for, defines)"
+    )
+    incoming: list[str] = Field(description="Nodes that reference this one — the impact radius")
+    centrality: float | None = Field(
+        default=None,
+        description="PageRank score in [0, 1] if the graph is non-empty",
+    )
+    truncated: bool = Field(description="True if neighbor lists were cut to the requested limit")
+
+
 def lvdcp_scan(path: str, full: bool = False) -> ScanResultResponse:
     """Scan a Python project and refresh its index.
 
@@ -132,9 +172,14 @@ def lvdcp_pack(
 
             cfg = load_config(Path.home() / ".lvdcp" / "config.yaml")
             if cfg.qdrant.enabled:
-                v_scores = asyncio.run(
-                    vector_search(config=cfg, query=query, project_id=root.name, limit=limit * 2)
-                ) or None
+                v_scores = (
+                    asyncio.run(
+                        vector_search(
+                            config=cfg, query=query, project_id=root.name, limit=limit * 2
+                        )
+                    )
+                    or None
+                )
         except Exception:
             log.warning(
                 "vector search unavailable during pack build for %s",
@@ -305,3 +350,110 @@ def lvdcp_explain(path: str, trace_id: str) -> ExplainResult:
                 {"path": c.path, "score": c.score, "source": c.source} for c in trace.final_ranking
             ],
         )
+
+
+def lvdcp_neighbors(path: str, node: str, limit: int = 20) -> NeighborsResult:
+    """Return incoming + outgoing graph neighbors for a file path or symbol fq_name.
+
+    CALL THIS WHEN:
+    - You need "who calls foo" / "what does bar depend on" / "impact radius of X"
+    - You want a targeted follow-up after lvdcp_pack named an interesting symbol
+    - You want the PageRank centrality of a specific node
+
+    Unlike lvdcp_pack, this does no FTS/vector retrieval — it walks the already-
+    built relation graph. Fast (O(degree)) and deterministic. Incoming neighbors
+    are especially useful as the "impact radius" before editing a function.
+
+    - *node* can be a relative file path (e.g. "libs/foo.py") or a symbol fq_name
+      (e.g. "libs.foo.Bar.method"). The result's `resolved_kind` reports which.
+    - *limit* caps each of outgoing/incoming at N entries.
+    """
+    root = Path(path).resolve()
+    try:
+        idx = ProjectIndex.open(root)
+    except ProjectNotIndexedError as exc:
+        raise ValueError(f"not_indexed: {exc}. Call lvdcp_scan(path={path!r}) first.") from exc
+
+    with idx:
+        present = idx.graph_has_node(node)
+        out, inc = idx.graph_neighbors(node)
+        centrality = idx.graph_centrality(node) if present else None
+
+        # Classify against the authoritative file list so symbol fq_names that
+        # happen to contain "/" (e.g. a path-prefixed convention) aren't
+        # mis-labeled as files. Falls back to an extension heuristic only when
+        # the node is not an indexed file.
+        resolved: Literal["file", "symbol", "unknown"]
+        if not present:
+            resolved = "unknown"
+        else:
+            known_files = {f.path for f in idx.iter_files()}
+            if node in known_files or node.endswith((".py", ".ts", ".tsx", ".js", ".go", ".rs")):
+                resolved = "file"
+            else:
+                resolved = "symbol"
+
+        truncated = len(out) > limit or len(inc) > limit
+        return NeighborsResult(
+            node=node,
+            resolved_kind=resolved,
+            outgoing=out[:limit],
+            incoming=inc[:limit],
+            centrality=centrality,
+            truncated=truncated,
+        )
+
+
+def lvdcp_cross_project_patterns(min_projects: int = 2) -> CrossProjectPatternsResult:
+    """Surface naming conventions and shared dependencies across indexed projects.
+
+    CALL THIS WHEN:
+    - You need to know "how does this user structure similar projects" before
+      scaffolding or renaming
+    - You want to see if a library is already used elsewhere in the workspace
+    - You're writing architecture advice that should reference the user's
+      existing conventions instead of generic defaults
+
+    DO NOT CALL FOR:
+    - Questions scoped to a single project (use lvdcp_pack instead)
+
+    Reads every registered project's ``.context/cache.db`` in strict read-only
+    mode — no scans are triggered, no caches are written. Projects without
+    an indexed cache are reported in ``skipped_projects`` with a reason.
+
+    *min_projects* controls the pattern threshold: a dependency or directory
+    leaf must appear in at least this many projects to be returned (default 2).
+    """
+    from libs.core.projects_config import list_projects  # noqa: PLC0415
+    from libs.patterns.aggregator import build_cross_project_patterns  # noqa: PLC0415
+    from libs.status.aggregator import resolve_config_path  # noqa: PLC0415
+
+    entries = list_projects(resolve_config_path())
+    roots = [e.root for e in entries]
+    result = build_cross_project_patterns(roots, min_projects=min_projects)
+
+    return CrossProjectPatternsResult(
+        total_projects=result.total_projects,
+        inspected_projects=list(result.inspected_projects),
+        skipped_projects=[
+            {"project": name, "reason": reason} for name, reason in result.skipped_projects
+        ],
+        dependency_patterns=[
+            CrossProjectPattern(
+                name=p.name,
+                pattern_type=p.pattern_type,
+                projects=list(p.projects),
+                confidence=p.confidence,
+            )
+            for p in result.dependency_patterns
+        ],
+        structural_patterns=[
+            CrossProjectPattern(
+                name=p.name,
+                pattern_type=p.pattern_type,
+                projects=list(p.projects),
+                confidence=p.confidence,
+            )
+            for p in result.structural_patterns
+        ],
+    )

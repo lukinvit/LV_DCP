@@ -69,7 +69,9 @@ def settings_page(
             "qdrant_status": _qdrant_status(config.qdrant.url, config.qdrant.enabled),
             "embedding_config": config.embedding,
             "embedding_providers": EMBEDDING_PROVIDERS,
-            "embedding_key_status": _api_key_status(config.embedding.api_key_env_var, config.embedding.provider),
+            "embedding_key_status": _api_key_status(
+                config.embedding.api_key_env_var, config.embedding.provider
+            ),
             "saved": saved,
             "error": error,
         },

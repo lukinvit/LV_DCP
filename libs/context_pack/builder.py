@@ -11,6 +11,7 @@ from pathlib import Path
 
 from libs.core.entities import ContextPack, PackMode
 from libs.core.paths import is_test_path
+from libs.retrieval.disambiguate import format_suggestion_hint, suggest_disambiguators
 from libs.retrieval.pipeline import RetrievalResult
 
 PIPELINE_VERSION = "phase-2-v0"
@@ -61,6 +62,10 @@ def build_navigate_pack(
             "> ⚠ **Ambiguous coverage** — many files scored similarly. "
             "Consider re-querying with more specific keywords or expanding `--limit`."
         )
+        suggestions = suggest_disambiguators(query, list(result.files))
+        hint = format_suggestion_hint(suggestions)
+        if hint:
+            lines.append(f"> {hint}")
         lines.append("")
 
     lines.append("## Top files")
@@ -141,6 +146,10 @@ def build_edit_pack(  # noqa: PLR0912, PLR0915
             "these results alone. Re-query with more specific keywords, expand "
             "`--limit`, or ask the user for clarification before making changes."
         )
+        suggestions = suggest_disambiguators(query, list(result.files))
+        hint = format_suggestion_hint(suggestions)
+        if hint:
+            lines.append(f"> {hint}")
         lines.append("")
     else:
         lines.append(
