@@ -91,6 +91,12 @@ PATH_PARENT_TOKEN_BOOST = 0.25
 GIT_CHURN_BOOST = 1.10
 GIT_NEW_FILE_BOOST = 1.05
 
+# Centrality (PageRank) boost. Mirrors Aider's repo-map intuition:
+# a widely-referenced file (imports/tests_for) is a better default
+# answer at rank ties. Kept gentle so primary signals dominate.
+CENTRALITY_BOOST_MAX = 1.10
+CENTRALITY_PERCENTILE_FLOOR = 0.50
+
 
 def _apply_git_boost(
     file_scores: dict[str, float],
@@ -148,6 +154,42 @@ def _apply_role_weights(
             file_scores[path] = score * DOCS_OVERRIDE_MULTIPLIER
         else:
             file_scores[path] = score * weights.get(role, 0.70)
+
+
+def _apply_centrality_boost(
+    file_scores: dict[str, float],
+    graph: Graph,
+) -> None:
+    """Boost already-scored files whose structural centrality is above the median.
+
+    Computes PageRank over the symbol/file relation graph (cached on the graph
+    instance) and multiplies each candidate's score by a factor in
+    [1.0, CENTRALITY_BOOST_MAX] based on its percentile among the candidates.
+
+    Only file-path nodes are consulted here; symbol centrality is not rolled up
+    in this first pass to keep the boost conservative.
+    """
+    if not file_scores:
+        return
+    centrality = graph.pagerank()
+    if not centrality:
+        return
+
+    file_centrality = {path: centrality.get(path, 0.0) for path in file_scores}
+    values = sorted(file_centrality.values())
+    max_val = values[-1]
+    mid_idx = int(len(values) * CENTRALITY_PERCENTILE_FLOOR)
+    mid = values[mid_idx] if mid_idx < len(values) else values[-1]
+    if max_val <= mid:
+        return
+
+    span = max_val - mid
+    for path, score in list(file_scores.items()):
+        c = file_centrality[path]
+        if c <= mid:
+            continue
+        norm = (c - mid) / span
+        file_scores[path] = score * (1.0 + norm * (CENTRALITY_BOOST_MAX - 1.0))
 
 
 def _apply_path_token_boost(
@@ -244,6 +286,12 @@ class RetrievalPipeline:
 
         # Role-weighted score fusion (D1)
         _apply_role_weights(file_scores, roles, query, mode)
+
+        # Structural centrality boost (PageRank over the relation graph).
+        # Applied after role weights so the boost scales the already-prioritized
+        # score, and before git boost so structural signal compounds with churn.
+        if self._graph is not None:
+            _apply_centrality_boost(file_scores, self._graph)
 
         # Git intelligence boost
         git_stats = self._get_git_stats()

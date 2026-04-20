@@ -252,6 +252,8 @@ class TestGraphDepthTuning:
         mock_symbols._symbols = []
 
         mock_graph = MagicMock()
+        # Centrality boost probes the graph — return an empty mapping to disable it.
+        mock_graph.pagerank.return_value = {}
 
         captured_depths: list[int] = []
 
