@@ -10,6 +10,7 @@ from apps.cli.commands import inspect as inspect_module
 from apps.cli.commands import mcp_cmd, obsidian_cmd, watch_cmd, wiki_cmd
 from apps.cli.commands import pack as pack_module
 from apps.cli.commands import scan as scan_module
+from apps.cli.commands import setup as setup_module
 from apps.cli.commands import summarize as summarize_module
 from apps.cli.commands import ui as ui_module
 
@@ -61,6 +62,7 @@ def inspect(
 
 
 app.command()(pack_module.pack)
+app.command()(setup_module.setup)
 app.command()(summarize_module.summarize)
 app.command()(ui_module.ui)
 

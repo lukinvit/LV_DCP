@@ -9,6 +9,7 @@ from libs.retrieval.pipeline import (
     DOCS_OVERRIDE_MULTIPLIER,
     GRAPH_EXPANSION_DEPTH,
     GRAPH_EXPANSION_DEPTH_EDIT,
+    PATH_ANCESTOR_TOKEN_BOOST,
     PATH_BASENAME_TOKEN_BOOST,
     PATH_PARENT_TOKEN_BOOST,
     ROLE_WEIGHTS_EDIT,
@@ -288,10 +289,39 @@ class TestPathTokenBoost:
     def test_parent_and_basename_boost_are_bounded(self) -> None:
         file_scores = {"src/temporal/workflows/pipeline.py": 1.0}
         _apply_path_token_boost("temporal workflows schedule pipeline maintenance", file_scores)
-        expected = 1.0 + PATH_BASENAME_TOKEN_BOOST + PATH_PARENT_TOKEN_BOOST
+        expected = (
+            1.0 + PATH_BASENAME_TOKEN_BOOST + PATH_PARENT_TOKEN_BOOST + PATH_ANCESTOR_TOKEN_BOOST
+        )
         assert file_scores["src/temporal/workflows/pipeline.py"] == expected
 
     def test_no_path_overlap_leaves_score_unchanged(self) -> None:
         file_scores = {"src/web/server.py": 2.0}
         _apply_path_token_boost("keyword research service", file_scores)
         assert file_scores["src/web/server.py"] == 2.0
+
+    def test_deeper_ancestor_overlap_breaks_tie_between_similar_candidates(self) -> None:
+        file_scores = {
+            "src/temporal/workflows/job.py": 2.0,
+            "src/platform/workflows/job.py": 2.0,
+        }
+        _apply_path_token_boost("temporal workflow maintenance", file_scores)
+        assert (
+            file_scores["src/temporal/workflows/job.py"]
+            > file_scores["src/platform/workflows/job.py"]
+        )
+
+    def test_ancestor_boost_is_bounded(self) -> None:
+        file_scores = {
+            "src/company/platform/telegram/integrations/client.py": 1.0,
+        }
+        _apply_path_token_boost(
+            "company platform telegram integrations client",
+            file_scores,
+        )
+        expected = (
+            1.0
+            + PATH_BASENAME_TOKEN_BOOST
+            + PATH_PARENT_TOKEN_BOOST
+            + (3 * PATH_ANCESTOR_TOKEN_BOOST)
+        )
+        assert file_scores["src/company/platform/telegram/integrations/client.py"] == expected

@@ -87,6 +87,7 @@ CONFIG_BOOST_FRACTION = 0.5
 CONFIG_BOOST_FLOOR = 0.5
 PATH_BASENAME_TOKEN_BOOST = 0.75
 PATH_PARENT_TOKEN_BOOST = 0.25
+PATH_ANCESTOR_TOKEN_BOOST = 0.15
 
 GIT_CHURN_BOOST = 1.10
 GIT_NEW_FILE_BOOST = 1.05
@@ -207,15 +208,23 @@ def _apply_path_token_boost(
         path_obj = PurePosixPath(path)
         basename_tokens = set(split_identifier_tokens(path_obj.stem))
         parent_tokens = set(split_identifier_tokens(path_obj.parent.name))
+        ancestor_tokens = {
+            token
+            for segment in path_obj.parts[:-2]
+            for token in split_identifier_tokens(segment)
+            if segment not in {"", "."}
+        }
 
         basename_overlap = len(query_tokens & basename_tokens)
         parent_overlap = len(query_tokens & parent_tokens)
-        if basename_overlap == 0 and parent_overlap == 0:
+        ancestor_overlap = len(query_tokens & ancestor_tokens)
+        if basename_overlap == 0 and parent_overlap == 0 and ancestor_overlap == 0:
             continue
 
         file_scores[path] += (
             min(basename_overlap, 3) * PATH_BASENAME_TOKEN_BOOST
             + min(parent_overlap, 2) * PATH_PARENT_TOKEN_BOOST
+            + min(ancestor_overlap, 3) * PATH_ANCESTOR_TOKEN_BOOST
         )
 
 
