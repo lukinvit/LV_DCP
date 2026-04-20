@@ -66,6 +66,21 @@ class TestApplyCentralityBoost:
         for score in scores.values():
             assert score <= 1.0 * CENTRALITY_BOOST_MAX + 1e-9
 
+    def test_two_candidates_still_boost_higher(self) -> None:
+        # Regression: before the lower-median fix, a 2-file candidate set
+        # always collapsed to `max_val <= mid` and no boost fired.
+        g = Graph()
+        g.add_relations(
+            [
+                _rel("a.py", "hub.py"),
+                _rel("b.py", "hub.py"),
+                _rel("c.py", "hub.py"),
+            ]
+        )
+        scores = {"a.py": 1.0, "hub.py": 1.0}
+        _apply_centrality_boost(scores, g)
+        assert scores["hub.py"] > scores["a.py"]
+
     def test_file_not_in_graph_is_unaffected(self) -> None:
         g = Graph()
         g.add_relations(

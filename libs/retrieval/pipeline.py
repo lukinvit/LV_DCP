@@ -178,8 +178,10 @@ def _apply_centrality_boost(
     file_centrality = {path: centrality.get(path, 0.0) for path in file_scores}
     values = sorted(file_centrality.values())
     max_val = values[-1]
-    mid_idx = int(len(values) * CENTRALITY_PERCENTILE_FLOOR)
-    mid = values[mid_idx] if mid_idx < len(values) else values[-1]
+    # Use lower-median index so 2-candidate lists still admit a boost on the
+    # higher of the two and odd-length lists split at the true median.
+    mid_idx = max(0, int(len(values) * CENTRALITY_PERCENTILE_FLOOR) - 1)
+    mid = values[mid_idx]
     if max_val <= mid:
         return
 

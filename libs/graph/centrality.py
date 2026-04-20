@@ -58,7 +58,10 @@ def pagerank(
     # process-dependent. Lexicographic ordering pins the power iteration.
     ordered = sorted(nodes)
 
-    out_degree: dict[str, int] = {node: len(graph.neighbors(node)) for node in ordered}
+    # Cache neighbor sets once — otherwise the inner loop copies them on every
+    # iteration (100 iterations x N nodes for large graphs).
+    fwd: dict[str, set[str]] = {node: graph.neighbors(node) for node in ordered}
+    out_degree: dict[str, int] = {node: len(fwd[node]) for node in ordered}
 
     # Teleport vector — uniform by default, or biased by personalization.
     if personalization:
@@ -87,7 +90,7 @@ def pagerank(
             if out == 0:
                 continue
             share = damping * scores[node] / out
-            for nxt in graph.neighbors(node):
+            for nxt in fwd[node]:
                 new_scores[nxt] = new_scores.get(nxt, 0.0) + share
 
         delta = 0.0

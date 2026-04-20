@@ -358,13 +358,19 @@ def lvdcp_neighbors(path: str, node: str, limit: int = 20) -> NeighborsResult:
         out, inc = idx.graph_neighbors(node)
         centrality = idx.graph_centrality(node) if present else None
 
+        # Classify against the authoritative file list so symbol fq_names that
+        # happen to contain "/" (e.g. a path-prefixed convention) aren't
+        # mis-labeled as files. Falls back to an extension heuristic only when
+        # the node is not an indexed file.
         resolved: Literal["file", "symbol", "unknown"]
         if not present:
             resolved = "unknown"
-        elif "/" in node or node.endswith((".py", ".ts", ".tsx", ".js", ".go", ".rs")):
-            resolved = "file"
         else:
-            resolved = "symbol"
+            known_files = {f.path for f in idx.iter_files()}
+            if node in known_files or node.endswith((".py", ".ts", ".tsx", ".js", ".go", ".rs")):
+                resolved = "file"
+            else:
+                resolved = "symbol"
 
         truncated = len(out) > limit or len(inc) > limit
         return NeighborsResult(

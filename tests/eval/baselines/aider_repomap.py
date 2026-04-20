@@ -55,7 +55,12 @@ def _build_for(repo: Path) -> tuple[ProjectIndex, Graph, list[File]]:
 
 def _personalization_from_query(query: str, files: list[File]) -> dict[str, float]:
     """Build a personalization vector favoring files whose identifier tokens
-    overlap the query's tokens."""
+    overlap the query's tokens.
+
+    Note: uses LV_DCP's own ``split_identifier_tokens``. This is a deliberate
+    shared dependency so both retrievers see the same token boundaries —
+    tokenizer changes affect both sides of the comparison equally.
+    """
     query_tokens = set(split_identifier_tokens(query))
     if not query_tokens:
         return {}
@@ -77,9 +82,9 @@ def aider_baseline_retrieve(
     mode: str,
     repo: Path,
 ) -> tuple[list[str], list[str]]:
-    # The *mode* argument is part of the RetrievalFn contract but the baseline
-    # is intentionally mode-agnostic — it ranks by structural centrality alone.
-    del mode
+    # `mode` mirrors the RetrievalFn contract but the baseline is
+    # intentionally mode-agnostic — it ranks by structural centrality alone.
+    _ = mode
     """Retrieve top-N files via personalized PageRank over the relation graph.
 
     Returns (files, symbols) where *files* is the PageRank-ranked top N and

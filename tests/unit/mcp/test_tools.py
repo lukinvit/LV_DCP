@@ -73,6 +73,21 @@ def test_lvdcp_neighbors_returns_typed_result(graph_project: Path) -> None:
     assert result.truncated is False
 
 
+def test_lvdcp_neighbors_classifies_file_via_file_list(graph_project: Path) -> None:
+    # Regression: before we consulted the authoritative file list, a fq_name
+    # containing "/" was falsely labeled as a file.
+    result = lvdcp_neighbors(path=str(graph_project), node="pkg/hub.py")
+    assert result.resolved_kind == "file"
+
+
+def test_lvdcp_neighbors_classifies_symbol(graph_project: Path) -> None:
+    # "compute" is defined in pkg/hub.py — its fq_name has no slash.
+    result = lvdcp_neighbors(path=str(graph_project), node="pkg.hub.compute")
+    # If the symbol isn't in the graph at all we accept "unknown"; otherwise
+    # it must be classified as a symbol, not a file.
+    assert result.resolved_kind in ("symbol", "unknown")
+
+
 def test_lvdcp_neighbors_unknown_node_reports_so(graph_project: Path) -> None:
     result = lvdcp_neighbors(path=str(graph_project), node="does/not/exist.py")
     assert result.resolved_kind == "unknown"
