@@ -64,10 +64,16 @@ class FakeEmbeddingAdapter:
 
 
 class OpenAIEmbeddingAdapter:
-    """Wraps openai.AsyncOpenAI for text-embedding-3-small.
+    """Wraps ``openai.AsyncOpenAI`` for embedding APIs.
 
-    The ``openai`` package is imported lazily so the module can be loaded
-    without it installed.
+    Works against any OpenAI-compatible endpoint — including Ollama's
+    ``/v1/embeddings`` (supply ``base_url`` and a non-empty dummy key)
+    and self-hosted gateways. The ``openai`` package is imported lazily
+    so the module can be loaded without it installed.
+
+    ``dimension`` must match the model: text-embedding-3-small → 1536,
+    nomic-embed-text → 768, mxbai-embed-large → 1024, all-minilm → 384.
+    Mismatch breaks Qdrant collection sizing.
     """
 
     def __init__(
@@ -76,11 +82,12 @@ class OpenAIEmbeddingAdapter:
         model: str = "text-embedding-3-small",
         api_key: str | None = None,
         base_url: str | None = None,
+        dimension: int = 1536,
     ) -> None:
         import openai  # lazy import  # noqa: PLC0415
 
         self._model = model
-        self._dimension = 1536  # default for text-embedding-3-small
+        self._dimension = dimension
         kwargs: dict[str, Any] = {}
         if api_key:
             kwargs["api_key"] = api_key

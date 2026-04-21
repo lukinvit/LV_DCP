@@ -56,11 +56,17 @@ class QdrantConfig(BaseModel):
 
 
 class EmbeddingConfig(BaseModel):
-    provider: str = "openai"  # "openai" | "local" | "fake"
+    provider: str = "openai"  # "openai" | "ollama" | "fake"
     model: str = "text-embedding-3-small"
+    # Must match the model. OpenAI text-embedding-3-small=1536,
+    # Ollama nomic-embed-text=768, mxbai-embed-large=1024, all-minilm=384.
+    # Changing dimension after scans requires dropping Qdrant collections.
     dimension: int = 1536
     api_key_env_var: str = "OPENAI_API_KEY"
-    base_url: str = ""  # override for local/compatible endpoints
+    # Override for OpenAI-compatible endpoints (Ollama, LocalAI, vLLM, etc.).
+    # When provider="ollama" and base_url is empty, defaults to
+    # http://localhost:11434/v1.
+    base_url: str = ""
 
     @field_validator("api_key_env_var")
     @classmethod

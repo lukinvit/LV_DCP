@@ -27,17 +27,32 @@ from libs.embeddings.qdrant_store import QdrantStore, SummarySearchHit, SummaryV
 log = logging.getLogger(__name__)
 
 
+OLLAMA_DEFAULT_BASE_URL = "http://localhost:11434/v1"
+# Ollama ignores the API key value but the openai SDK requires a non-empty
+# string — "ollama" is the community convention.
+OLLAMA_DUMMY_API_KEY = "ollama"
+
+
 def _build_adapter(cfg: EmbeddingConfig) -> EmbeddingAdapter:
     if cfg.provider == "fake":
         return FakeEmbeddingAdapter(dimension=cfg.dimension)
     if cfg.provider == "openai":
         api_key = os.environ.get(cfg.api_key_env_var) if cfg.api_key_env_var else None
-        kwargs: dict[str, Any] = {"model": cfg.model}
+        kwargs: dict[str, Any] = {"model": cfg.model, "dimension": cfg.dimension}
         if api_key:
             kwargs["api_key"] = api_key
         if cfg.base_url:
             kwargs["base_url"] = cfg.base_url
         return OpenAIEmbeddingAdapter(**kwargs)
+    if cfg.provider == "ollama":
+        # Ollama exposes an OpenAI-compatible /v1/embeddings endpoint.
+        # Reuse the openai adapter; auto-fill base_url and dummy key.
+        return OpenAIEmbeddingAdapter(
+            model=cfg.model,
+            api_key=OLLAMA_DUMMY_API_KEY,
+            base_url=cfg.base_url or OLLAMA_DEFAULT_BASE_URL,
+            dimension=cfg.dimension,
+        )
     # fallback to fake
     return FakeEmbeddingAdapter(dimension=cfg.dimension)
 
