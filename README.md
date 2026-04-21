@@ -53,6 +53,8 @@ $ ctx pack . "refresh token rotation" --mode edit
 
 ## Status
 
+**Phase 7c complete (2026-04-21)** — PageRank centrality boost (Aider parity), adaptive vector/FTS fusion, `lvdcp_neighbors` + `lvdcp_history` + `lvdcp_cross_project_patterns` MCP tools, disambiguation suggestions, Go `tests_for` inference, directory-aware ancestor path boost, recency-aware centrality, `ctx eval` CLI, reusable `libs/eval` wheel package, Claude Code skill published.
+
 **Phase 7b complete (2026-04-16)** — TypeScript/JS graph enrichment: `tests_for` relations, tighter path-filter rejecting unresolved module specifiers and npm subpaths. Verified on a 926-file Next.js codebase.
 
 **Phase 7a complete (2026-04-13)** — Identifier-aware path retrieval ships path aliases into the FTS index (camelCase/snake_case tokenization), lifting precision@3 from 0.568 to 0.693. Wiki knowledge module gets a post-scan background hook. Cyrillic support in pack enrichment. Real-project eval harness added.
@@ -95,11 +97,12 @@ Release note: [docs/release/2026-04-13-v0.6.1-stabilization.md](docs/release/202
 | 6 | **0.6.0** | **Done** | Phase 6 feature release: cross-language parsers (TS/JS/Go/Rust), Qdrant vector store, Obsidian vault sync, VS Code extension MVP, cross-project patterns, wiki knowledge module |
 | 6.1 | **0.6.1** | **Done** | Stabilization pass: mandatory CI quality gates, green `ruff` + `mypy`, async/Qdrant runtime hardening, 662 tests passing |
 | 7a | — | **Done** | Identifier-aware path retrieval, wiki post-scan hook, real-project eval harness, precision@3 0.568→0.693 |
-| 7b | — | **Done** | TS/JS `tests_for` + `inherits` relations, DDD/FSD alias resolution, path-filter tightening (reject `./`, `../`, `@/`, npm subpaths). Verified on ruscoffee (82 tests_for, 29 inherits), X5_BM (440 tests_for, 26 inherits), LV_Presentation (131 tests_for) |
+| 7b | — | **Done** | TS/JS `tests_for` + `inherits` relations, DDD/FSD alias resolution, path-filter tightening (reject `./`, `../`, `@/`, npm subpaths). Verified on three real projects: Next.js app (82 tests_for, 29 inherits), large TS monorepo (440 tests_for, 26 inherits), DDD frontend (131 tests_for) |
+| 7c | — | **Done** | PageRank centrality boost (Aider parity), adaptive vector/FTS fusion weight, Go `tests_for` inference, `lvdcp_neighbors` graph follow-up tool, disambiguation suggestions on ambiguous packs, directory-aware ancestor path boost, `lvdcp_history` git-history MCP tool, recency-aware centrality, `ctx eval` CLI + reusable `libs/eval`, Claude Code skill |
 
 ### Test suite
 
-684 tests in suite, 0 failures. Current green baseline: 681 non-eval passed (1 deselected); eval: 1 passed + 1 skipped advisory polyglot check. Eval harness: 32 synthetic queries; multi-project eval currently covers 9 advisory queries across 4 registered projects.
+778 tests in suite, 0 failures. Current green baseline: 777 collected (1 deselected). Eval harness: 32 synthetic queries; multi-project eval currently covers 9 advisory queries across 4 registered projects.
 
 For advisory real-project eval setup and report commands, see [docs/eval/real-project-eval.md](docs/eval/real-project-eval.md).
 
@@ -255,7 +258,7 @@ claude mcp list
 
 Replace `/absolute/path/to/LV_DCP` with your actual clone path.
 
-After this, restart your Claude Code session (or VS Code if using the extension). Claude will now see `lvdcp_pack`, `lvdcp_scan`, `lvdcp_inspect`, `lvdcp_explain` as available tools and will call them automatically per the behavioral rules in `~/.claude/CLAUDE.md`.
+After this, restart your Claude Code session (or VS Code if using the extension). Claude will now see `lvdcp_pack`, `lvdcp_scan`, `lvdcp_inspect`, `lvdcp_explain`, `lvdcp_neighbors`, `lvdcp_history`, `lvdcp_cross_project_patterns` as available tools and will call them automatically per the behavioral rules in `~/.claude/CLAUDE.md`.
 
 ## Usage
 
@@ -285,6 +288,7 @@ uv run --directory /path/to/LV_DCP ctx inspect .
 | `ctx mcp serve` | Run the MCP server via stdio (called by Claude Code, not humans). |
 | `ctx mcp install --scope {user\|project\|local}` | Patch `~/.claude/CLAUDE.md` with a behavioral rule (⚠ currently writes to wrong file — see Phase 3 backlog M8). Use `claude mcp add` directly for now. |
 | `ctx watch add/remove/list/start` | Manage the auto-indexing daemon (watchdog + FSEvents, incremental scan on file change). |
+| `ctx eval <path> [--queries <file>]` | Run the retrieval eval harness against a project and print recall/precision/MRR metrics. |
 
 ### What gets indexed
 
@@ -374,7 +378,7 @@ make test          # pytest, excluding eval and llm markers
 make eval          # retrieval evaluation harness
 ```
 
-Current: 684 tests (681 non-eval + 1 eval + 1 advisory skipped), eval harness with 32 synthetic queries, plus 9 advisory multi-project queries. Phase 6 feature baseline tagged `phase-6-complete`.
+Current: 778 tests (777 collected, 1 deselected), eval harness with 32 synthetic queries, plus 9 advisory multi-project queries. Phase 6 feature baseline tagged `phase-6-complete`.
 
 ### Running the daemon
 
@@ -394,10 +398,11 @@ The daemon uses `watchdog.observers.Observer` which auto-selects `FSEventsObserv
 - **Phase 4** (done, v0.4.0) — pymorphy3 Russian stemmer, git intelligence (churn/blame), static impact analysis + hotspot widget, adaptive graph clustering, UI project management, diff-aware edit packs.
 - **Phase 5** (done, v0.5.0) — Hook enforcement (PreToolUse/PostToolUse), dual-language retrieval (80+ ru↔en terms), 5 new relation types (tests_for, inherits, specifies), value metrics dashboard, scan coverage widget, 457 tests (0 failures).
 - **Phase 6** (done, v0.6.0) — Cross-language parsers (TypeScript/JS, Go, Rust via tree-sitter), Qdrant vector store with hybrid retrieval (RRF fusion), Obsidian vault sync, VS Code extension MVP, cross-project pattern detection, wiki knowledge module (LLM-synthesized articles, lint, architecture page).
-- **Stabilization 0.6.1** (done) — GitHub Actions quality gates, repository-wide green `ruff` / `mypy`, warning-free embeddings and Qdrant runtime, 684 tests.
+- **Stabilization 0.6.1** (done) — GitHub Actions quality gates, repository-wide green `ruff` / `mypy`, warning-free embeddings and Qdrant runtime, 684 tests at release.
 - **Phase 7a** (done) — Identifier-aware path retrieval (path aliases in FTS index, camelCase/snake_case tokenization), wiki post-scan hook with ThreadPoolExecutor, Cyrillic tokenization in pack enrichment, real-project eval harness, precision@3 improved 0.568→0.693.
-- **Phase 7b** (done) — TypeScript/JavaScript graph enrichment: `tests_for` and `inherits` relations ported from Python parser. TS module resolution supports `./`, `../`, `@/` alias, FSD-style `@shared/` / `@entities/` / `@widgets/` / `@features/` / `@app/` / `@pages/` / `@processes/` aliases, rooted paths, and DDD-style roots (`domains`, `services`, `backend`, `frontend`). Test-path heuristic extended for `.test.ts` / `.spec.tsx` / `__tests__/` conventions. Graph-expansion filter tightened to reject unresolved import specifiers and npm package subpaths (`./flow-engine`, `@/lib/foo`, `next-auth/jwt`, `@playwright/test`). Verified on three real projects: ruscoffee (82 tests_for, 29 inherits), X5_BM (440 tests_for, 26 inherits), LV_Presentation (131 tests_for via DDD heuristic).
-- **Phase 7** (next) — Java/Kotlin/Swift parsers, Obsidian debounced/nightly sync, VS Code marketplace, LLM-based rerank, vector retrieval eval tuning.
+- **Phase 7b** (done) — TypeScript/JavaScript graph enrichment: `tests_for` and `inherits` relations ported from Python parser. TS module resolution supports `./`, `../`, `@/` alias, FSD-style `@shared/` / `@entities/` / `@widgets/` / `@features/` / `@app/` / `@pages/` / `@processes/` aliases, rooted paths, and DDD-style roots (`domains`, `services`, `backend`, `frontend`). Test-path heuristic extended for `.test.ts` / `.spec.tsx` / `__tests__/` conventions. Graph-expansion filter tightened to reject unresolved import specifiers and npm package subpaths (`./flow-engine`, `@/lib/foo`, `next-auth/jwt`, `@playwright/test`). Verified on three real projects: Next.js app (82 tests_for, 29 inherits), large TS monorepo (440 tests_for, 26 inherits), DDD frontend (131 tests_for via DDD heuristic).
+- **Phase 7c** (done) — PageRank centrality boost, adaptive vector/FTS fusion, `lvdcp_neighbors` tool for agentic graph follow-ups, disambiguation suggestions on ambiguous packs, Go `tests_for` inference, directory-aware ancestor path boost, `lvdcp_history` git-history MCP tool, recency-aware centrality, `ctx eval` CLI + reusable `libs/eval` wheel package, Claude Code skill.
+- **Phase 8** (next) — Native onboarding flow, Java/Kotlin/Swift parsers, LLM-based rerank, VS Code marketplace, Obsidian nightly sync.
 
 ## Contributing
 
