@@ -85,6 +85,20 @@ class WikiConfig(BaseModel):
     max_workers: int = Field(default=1, gt=0)  # max concurrent wiki update tasks
 
 
+class StorageConfig(BaseModel):
+    """At-rest encryption scaffold (see ADR-007).
+
+    ``encryption_key_env`` names the environment variable holding the
+    SQLCipher passphrase. The key itself is never stored in config.
+    ``None`` means plaintext SQLite (current default).
+
+    Phase 8 will wire this field into ``SqliteCache``; for now it is
+    scaffolding so the config format is forward-compatible.
+    """
+
+    encryption_key_env: str | None = None
+
+
 class DaemonConfig(BaseModel):
     version: int = Field(default=1)
     projects: list[ProjectEntry] = Field(default_factory=list)
@@ -93,6 +107,7 @@ class DaemonConfig(BaseModel):
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     obsidian: ObsidianConfig = Field(default_factory=ObsidianConfig)
     wiki: WikiConfig = Field(default_factory=WikiConfig)
+    storage: StorageConfig = Field(default_factory=StorageConfig)
 
 
 def load_config(path: Path) -> DaemonConfig:
