@@ -6,6 +6,7 @@ from pathlib import Path
 
 import typer
 
+from apps.cli.commands import eval_cmd as eval_module
 from apps.cli.commands import inspect as inspect_module
 from apps.cli.commands import mcp_cmd, obsidian_cmd, watch_cmd, wiki_cmd
 from apps.cli.commands import pack as pack_module
@@ -65,6 +66,7 @@ app.command()(pack_module.pack)
 app.command()(setup_module.setup)
 app.command()(summarize_module.summarize)
 app.command()(ui_module.ui)
+app.command("eval")(eval_module.eval_cmd)
 
 app.add_typer(mcp_cmd.app, name="mcp")
 app.add_typer(watch_cmd.app, name="watch")
