@@ -1,0 +1,37 @@
+# Example queries file for devctx-bench.
+#
+# Structure:
+#   queries:
+#     - id: <unique id>
+#       text: "natural language query for the retriever"
+#       mode: navigate | edit
+#       expected:
+#         files: ["relative/path/to/expected_file.py", ...]
+#         symbols: ["fq.name.of.expected_symbol", ...]
+#
+# Both expected.files and expected.symbols are OPTIONAL. Leave empty to
+# skip that side of the evaluation.
+
+queries:
+  - id: q01
+    text: "session token refresh"
+    mode: navigate
+    expected:
+      files:
+        - "src/auth/session.py"
+
+  - id: q02
+    text: "change login validation"
+    mode: edit
+    expected:
+      files:
+        - "src/auth/login.py"
+        - "tests/test_login.py"
+
+  - id: q03
+    text: "how is the database connection configured"
+    mode: navigate
+    expected:
+      files:
+        - "config/database.yaml"
+        - "src/db/connection.py"
