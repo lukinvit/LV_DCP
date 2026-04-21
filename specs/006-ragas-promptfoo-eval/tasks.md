@@ -75,17 +75,10 @@ description: "Task list for RAGAS + promptfoo eval layer (delta-only)"
 
 **Independent Test**: два фейковых snapshot JSON → ctx eval compare → expected output.
 
-- [ ] **T016** [US3] `libs/eval/history.py`:
-  - `save_run(report: EvalReport, out_dir: Path) -> Path` — атомарное write через tmp + rename.
-  - `load_run(path: Path) -> EvalReport`.
-  - `compare(a: EvalReport, b: EvalReport) -> DiffReport`.
-  - `latest_runs(dir: Path, limit: int) -> list[Path]`.
-- [ ] **T017** [US3] Unit-тесты `tests/eval/test_history.py`: save/load round-trip, compare edges (missing queries, new metrics), latest_runs sort.
-- [ ] **T018** [US3] CLI `apps/cli/commands/eval.py`:
-  - `ctx eval compare <a> <b>` — печатает markdown-таблицу через `rich.table`.
-  - `ctx eval history [--limit N]` — список последних runs с summary.
-  - `ctx eval run [--full] [--output PATH]` — запуск + save.
-- [ ] **T019** [US3] CLI-тесты `tests/unit/cli/test_eval_cmd.py` расширить (compare, history, run).
+- [x] **T016** ✅ `libs/eval/history.py` — `save_run` (atomic tmp+Path.replace), `load_run` (schema_version guarded), `compare` + `DiffReport` + `MetricDelta`, `latest_runs` (mtime sort, skips `.tmp-*`).
+- [x] **T017** ✅ `tests/eval/test_history.py` — 13 tests: roundtrip with/without ragas, schema rejection, latest sort + limit + tmp-file skip, compare asymmetric ragas.
+- [x] **T018** ✅ `apps/cli/commands/eval_cmd.py` переписан как Typer sub-app (`ctx eval run/compare/history`). `run` принимает `--save-to DIR` для snapshot; `compare` печатает markdown-таблицу per-metric deltas; `history` печатает table recent runs. `ctx eval` без subcommand → help.
+- [x] **T019** ✅ `tests/unit/cli/test_eval_cmd.py` расширен 4 тестами (save_to, history empty, history with runs, compare roundtrip) + 5 существующих обновлены под `eval run <project>`.
 
 **Checkpoint US3**: CLI работает, human-readable output, `ctx eval compare` в типовой ситуации ≤ 2 с.
 
