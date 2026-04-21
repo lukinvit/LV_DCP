@@ -268,6 +268,7 @@ def lvdcp_pack(
                 project_slug=root.name,
                 query=query,
                 result=result,
+                project_root=root,
             )
         # Persist the trace so lvdcp_explain can look it up.
         # Use dataclasses.replace to set project field (trace.project is "" by default).

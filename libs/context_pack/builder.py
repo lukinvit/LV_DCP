@@ -19,6 +19,46 @@ PIPELINE_VERSION = "phase-2-v0"
 # Base score for git-changed files injected into edit packs.
 _GIT_CHANGED_SCORE = 3.0
 
+# Cap on accepted memories surfaced in a pack — keeps the pack from ballooning
+# if the user has accepted dozens of notes. Ordered newest-first at the source.
+_MEMORY_LIMIT = 5
+# Body snippet length per memory — full body would bloat the pack.
+_MEMORY_BODY_SNIPPET_CHARS = 600
+
+
+def _render_accepted_memories_section(project_root: Path) -> list[str]:
+    """Render the "Approved memories" markdown section, or [] when there are none.
+
+    Reads accepted memory files via :mod:`libs.memory.store`. Importing lazily
+    keeps the context-pack builder free of a top-level dependency on the
+    memory package — callers that never pass a ``project_root`` pay nothing.
+    """
+    try:
+        from libs.memory.models import MemoryStatus  # noqa: PLC0415
+        from libs.memory.store import list_memories  # noqa: PLC0415
+
+        memories = list_memories(project_root, status=MemoryStatus.ACCEPTED)
+    except Exception:
+        # Memory is best-effort; never break a pack just because the store is
+        # malformed or a YAML file is unreadable.
+        return []
+
+    if not memories:
+        return []
+
+    lines: list[str] = ["## Approved memories", ""]
+    for m in memories[:_MEMORY_LIMIT]:
+        header = f"### {m.topic}"
+        if m.tags:
+            header += f"  `{' '.join(m.tags)}`"
+        lines.append(header)
+        body = m.body.strip()
+        if len(body) > _MEMORY_BODY_SNIPPET_CHARS:
+            body = body[:_MEMORY_BODY_SNIPPET_CHARS].rstrip() + "..."
+        lines.append(body)
+        lines.append("")
+    return lines
+
 
 def _git_changed_files(project_root: Path) -> list[str]:
     """Return files with uncommitted changes (staged + unstaged).
@@ -47,6 +87,7 @@ def build_navigate_pack(
     project_slug: str,
     query: str,
     result: RetrievalResult,
+    project_root: Path | None = None,
 ) -> ContextPack:
     lines: list[str] = []
     lines.append("# Context pack — navigate")
@@ -67,6 +108,11 @@ def build_navigate_pack(
         if hint:
             lines.append(f"> {hint}")
         lines.append("")
+
+    # Approved memories — rendered before files so the agent sees project-
+    # level facts that should color its reading of the retrieval output.
+    if project_root is not None:
+        lines.extend(_render_accepted_memories_section(project_root))
 
     lines.append("## Top files")
     lines.append("")
@@ -157,6 +203,11 @@ def build_edit_pack(  # noqa: PLR0912, PLR0915
             "plan a minimal, reversible patch. Run validation after every change."
         )
         lines.append("")
+
+    # Approved memories — surface accepted project facts before file lists so
+    # edit decisions are informed by them.
+    if project_root is not None:
+        lines.extend(_render_accepted_memories_section(project_root))
 
     if git_changed:
         lines.append("## Currently modified (uncommitted)")

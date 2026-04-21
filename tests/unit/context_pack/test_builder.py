@@ -1,5 +1,9 @@
+from pathlib import Path
+
+import pytest
 from libs.context_pack.builder import build_edit_pack, build_navigate_pack
 from libs.core.entities import PackMode
+from libs.memory.store import accept_memory, propose_memory
 from libs.retrieval.pipeline import RetrievalResult
 from libs.retrieval.trace import RetrievalTrace
 
@@ -106,3 +110,124 @@ def test_edit_pack_warns_on_ambiguous_coverage() -> None:
     # Must include a warning pointing at re-query / expand limit
     md_lower = pack.assembled_markdown.lower()
     assert "ambiguous" in md_lower or "re-query" in md_lower or "expand" in md_lower
+
+
+@pytest.fixture
+def project_with_memories(tmp_path: Path) -> Path:
+    """Project with one accepted, one proposed, one rejected memory."""
+    accepted = propose_memory(
+        tmp_path,
+        topic="Auth rotation",
+        body="Session rotation uses `rotate_session_token` on refresh.",
+    )
+    accept_memory(tmp_path, accepted.id)
+    propose_memory(
+        tmp_path,
+        topic="Pending insight",
+        body="This was not accepted yet.",
+    )
+    rejected = propose_memory(tmp_path, topic="Bad claim", body="Something wrong.")
+    # Use internal helper to mark rejected.
+    from libs.memory.store import reject_memory
+
+    reject_memory(tmp_path, rejected.id)
+    return tmp_path
+
+
+def test_navigate_pack_includes_accepted_memories(project_with_memories: Path) -> None:
+    result = RetrievalResult(
+        files=["app/auth.py"],
+        symbols=[],
+        scores={"app/auth.py": 5.0},
+        trace=_make_trace("auth"),
+        coverage="medium",
+    )
+    pack = build_navigate_pack(
+        project_slug="sample",
+        query="auth",
+        result=result,
+        project_root=project_with_memories,
+    )
+    md = pack.assembled_markdown
+    assert "Approved memories" in md
+    assert "Auth rotation" in md
+    assert "rotate_session_token" in md
+
+
+def test_navigate_pack_excludes_proposed_and_rejected_memories(
+    project_with_memories: Path,
+) -> None:
+    result = RetrievalResult(
+        files=["app/auth.py"],
+        symbols=[],
+        scores={"app/auth.py": 5.0},
+        trace=_make_trace("auth"),
+        coverage="medium",
+    )
+    pack = build_navigate_pack(
+        project_slug="sample",
+        query="auth",
+        result=result,
+        project_root=project_with_memories,
+    )
+    md = pack.assembled_markdown
+    # Proposed memory topic / body must NOT leak into the pack — human hasn't
+    # approved it yet.
+    assert "Pending insight" not in md
+    assert "not accepted yet" not in md
+    # Rejected must be filtered too.
+    assert "Bad claim" not in md
+    assert "Something wrong" not in md
+
+
+def test_navigate_pack_without_project_root_skips_memory_section(tmp_path: Path) -> None:
+    result = RetrievalResult(
+        files=["app/auth.py"],
+        symbols=[],
+        scores={"app/auth.py": 5.0},
+        trace=_make_trace("auth"),
+        coverage="medium",
+    )
+    pack = build_navigate_pack(
+        project_slug="sample",
+        query="auth",
+        result=result,
+    )
+    assert "Approved memories" not in pack.assembled_markdown
+
+
+def test_edit_pack_includes_accepted_memories(project_with_memories: Path) -> None:
+    result = RetrievalResult(
+        files=["app/auth.py"],
+        symbols=[],
+        scores={"app/auth.py": 5.0},
+        trace=_make_trace("fix auth", "edit"),
+        coverage="high",
+    )
+    pack = build_edit_pack(
+        project_slug="sample",
+        query="fix auth",
+        result=result,
+        project_root=project_with_memories,
+    )
+    md = pack.assembled_markdown
+    assert "Approved memories" in md
+    assert "Auth rotation" in md
+
+
+def test_pack_with_no_memories_directory_is_safe(tmp_path: Path) -> None:
+    # No .context/memory/ — should not break.
+    result = RetrievalResult(
+        files=["a.py"],
+        symbols=[],
+        scores={"a.py": 1.0},
+        trace=_make_trace("q"),
+        coverage="high",
+    )
+    pack = build_navigate_pack(
+        project_slug="x",
+        query="q",
+        result=result,
+        project_root=tmp_path,
+    )
+    assert "Approved memories" not in pack.assembled_markdown
