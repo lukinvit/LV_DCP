@@ -118,6 +118,10 @@ module = ["pymorphy3"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = ["FlagEmbedding", "FlagEmbedding.*", "torch", "torch.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = ["apps.agent.daemon", "tests.integration.test_ctx_watch"]
 disallow_untyped_calls = false
 
