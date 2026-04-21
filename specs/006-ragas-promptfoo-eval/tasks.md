@@ -30,7 +30,7 @@ description: "Task list for RAGAS + promptfoo eval layer (delta-only)"
 
 ## Phase 1: Setup (Shared Infrastructure)
 
-- [ ] **T001** Добавить зависимости в `pyproject.toml`: `ragas>=0.2.0`, `langchain-anthropic>=0.2.0` в секцию `[project.optional-dependencies] eval`. Проверить импорт через `uv sync --extra eval`.
+- [x] **T001** ✅ Добавлено `ragas>=0.4.3` в `[project.optional-dependencies] eval`. Phase 0 smoke passed → `langchain-anthropic` **не добавлен** (native `provider='anthropic'`); см. `research.md`.
 - [ ] **T002** [P] Расширить `libs/core/projects_config.py` секцией `EvalConfig` (`judge_model: str = "claude-haiku-4-5"`, `llm_judge_max_cost_usd: float = 1.0`, `cache_ragas_responses: bool = True`).
 - [ ] **T003** [P] Обновить `Makefile`:
   ```
@@ -62,13 +62,15 @@ description: "Task list for RAGAS + promptfoo eval layer (delta-only)"
 
 - [ ] **T010** [US1] `libs/eval/ragas_adapter.py`:
   - class `RagasAdapter(judge_model: str, cost_guard: CostGuard)`.
-  - `async run(queries, retrieved_contents) -> RagasMetrics` — вызывает ragas `context_precision`, `context_recall`, `faithfulness`, `answer_relevance`.
-  - `langchain_anthropic.ChatAnthropic` как LLM.
+  - `async run(queries, retrieved_contents) -> RagasMetrics` — вызывает ragas `context_precision`, `context_recall`, `faithfulness`, `answer_relevancy`.
+  - LLM через `ragas.llms.llm_factory('claude-haiku-4-5', provider='anthropic', client=anthropic.Anthropic(...))`.
+  - Metrics import: `from ragas.metrics.collections import context_precision, context_recall, faithfulness, answer_relevancy` (новый путь, старый deprecated в v1.0).
+  - Dataset: `ragas.dataset_schema.SingleTurnSample(user_input, response, retrieved_contexts, reference)`.
   - Per-query cache: `functools.lru_cache` по `(query_hash, context_hash, metric)`.
 - [ ] **T011** [US1] `libs/eval/runner.py::run_eval`: добавить аргумент `llm_judge: bool = False`; when True → вызов `RagasAdapter.run()`; добавить `ragas: RagasMetrics | None` в `EvalReport`.
 - [ ] **T012** [P] [US1] `libs/eval/report.py`: extend `EvalReport.to_markdown()` — секция «LLM-judge metrics» при наличии `ragas`.
 - [ ] **T013** [US1] Unit-тест `tests/eval/test_ragas_adapter.py`:
-  - mock Anthropic client через `unittest.mock.patch("langchain_anthropic.ChatAnthropic.ainvoke")`.
+  - mock Anthropic client через `unittest.mock.patch("anthropic.Anthropic")` или patch на `InstructorLLM.agenerate`.
   - ассертить: каждая метрика вызывается, cost_guard инкрементируется, cache перехватывает повтор.
 - [ ] **T014** [US1] Integration-тест `tests/eval/test_eval_full.py` (marker `@pytest.mark.eval @pytest.mark.llm`): на sample_repo с кэшированными fixture-LLM ответами; ассертить determinism (два запуска → identical numbers).
 - [ ] **T015** [US1] Pilot-проверка (manual, не CI): запустить `make eval-full` реально на Claude Haiku; записать первые numbers + cost; если cost > $0.50 — настроить кэш агрессивнее.

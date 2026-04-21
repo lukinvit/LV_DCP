@@ -18,10 +18,10 @@
 **Language/Version**: Python 3.12 (как остальной проект).
 
 **Primary Dependencies**:
-- `ragas>=0.2.0` (LLM-judge фреймворк).
-- `langchain-anthropic>=0.2.0` (провайдер для Claude-судьи).
-- `anthropic>=0.40` (уже есть в зависимостях).
+- `ragas>=0.4.3` (LLM-judge фреймворк).
+- `anthropic>=0.40` (уже есть; RAGAS использует native `instructor.from_anthropic`).
 - `promptfoo` CLI (через npm, не pip; запускается `npx promptfoo@latest`).
+- **НЕ нужен** `langchain-anthropic` — validated в research.md (Phase 0).
 - Никаких изменений в `libs/eval/metrics.py`.
 
 **Storage**:
@@ -134,16 +134,16 @@ eval-results/               # NEW (runtime, .gitignore-d except last 5)
 
 ## Phases
 
-### Phase 0 — Research (before code)
+### Phase 0 — Research (before code) — **DONE**
 
-Артефакт `research.md`:
+Артефакт `research.md` (создан):
 
-1. Проверить совместимость RAGAS 0.2.x с `langchain-anthropic` + Claude Haiku 4.5. Минимальный smoke: `ragas.metrics.context_precision` на dummy dataset.
-2. Стоимостная модель: 1 query в RAGAS = ~3 LLM calls × ~500 tokens = ~$0.002; 32 queries = ~$0.06 на Haiku.
+1. ✅ RAGAS 0.4.3 совместим с Anthropic через `llm_factory(provider='anthropic')` — native путь, `langchain-anthropic` не нужен.
+2. Стоимостная модель: 1 query в RAGAS = ~3 LLM calls × ~500 tokens = ~$0.002; 32 queries = ~$0.06 на Haiku (проверка в T015).
 3. promptfoo: `exec` provider vs HTTP provider; exec даёт лучшую изоляцию (запускает `ctx eval --json`).
-4. Как снапшотить RAGAS results для determinism — проверить, есть ли cache в `ragas.run_config`.
-5. Совместимость `@pytest.mark.eval` с новыми фикстурами (никаких breaking).
-6. Как LLM-judge обрабатывает код (а не prose) — проверить на pilot из 5 queries.
+4. Determinism: per-query LRU-cache + `RunConfig`; detailed проверка — T014.
+5. ✅ Non-breaking — новые фикстуры не трогают existing `@pytest.mark.eval`.
+6. Pilot LLM-judge на коде — часть T015.
 
 ### Phase 1 — Design
 
@@ -207,7 +207,7 @@ eval-results/               # NEW (runtime, .gitignore-d except last 5)
 
 | Риск | Impact | Mitigation |
 |------|--------|-----------|
-| RAGAS + anthropic несовместимость | H | Phase 0 smoke, fallback на OpenAI-провайдер если Haiku не работает |
+| ~~RAGAS + anthropic несовместимость~~ | ~~H~~ | ✅ Closed: Phase 0 smoke passed, native `provider='anthropic'` путь |
 | Cost LLM-judge > бюджет | M | `cost_guard.py` + `llm_judge_max_cost_usd`; кэширование per-query results |
 | Promptfoo nodejs cold-start на GHA | M | Cache `~/.npm`, pin версию; таргет 10 мин, есть запас |
 | Variance RAGAS numbers > 5% | M | Кэш per-query + seed; если вариативность не уходит — усреднение 3-х ран |
