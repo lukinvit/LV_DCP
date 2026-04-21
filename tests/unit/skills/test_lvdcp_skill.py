@@ -37,6 +37,8 @@ class TestSkillShape:
             "lvdcp_neighbors",
             "lvdcp_history",
             "lvdcp_cross_project_patterns",
+            "lvdcp_memory_propose",
+            "lvdcp_memory_list",
         ]
         for tool in expected_tools:
             assert tool in text, f"{tool} missing from SKILL.md"

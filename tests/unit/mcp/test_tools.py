@@ -123,3 +123,37 @@ def test_lvdcp_history_reports_filter_and_since(tmp_path: Path) -> None:
     result = lvdcp_history(path=str(tmp_path), since_days=30, filter_path="src/")
     assert result.since_days == 30
     assert result.filter_path == "src/"
+
+
+def test_lvdcp_memory_propose_writes_file(tmp_path: Path) -> None:
+    from apps.mcp.tools import lvdcp_memory_propose
+
+    result = lvdcp_memory_propose(
+        path=str(tmp_path),
+        topic="Auth rotation",
+        body="Use rotate_session_token on refresh.",
+        tags=["auth"],
+    )
+    assert result.memory.status == "proposed"
+    assert "rotate_session_token" in result.memory.body
+    assert Path(result.memory.path).exists()
+    assert "ctx memory accept" in result.review_hint
+
+
+def test_lvdcp_memory_propose_rejects_empty_topic(tmp_path: Path) -> None:
+    from apps.mcp.tools import lvdcp_memory_propose
+
+    with pytest.raises(ValueError, match="memory_rejected"):
+        lvdcp_memory_propose(path=str(tmp_path), topic="", body="x")
+
+
+def test_lvdcp_memory_list_filters_by_status(tmp_path: Path) -> None:
+    from apps.mcp.tools import lvdcp_memory_list, lvdcp_memory_propose
+
+    lvdcp_memory_propose(path=str(tmp_path), topic="first", body="one", tags=None)
+    # list with explicit proposed filter should surface it.
+    listed = lvdcp_memory_list(path=str(tmp_path), status="proposed")
+    assert len(listed.memories) == 1
+    # accepted filter should be empty on a fresh store.
+    accepted = lvdcp_memory_list(path=str(tmp_path), status="accepted")
+    assert accepted.memories == []
