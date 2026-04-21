@@ -120,7 +120,7 @@ description: "Task list for RAGAS + promptfoo eval layer (delta-only)"
         - type: javascript
           value: output.metrics.recall_at_5_files >= baseline.recall_at_5_files - 0.02
   ```
-- [ ] **T028** [US2] Добавить в `ctx eval run`: флаг `--json` для stdout-output (parseable promptfoo).
+- [x] **T028** ✅ `ctx eval run --json` — emit метрики как JSON в stdout. `report_to_dict` вынесен publicly в `libs/eval/history.py` (один источник истины для on-disk + wire). `--save-to` совместим (snapshot message идёт в stderr, чтобы stdout оставался pure JSON). `--baseline` несовместим с `--json`. +3 тестa.
 - [ ] **T029** [US2] `tests/eval/baselines/main.json` — зафиксировать текущий baseline (phase5-final numbers + свеже собранные RAGAS); commit.
 - [ ] **T030** [US2] `.github/workflows/eval.yml`:
   - trigger: `pull_request`, `paths: ['libs/retrieval/**', 'libs/eval/**', 'libs/embeddings/**', 'tests/eval/**']`.

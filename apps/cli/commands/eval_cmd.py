@@ -10,6 +10,7 @@ Three subcommands:
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import typer
@@ -19,6 +20,7 @@ from libs.eval.history import (
 from libs.eval.history import (
     latest_runs,
     load_run,
+    report_to_dict,
     save_run,
 )
 from libs.eval.loader import load_optional_queries_file, load_queries_file
@@ -92,6 +94,11 @@ def run_subcommand(  # noqa: PLR0913
         resolve_path=True,
         help="Also persist a JSON snapshot to this directory (for history / compare).",
     ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit metrics as JSON to stdout (parseable by promptfoo).",
+    ),
 ) -> None:
     """Run the retrieval eval harness against an indexed project."""
     try:
@@ -110,6 +117,19 @@ def run_subcommand(  # noqa: PLR0913
         navigate_queries=navigate,
         impact_queries=impact,
     )
+
+    if json_output:
+        if baseline is not None:
+            typer.echo(
+                "error: --json is incompatible with --baseline (emit each side separately)",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+        typer.echo(json.dumps(report_to_dict(primary), indent=2, sort_keys=True))
+        if save_to is not None:
+            snapshot = save_run(primary, save_to)
+            typer.echo(f"saved snapshot: {snapshot}", err=True)
+        return
 
     if baseline is None:
         report = generate_per_query_report(primary, tag=f"lvdcp @ {project.name}")

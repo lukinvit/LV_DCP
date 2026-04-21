@@ -69,7 +69,7 @@ def save_run(report: EvalReport, out_dir: Path, *, filename: str | None = None) 
     name = filename or datetime.now(tz=UTC).strftime("%Y-%m-%dT%H-%M-%SZ") + ".json"
     target = out_dir / name
 
-    payload = _report_to_dict(report)
+    payload = report_to_dict(report)
     data = json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False)
 
     fd, tmp_path = tempfile.mkstemp(
@@ -148,7 +148,13 @@ def compare(a: EvalReport, b: EvalReport, *, a_label: str = "before", b_label: s
     return DiffReport(deltas=deltas, a_label=a_label, b_label=b_label)
 
 
-def _report_to_dict(report: EvalReport) -> dict[str, Any]:
+def report_to_dict(report: EvalReport) -> dict[str, Any]:
+    """Serialize *report* to a JSON-safe dict (wire + on-disk schema).
+
+    Public because ``ctx eval run --json`` (T028) emits the same shape
+    to stdout for promptfoo; keeping one source of truth prevents
+    wire/on-disk drift.
+    """
     return {
         "schema_version": SCHEMA_VERSION,
         "recall_at_5_files": report.recall_at_5_files,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -192,6 +193,82 @@ def test_eval_history_lists_saved_runs(
     assert history_result.exit_code == 0, history_result.stdout
     assert "| run |" in history_result.stdout
     assert ".json" in history_result.stdout
+
+
+def test_eval_run_json_emits_machine_readable_metrics(
+    indexed_project: Path, queries_file: Path
+) -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "eval",
+            "run",
+            str(indexed_project),
+            "--queries",
+            str(queries_file),
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["schema_version"] == 1
+    for key in (
+        "recall_at_5_files",
+        "precision_at_3_files",
+        "recall_at_5_symbols",
+        "mrr_files",
+        "impact_recall_at_5",
+    ):
+        assert isinstance(payload[key], (int, float)), key
+    assert isinstance(payload["query_results"], list)
+    assert payload["ragas"] is None  # no LLM judge wired in from CLI
+
+
+def test_eval_run_json_rejects_baseline(
+    indexed_project: Path, queries_file: Path
+) -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "eval",
+            "run",
+            str(indexed_project),
+            "--queries",
+            str(queries_file),
+            "--json",
+            "--baseline",
+            "aider",
+        ],
+    )
+    assert result.exit_code == 2
+
+
+def test_eval_run_json_with_save_to(
+    indexed_project: Path, queries_file: Path, tmp_path: Path
+) -> None:
+    save_dir = tmp_path / "runs"
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "eval",
+            "run",
+            str(indexed_project),
+            "--queries",
+            str(queries_file),
+            "--json",
+            "--save-to",
+            str(save_dir),
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    # stdout must be pure JSON so promptfoo can parse it;
+    # the "saved snapshot:" message goes to stderr.
+    payload = json.loads(result.stdout)
+    assert payload["schema_version"] == 1
+    assert len(list(save_dir.glob("*.json"))) == 1
 
 
 def test_eval_compare_diffs_two_snapshots(
