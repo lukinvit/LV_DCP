@@ -1,0 +1,738 @@
+{
+  "impact_recall_at_5": 0.9305555555555555,
+  "mrr_files": 0.96875,
+  "precision_at_3_files": 0.6979166666666666,
+  "query_results": [
+    {
+      "expected_files": [
+        "app/models/user.py"
+      ],
+      "expected_symbols": [
+        "app.models.user.User"
+      ],
+      "mode": "navigate",
+      "query_id": "q01-user-model",
+      "retrieved_files": [
+        "app/services/auth.py",
+        "app/models/user.py"
+      ],
+      "retrieved_symbols": [
+        "app.models.user.User",
+        "app.services.auth.current_user",
+        "app.models.user.Base",
+        "app.models.user.User.is_locked"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/models/session.py",
+        "app/services/auth.py"
+      ],
+      "expected_symbols": [
+        "app.models.session.Session"
+      ],
+      "mode": "navigate",
+      "query_id": "q02-session-model",
+      "retrieved_files": [
+        "app/services/auth.py",
+        "app/models/session.py",
+        "app/services/db.py"
+      ],
+      "retrieved_symbols": [
+        "app.models.session.Session",
+        "app.services.auth.refresh_access_token",
+        "app.services.db.get_session"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/handlers/auth.py"
+      ],
+      "expected_symbols": [
+        "app.handlers.auth.login"
+      ],
+      "mode": "navigate",
+      "query_id": "q03-login-route",
+      "retrieved_files": [
+        "app/handlers/auth.py"
+      ],
+      "retrieved_symbols": [
+        "app.handlers.auth.login"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/handlers/auth.py",
+        "app/services/auth.py"
+      ],
+      "expected_symbols": [
+        "app.services.auth.refresh_access_token",
+        "app.handlers.auth.refresh"
+      ],
+      "mode": "navigate",
+      "query_id": "q04-refresh-flow",
+      "retrieved_files": [
+        "app/services/auth.py",
+        "app/handlers/auth.py"
+      ],
+      "retrieved_symbols": [
+        "app.services.auth.refresh_access_token",
+        "app.handlers.auth.refresh",
+        "app.services.auth.REFRESH_TTL"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/services/auth.py",
+        "app/handlers/auth.py"
+      ],
+      "expected_symbols": [
+        "app.services.auth.authenticate",
+        "app.services.auth.hash_password"
+      ],
+      "mode": "navigate",
+      "query_id": "q05-authenticate",
+      "retrieved_files": [
+        "app/services/auth.py",
+        "app/handlers/auth.py",
+        "tests/test_auth.py",
+        "app/models/user.py",
+        "docs/architecture.md"
+      ],
+      "retrieved_symbols": [
+        "app.handlers.auth.login",
+        "app.handlers.auth.refresh",
+        "app.services.auth.ACCESS_TTL",
+        "app.services.auth.REFRESH_TTL",
+        "app.services.auth.hash_password",
+        "app.services.auth.authenticate",
+        "app.services.auth.issue_tokens",
+        "app.services.auth.refresh_access_token",
+        "app.services.auth.current_user"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/services/auth.py"
+      ],
+      "expected_symbols": [
+        "app.services.auth.current_user"
+      ],
+      "mode": "navigate",
+      "query_id": "q06-current-user",
+      "retrieved_files": [
+        "app/services/auth.py"
+      ],
+      "retrieved_symbols": [
+        "app.services.auth.refresh_access_token",
+        "app.models.user.User",
+        "app.services.auth.ACCESS_TTL",
+        "app.services.auth.current_user",
+        "app.models.user.Base",
+        "app.models.user.User.is_locked"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/handlers/profile.py"
+      ],
+      "expected_symbols": [
+        "app.handlers.profile.me"
+      ],
+      "mode": "navigate",
+      "query_id": "q07-profile-route",
+      "retrieved_files": [
+        "app/handlers/profile.py",
+        "app/main.py"
+      ],
+      "retrieved_symbols": [
+        "app.handlers.profile.me",
+        "app.main.lifespan",
+        "app.main.health"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/services/db.py",
+        "config/settings.yaml"
+      ],
+      "expected_symbols": [
+        "app.services.db.init_db",
+        "app.services.db.close_db"
+      ],
+      "mode": "navigate",
+      "query_id": "q08-db-lifecycle",
+      "retrieved_files": [
+        "app/services/db.py",
+        "config/settings.yaml"
+      ],
+      "retrieved_symbols": [
+        "app.services.db.init_db",
+        "app.services.db.close_db",
+        "app.services.db.get_session"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/services/db.py"
+      ],
+      "expected_symbols": [
+        "app.services.db.get_session"
+      ],
+      "mode": "navigate",
+      "query_id": "q09-session-factory",
+      "retrieved_files": [
+        "app/services/db.py",
+        "app/models/session.py"
+      ],
+      "retrieved_symbols": [
+        "app.models.session.Session",
+        "app.services.db.get_session"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/workers/cleanup.py"
+      ],
+      "expected_symbols": [
+        "app.workers.cleanup.cleanup_expired_sessions"
+      ],
+      "mode": "navigate",
+      "query_id": "q10-cleanup-worker",
+      "retrieved_files": [
+        "app/workers/cleanup.py"
+      ],
+      "retrieved_symbols": [
+        "app.workers.cleanup.cleanup_expired_sessions"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/main.py"
+      ],
+      "expected_symbols": [
+        "app.main.app",
+        "app.main.lifespan"
+      ],
+      "mode": "navigate",
+      "query_id": "q11-app-entrypoint",
+      "retrieved_files": [
+        "app/main.py",
+        "app/handlers/profile.py",
+        "app/handlers/auth.py"
+      ],
+      "retrieved_symbols": [
+        "app.main.lifespan",
+        "app.main.health",
+        "app.models.user.Base",
+        "app.models.user.User",
+        "app.models.user.User.is_locked",
+        "app.models.session.Session",
+        "app.workers.cleanup.cleanup_expired_sessions",
+        "app.handlers.auth.login",
+        "app.handlers.auth.refresh",
+        "app.handlers.profile.me"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/main.py"
+      ],
+      "expected_symbols": [
+        "app.main.health"
+      ],
+      "mode": "navigate",
+      "query_id": "q12-health-route",
+      "retrieved_files": [
+        "app/main.py"
+      ],
+      "retrieved_symbols": [
+        "app.main.health"
+      ]
+    },
+    {
+      "expected_files": [
+        "tests/test_auth.py",
+        "app/services/auth.py"
+      ],
+      "expected_symbols": [],
+      "mode": "navigate",
+      "query_id": "q13-auth-tests",
+      "retrieved_files": [
+        "tests/test_auth.py",
+        "tests/test_cleanup.py",
+        "app/services/auth.py"
+      ],
+      "retrieved_symbols": [
+        "tests.test_auth.test_hash_password_is_deterministic",
+        "tests.test_auth.test_hash_password_changes_with_input",
+        "tests.test_cleanup.test_cleanup_marker"
+      ]
+    },
+    {
+      "expected_files": [
+        "docs/architecture.md"
+      ],
+      "expected_symbols": [],
+      "mode": "navigate",
+      "query_id": "q14-architecture-doc",
+      "retrieved_files": [
+        "docs/architecture.md",
+        "app/services/auth.py"
+      ],
+      "retrieved_symbols": [
+        "app.services.auth.ACCESS_TTL",
+        "app.services.auth.REFRESH_TTL",
+        "app.services.auth.hash_password",
+        "app.services.auth.authenticate",
+        "app.services.auth.issue_tokens",
+        "app.services.auth.refresh_access_token",
+        "app.services.auth.current_user"
+      ]
+    },
+    {
+      "expected_files": [
+        "config/settings.yaml",
+        "app/services/db.py"
+      ],
+      "expected_symbols": [],
+      "mode": "navigate",
+      "query_id": "q15-db-config",
+      "retrieved_files": [
+        "config/settings.yaml",
+        "app/services/db.py"
+      ],
+      "retrieved_symbols": [
+        "app.services.db.init_db",
+        "app.services.db.close_db",
+        "app.services.db.get_session"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/services/auth.py",
+        "config/settings.yaml"
+      ],
+      "expected_symbols": [
+        "app.services.auth.ACCESS_TTL"
+      ],
+      "mode": "navigate",
+      "query_id": "q16-access-ttl",
+      "retrieved_files": [
+        "app/services/auth.py",
+        "config/settings.yaml"
+      ],
+      "retrieved_symbols": [
+        "app.services.auth.refresh_access_token",
+        "app.services.auth.ACCESS_TTL"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/models/user.py"
+      ],
+      "expected_symbols": [
+        "app.models.user.User.is_locked"
+      ],
+      "mode": "navigate",
+      "query_id": "q17-user-is-locked",
+      "retrieved_files": [
+        "app/models/user.py",
+        "app/services/auth.py"
+      ],
+      "retrieved_symbols": [
+        "app.models.user.User.is_locked",
+        "app.models.user.User",
+        "app.services.auth.current_user",
+        "app.models.user.Base"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/services/auth.py"
+      ],
+      "expected_symbols": [
+        "app.services.auth.hash_password"
+      ],
+      "mode": "navigate",
+      "query_id": "q18-password-hashing",
+      "retrieved_files": [
+        "app/services/auth.py",
+        "tests/test_auth.py"
+      ],
+      "retrieved_symbols": [
+        "tests.test_auth.test_hash_password_is_deterministic",
+        "tests.test_auth.test_hash_password_changes_with_input",
+        "app.services.auth.hash_password"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/handlers/auth.py",
+        "app/services/auth.py",
+        "tests/test_auth.py"
+      ],
+      "expected_symbols": [
+        "app.handlers.auth.login",
+        "app.services.auth.authenticate"
+      ],
+      "mode": "edit",
+      "query_id": "q19-edit-login",
+      "retrieved_files": [
+        "app/handlers/auth.py",
+        "app/services/auth.py",
+        "app/models/user.py",
+        "app/services/db.py"
+      ],
+      "retrieved_symbols": [
+        "app.handlers.auth.login",
+        "app.services.auth.ACCESS_TTL",
+        "app.services.auth.REFRESH_TTL",
+        "app.services.auth.hash_password",
+        "app.services.auth.authenticate",
+        "app.services.auth.issue_tokens",
+        "app.services.auth.refresh_access_token",
+        "app.services.auth.current_user"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/workers/cleanup.py",
+        "config/settings.yaml"
+      ],
+      "expected_symbols": [
+        "app.workers.cleanup.cleanup_expired_sessions"
+      ],
+      "mode": "edit",
+      "query_id": "q20-edit-cleanup-schedule",
+      "retrieved_files": [
+        "tests/test_cleanup.py",
+        "app/workers/cleanup.py",
+        "config/settings.yaml",
+        "app/models/session.py"
+      ],
+      "retrieved_symbols": [
+        "tests.test_cleanup.test_cleanup_marker",
+        "app.workers.cleanup.cleanup_expired_sessions"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/models/session.py",
+        "app/services/auth.py",
+        "app/workers/cleanup.py",
+        "tests/test_cleanup.py"
+      ],
+      "expected_symbols": [
+        "app.models.session.Session",
+        "app.services.auth.issue_tokens",
+        "app.workers.cleanup.cleanup_expired_sessions"
+      ],
+      "mode": "edit",
+      "query_id": "i01-session-storage-change",
+      "retrieved_files": [
+        "app/services/auth.py",
+        "app/models/session.py",
+        "app/services/db.py",
+        "tests/test_auth.py",
+        "app/handlers/auth.py",
+        "app/handlers/profile.py",
+        "app/models/user.py",
+        "app/workers/cleanup.py"
+      ],
+      "retrieved_symbols": [
+        "app.models.session.Session",
+        "app.services.auth.issue_tokens",
+        "app.services.db.get_session"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/services/auth.py",
+        "app/handlers/auth.py",
+        "tests/test_auth.py"
+      ],
+      "expected_symbols": [
+        "app.services.auth.hash_password",
+        "app.services.auth.authenticate"
+      ],
+      "mode": "edit",
+      "query_id": "i02-password-hash-tighten",
+      "retrieved_files": [
+        "app/services/auth.py",
+        "tests/test_auth.py",
+        "app/handlers/auth.py",
+        "app/handlers/profile.py",
+        "app/models/session.py",
+        "app/models/user.py"
+      ],
+      "retrieved_symbols": [
+        "tests.test_auth.test_hash_password_is_deterministic",
+        "tests.test_auth.test_hash_password_changes_with_input",
+        "app.services.auth.hash_password"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/handlers/auth.py",
+        "app/services/auth.py"
+      ],
+      "expected_symbols": [
+        "app.handlers.auth.login",
+        "app.services.auth.issue_tokens"
+      ],
+      "mode": "edit",
+      "query_id": "i03-login-response-shape",
+      "retrieved_files": [
+        "app/handlers/auth.py",
+        "app/services/auth.py",
+        "app/models/user.py",
+        "app/services/db.py"
+      ],
+      "retrieved_symbols": [
+        "app.handlers.auth.login",
+        "app.services.auth.ACCESS_TTL",
+        "app.services.auth.REFRESH_TTL",
+        "app.services.auth.hash_password",
+        "app.services.auth.authenticate",
+        "app.services.auth.issue_tokens",
+        "app.services.auth.refresh_access_token",
+        "app.services.auth.current_user"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/services/auth.py",
+        "config/settings.yaml"
+      ],
+      "expected_symbols": [
+        "app.services.auth.ACCESS_TTL"
+      ],
+      "mode": "edit",
+      "query_id": "i04-access-ttl-reduction",
+      "retrieved_files": [
+        "app/services/auth.py",
+        "tests/test_auth.py",
+        "config/settings.yaml",
+        "app/handlers/auth.py",
+        "app/handlers/profile.py",
+        "app/models/session.py",
+        "app/models/user.py"
+      ],
+      "retrieved_symbols": [
+        "app.services.auth.refresh_access_token",
+        "app.services.auth.ACCESS_TTL",
+        "tests.test_auth.test_hash_password_is_deterministic",
+        "tests.test_auth.test_hash_password_changes_with_input"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/workers/cleanup.py",
+        "config/settings.yaml"
+      ],
+      "expected_symbols": [
+        "app.workers.cleanup.cleanup_expired_sessions"
+      ],
+      "mode": "edit",
+      "query_id": "i05-cleanup-schedule-change",
+      "retrieved_files": [
+        "app/workers/cleanup.py",
+        "tests/test_cleanup.py",
+        "config/settings.yaml",
+        "app/models/session.py"
+      ],
+      "retrieved_symbols": [
+        "tests.test_cleanup.test_cleanup_marker",
+        "app.workers.cleanup.cleanup_expired_sessions"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/services/db.py",
+        "app/main.py",
+        "config/settings.yaml"
+      ],
+      "expected_symbols": [
+        "app.services.db.init_db",
+        "app.services.db.get_session"
+      ],
+      "mode": "edit",
+      "query_id": "i06-db-connection-migration",
+      "retrieved_files": [
+        "config/settings.yaml",
+        "app/services/db.py",
+        "pyproject.toml",
+        "CLAUDE.md",
+        "app/handlers/auth.py",
+        "app/services/auth.py",
+        "README.md"
+      ],
+      "retrieved_symbols": [
+        "app.services.db.init_db",
+        "app.services.db.close_db",
+        "app.services.db.get_session"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/services/auth.py",
+        "app/handlers/profile.py"
+      ],
+      "expected_symbols": [
+        "app.services.auth.current_user",
+        "app.handlers.profile.me"
+      ],
+      "mode": "edit",
+      "query_id": "i07-current-user-auth-upgrade",
+      "retrieved_files": [
+        "app/services/auth.py",
+        "tests/test_auth.py",
+        "app/models/user.py",
+        "app/handlers/auth.py",
+        "app/handlers/profile.py",
+        "app/models/session.py"
+      ],
+      "retrieved_symbols": [
+        "app.services.auth.current_user",
+        "app.models.user.User",
+        "app.models.user.Base",
+        "app.models.user.User.is_locked",
+        "tests.test_auth.test_hash_password_is_deterministic",
+        "tests.test_auth.test_hash_password_changes_with_input"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/models/user.py",
+        "app/services/auth.py"
+      ],
+      "expected_symbols": [
+        "app.models.user.User",
+        "app.services.auth.authenticate"
+      ],
+      "mode": "edit",
+      "query_id": "i08-user-model-email-uniqueness",
+      "retrieved_files": [
+        "app/models/user.py",
+        "app/services/auth.py",
+        "tests/test_auth.py",
+        "app/handlers/auth.py",
+        "app/handlers/profile.py",
+        "app/models/session.py"
+      ],
+      "retrieved_symbols": [
+        "app.models.user.User",
+        "app.services.auth.current_user",
+        "app.models.user.Base",
+        "app.models.user.User.is_locked"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/models/session.py",
+        "app/services/auth.py"
+      ],
+      "expected_symbols": [
+        "app.models.session.Session",
+        "app.services.auth.refresh_access_token"
+      ],
+      "mode": "edit",
+      "query_id": "i09-session-table-index",
+      "retrieved_files": [
+        "app/services/auth.py",
+        "app/models/session.py",
+        "tests/test_auth.py",
+        "app/handlers/auth.py",
+        "app/handlers/profile.py",
+        "app/models/user.py"
+      ],
+      "retrieved_symbols": [
+        "app.services.auth.refresh_access_token",
+        "app.models.session.Session",
+        "app.handlers.auth.refresh",
+        "app.services.auth.REFRESH_TTL",
+        "app.services.db.get_session"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/main.py",
+        "app/services/db.py"
+      ],
+      "expected_symbols": [
+        "app.main.lifespan",
+        "app.services.db.init_db"
+      ],
+      "mode": "edit",
+      "query_id": "i10-lifespan-init-order",
+      "retrieved_files": [
+        "app/main.py",
+        "app/services/db.py",
+        "config/logging.json",
+        "config/settings.yaml"
+      ],
+      "retrieved_symbols": [
+        "app.main.lifespan",
+        "app.services.db.init_db"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/models/user.py"
+      ],
+      "expected_symbols": [
+        "app.models.user.User",
+        "app.models.user.User.is_locked"
+      ],
+      "mode": "edit",
+      "query_id": "i11-is-locked-add-reason",
+      "retrieved_files": [
+        "app/models/user.py",
+        "app/services/auth.py",
+        "tests/test_auth.py",
+        "app/handlers/auth.py",
+        "app/handlers/profile.py",
+        "app/models/session.py"
+      ],
+      "retrieved_symbols": [
+        "app.models.user.User.is_locked",
+        "app.models.user.User",
+        "app.services.auth.current_user",
+        "app.models.user.Base"
+      ]
+    },
+    {
+      "expected_files": [
+        "app/handlers/profile.py",
+        "app/models/user.py"
+      ],
+      "expected_symbols": [
+        "app.handlers.profile.me",
+        "app.models.user.User"
+      ],
+      "mode": "edit",
+      "query_id": "i12-profile-endpoint-fields",
+      "retrieved_files": [
+        "app/handlers/profile.py",
+        "app/models/user.py",
+        "app/services/auth.py",
+        "app/handlers/auth.py",
+        "app/models/session.py",
+        "app/main.py",
+        "tests/test_auth.py",
+        "app/services/db.py"
+      ],
+      "retrieved_symbols": [
+        "app.handlers.profile.me",
+        "app.models.user.Base",
+        "app.models.user.User",
+        "app.models.user.User.is_locked"
+      ]
+    }
+  ],
+  "ragas": null,
+  "recall_at_5_files": 0.9635416666666666,
+  "recall_at_5_symbols": 0.8958333333333334,
+  "schema_version": 1
+}

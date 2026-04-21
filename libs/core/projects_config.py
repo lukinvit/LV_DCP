@@ -105,6 +105,14 @@ class StorageConfig(BaseModel):
     encryption_key_env: str | None = None
 
 
+class EvalConfig(BaseModel):
+    """Eval harness configuration (see specs/006-ragas-promptfoo-eval)."""
+
+    judge_model: str = "claude-haiku-4-5"
+    llm_judge_max_cost_usd: float = Field(default=1.0, gt=0)
+    cache_ragas_responses: bool = True
+
+
 class DaemonConfig(BaseModel):
     version: int = Field(default=1)
     projects: list[ProjectEntry] = Field(default_factory=list)
@@ -114,6 +122,7 @@ class DaemonConfig(BaseModel):
     obsidian: ObsidianConfig = Field(default_factory=ObsidianConfig)
     wiki: WikiConfig = Field(default_factory=WikiConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
+    eval: EvalConfig = Field(default_factory=EvalConfig)
 
 
 def load_config(path: Path) -> DaemonConfig:

@@ -66,7 +66,7 @@ app.command()(pack_module.pack)
 app.command()(setup_module.setup)
 app.command()(summarize_module.summarize)
 app.command()(ui_module.ui)
-app.command("eval")(eval_module.eval_cmd)
+app.add_typer(eval_module.app, name="eval")
 
 app.add_typer(mcp_cmd.app, name="mcp")
 app.add_typer(watch_cmd.app, name="watch")

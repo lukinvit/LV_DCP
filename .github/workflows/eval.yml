@@ -1,0 +1,177 @@
+name: Retrieval Eval (promptfoo gate)
+
+# Trigger only on PRs that touch files capable of regressing retrieval.
+# Scope kept narrow to avoid burning CI minutes on doc-only PRs.
+"on":
+  pull_request:
+    paths:
+      - "libs/retrieval/**"
+      - "libs/eval/**"
+      - "libs/embeddings/**"
+      - "libs/project_index/**"
+      - "libs/scanning/**"
+      - "tests/eval/**"
+      - ".github/workflows/eval.yml"
+  workflow_dispatch:
+    inputs:
+      refresh_baseline:
+        description: "Refresh tests/eval/baselines/main.json (commits back to PR)"
+        type: boolean
+        default: false
+
+jobs:
+  promptfoo:
+    name: Promptfoo regression gate
+    # Skip the auto gate when user explicitly dispatched a baseline refresh.
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.refresh_baseline }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install Python deps (with eval extras)
+        run: uv sync --extra eval
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Index sample_repo (scan)
+        run: uv run ctx scan tests/eval/fixtures/sample_repo
+
+      - name: Run promptfoo gate
+        id: promptfoo
+        run: |
+          npx -y promptfoo@latest eval \
+            -c tests/eval/promptfoo.config.yaml \
+            --output promptfoo-output.json \
+            || echo "PROMPTFOO_FAILED=1" >> "$GITHUB_ENV"
+        continue-on-error: true
+
+      - name: Upload promptfoo artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: promptfoo-output
+          path: promptfoo-output.json
+          if-no-files-found: ignore
+
+      - name: Comment on PR with regression diff
+        if: env.PROMPTFOO_FAILED == '1' && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = 'promptfoo-output.json';
+            if (!fs.existsSync(path)) {
+              core.warning('promptfoo-output.json missing — nothing to report.');
+              return;
+            }
+            const data = JSON.parse(fs.readFileSync(path, 'utf8'));
+            const failures = [];
+            const results = (data.results && data.results.results) || data.results || [];
+            for (const r of results) {
+              for (const g of (r.gradingResult?.componentResults || [])) {
+                if (g.pass === false) {
+                  failures.push(`- ❌ ${g.reason || 'assertion failed'}`);
+                }
+              }
+            }
+            const body = [
+              '### Retrieval eval regression detected',
+              '',
+              'One or more retrieval metrics regressed by more than the 2pp tolerance vs `tests/eval/baselines/main.json`.',
+              '',
+              failures.length ? failures.join('\n') : '_See the `promptfoo-output` artifact for details._',
+              '',
+              'To accept this regression intentionally, update the baseline:',
+              '',
+              '```',
+              'gh workflow run eval.yml -f refresh_baseline=true --ref ${{ github.head_ref }}',
+              '```',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+
+      - name: Fail job if promptfoo failed
+        if: env.PROMPTFOO_FAILED == '1'
+        run: |
+          echo "promptfoo eval reported regressions (see comment on the PR)."
+          exit 1
+
+  # Manual baseline refresh. Label-gated path documented in docs/operations/ci-eval.md.
+  # Runs only on workflow_dispatch with refresh_baseline=true.
+  baseline-refresh:
+    name: Refresh baseline (manual)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_baseline }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install Python deps (with eval extras)
+        run: uv sync --extra eval
+
+      - name: Index sample_repo
+        run: uv run ctx scan tests/eval/fixtures/sample_repo
+
+      - name: Capture new baseline
+        run: |
+          uv run python -c "
+          import json
+          from pathlib import Path
+          from libs.scanning.scanner import scan_project
+          from libs.project_index.index import ProjectIndex
+          from libs.eval.history import report_to_dict
+          from tests.eval.run_eval import run_eval, FIXTURE_REPO
+
+          def retrieve(q, m, p):
+              with ProjectIndex.open(p) as idx:
+                  r = idx.retrieve(q, mode=m, limit=10)
+                  return list(r.files), list(r.symbols)
+
+          report = run_eval(retrieve)
+          Path('tests/eval/baselines/main.json').write_text(
+              json.dumps(report_to_dict(report), indent=2, sort_keys=True, ensure_ascii=False) + chr(10),
+              encoding='utf-8',
+          )
+          "
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add tests/eval/baselines/main.json
+          if git diff --cached --quiet; then
+            echo "baseline unchanged — nothing to commit"
+            exit 0
+          fi
+          git commit -m "chore(eval): refresh baseline via workflow_dispatch"
+          git push

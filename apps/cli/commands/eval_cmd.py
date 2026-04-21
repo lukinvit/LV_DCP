@@ -1,23 +1,40 @@
-"""`ctx eval <project> [--queries ...]` — run retrieval eval on an indexed project.
+"""``ctx eval`` — retrieval eval harness and history (see specs/006, T018).
 
-Exposes the eval harness (previously pytest-only) as a CLI so users can
-benchmark retrieval quality on their own repositories with their own
-queries. Two modes:
+Three subcommands:
 
-- Default: run LV_DCP retrieval against the queries and print a summary.
-- ``--baseline aider``: also run the Aider repo-map baseline and print a
-  side-by-side comparison table.
+- ``ctx eval run <project> --queries PATH [--output PATH] [--save-to DIR]
+  [--baseline aider]`` — run the eval harness and print a Markdown report.
+- ``ctx eval compare <a> <b>`` — diff two saved runs.
+- ``ctx eval history [--dir DIR] [--limit N]`` — list recent saved runs.
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import typer
+from libs.eval.history import (
+    compare as compare_reports,
+)
+from libs.eval.history import (
+    latest_runs,
+    load_run,
+    report_to_dict,
+    save_run,
+)
 from libs.eval.loader import load_optional_queries_file, load_queries_file
 from libs.eval.report import generate_comparison_report, generate_per_query_report
 from libs.eval.runner import run_eval
 from libs.project_index.index import ProjectIndex, ProjectNotIndexedError
+
+DEFAULT_HISTORY_DIR = Path("eval-results")
+
+app = typer.Typer(
+    name="eval",
+    help="Run the retrieval eval harness and inspect run history.",
+    no_args_is_help=True,
+)
 
 
 def _lvdcp_retriever(query: str, mode: str, repo: Path) -> tuple[list[str], list[str]]:
@@ -27,7 +44,8 @@ def _lvdcp_retriever(query: str, mode: str, repo: Path) -> tuple[list[str], list
         return list(result.files), list(result.symbols)
 
 
-def eval_cmd(
+@app.command("run")
+def run_subcommand(  # noqa: PLR0913
     project: Path = typer.Argument(  # noqa: B008
         ...,
         exists=True,
@@ -68,6 +86,19 @@ def eval_cmd(
         resolve_path=True,
         help="Write the markdown report to this file instead of stdout.",
     ),
+    save_to: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--save-to",
+        file_okay=False,
+        dir_okay=True,
+        resolve_path=True,
+        help="Also persist a JSON snapshot to this directory (for history / compare).",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit metrics as JSON to stdout (parseable by promptfoo).",
+    ),
 ) -> None:
     """Run the retrieval eval harness against an indexed project."""
     try:
@@ -87,14 +118,23 @@ def eval_cmd(
         impact_queries=impact,
     )
 
+    if json_output:
+        if baseline is not None:
+            typer.echo(
+                "error: --json is incompatible with --baseline (emit each side separately)",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+        typer.echo(json.dumps(report_to_dict(primary), indent=2, sort_keys=True))
+        if save_to is not None:
+            snapshot = save_run(primary, save_to)
+            typer.echo(f"saved snapshot: {snapshot}", err=True)
+        return
+
     if baseline is None:
         report = generate_per_query_report(primary, tag=f"lvdcp @ {project.name}")
     elif baseline == "aider":
         try:
-            # Importing from tests/ because the baseline is a benchmarking
-            # artifact, not a shipped retriever. When the package is installed
-            # without tests/ on PYTHONPATH, this branch is unavailable and the
-            # command must be told so explicitly.
             from tests.eval.baselines.aider_repomap import (  # noqa: PLC0415
                 aider_baseline_retrieve,
             )
@@ -126,3 +166,90 @@ def eval_cmd(
         typer.echo(f"wrote: {output}")
     else:
         typer.echo(report)
+
+    if save_to is not None:
+        snapshot = save_run(primary, save_to)
+        typer.echo(f"saved snapshot: {snapshot}")
+
+
+@app.command("compare")
+def compare_subcommand(
+    before: Path = typer.Argument(  # noqa: B008
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        resolve_path=True,
+        help="Path to the baseline snapshot JSON.",
+    ),
+    after: Path = typer.Argument(  # noqa: B008
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        resolve_path=True,
+        help="Path to the candidate snapshot JSON.",
+    ),
+) -> None:
+    """Print a metric-level diff between two saved eval runs."""
+    a_report = load_run(before)
+    b_report = load_run(after)
+    diff = compare_reports(
+        a_report,
+        b_report,
+        a_label=before.stem,
+        b_label=after.stem,
+    )
+
+    lines = [
+        f"| metric | {diff.a_label} | {diff.b_label} | delta |",
+        "|---|---|---|---|",
+    ]
+    for d in diff.deltas:
+        before_s = "—" if d.before is None else f"{d.before:.3f}"
+        after_s = "—" if d.after is None else f"{d.after:.3f}"
+        delta_s = (
+            "—"
+            if d.delta is None
+            else ("+" if d.delta >= 0 else "") + f"{d.delta:.3f}"
+        )
+        lines.append(f"| {d.name} | {before_s} | {after_s} | {delta_s} |")
+    typer.echo("\n".join(lines))
+
+
+@app.command("history")
+def history_subcommand(
+    directory: Path = typer.Option(  # noqa: B008
+        DEFAULT_HISTORY_DIR,
+        "--dir",
+        file_okay=False,
+        dir_okay=True,
+        resolve_path=True,
+        help="Directory containing saved eval run snapshots.",
+    ),
+    limit: int = typer.Option(10, "--limit", min=1, help="Max entries to list."),
+) -> None:
+    """List the most recent saved eval runs with their headline metrics."""
+    runs = latest_runs(directory, limit=limit)
+    if not runs:
+        typer.echo(f"no eval runs in {directory}")
+        return
+
+    lines = [
+        "| run | recall@5 | precision@3 | symbols@5 | mrr | impact | ragas cp |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for path in runs:
+        r = load_run(path)
+        cp = "—" if r.ragas is None or r.ragas.context_precision is None else f"{r.ragas.context_precision:.3f}"
+        lines.append(
+            f"| {path.name} | {r.recall_at_5_files:.3f} | "
+            f"{r.precision_at_3_files:.3f} | {r.recall_at_5_symbols:.3f} | "
+            f"{r.mrr_files:.3f} | {r.impact_recall_at_5:.3f} | {cp} |"
+        )
+    typer.echo("\n".join(lines))
+
+
+# Legacy name kept for backwards-compat imports elsewhere (e.g. main.py before
+# the refactor referenced ``eval_cmd``). New callers should import ``app``.
+eval_cmd = run_subcommand

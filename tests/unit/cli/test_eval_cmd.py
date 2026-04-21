@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -53,7 +54,7 @@ def test_eval_cmd_prints_markdown_report(indexed_project: Path, queries_file: Pa
     runner = CliRunner()
     result = runner.invoke(
         app,
-        ["eval", str(indexed_project), "--queries", str(queries_file)],
+        ["eval", "run", str(indexed_project), "--queries", str(queries_file)],
     )
     assert result.exit_code == 0, result.stdout
     assert "# Eval Report" in result.stdout
@@ -70,6 +71,7 @@ def test_eval_cmd_writes_output_file(
         app,
         [
             "eval",
+            "run",
             str(indexed_project),
             "--queries",
             str(queries_file),
@@ -88,7 +90,7 @@ def test_eval_cmd_rejects_unindexed_project(tmp_path: Path, queries_file: Path) 
     runner = CliRunner()
     result = runner.invoke(
         app,
-        ["eval", str(plain), "--queries", str(queries_file)],
+        ["eval", "run", str(plain), "--queries", str(queries_file)],
     )
     assert result.exit_code == 2
     # typer echoes err=True to stderr; accept either channel.
@@ -102,6 +104,7 @@ def test_eval_cmd_rejects_unknown_baseline(indexed_project: Path, queries_file: 
         app,
         [
             "eval",
+            "run",
             str(indexed_project),
             "--queries",
             str(queries_file),
@@ -118,6 +121,7 @@ def test_eval_cmd_aider_baseline_runs(indexed_project: Path, queries_file: Path)
         app,
         [
             "eval",
+            "run",
             str(indexed_project),
             "--queries",
             str(queries_file),
@@ -129,3 +133,177 @@ def test_eval_cmd_aider_baseline_runs(indexed_project: Path, queries_file: Path)
     assert result.exit_code == 0, result.stdout
     assert "Eval Comparison" in result.stdout
     assert "Aider baseline" in result.stdout
+
+
+def test_eval_run_save_to_persists_snapshot(
+    indexed_project: Path, queries_file: Path, tmp_path: Path
+) -> None:
+    save_dir = tmp_path / "runs"
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "eval",
+            "run",
+            str(indexed_project),
+            "--queries",
+            str(queries_file),
+            "--save-to",
+            str(save_dir),
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    snapshots = list(save_dir.glob("*.json"))
+    assert len(snapshots) == 1
+    assert "saved snapshot:" in result.stdout
+
+
+def test_eval_history_reports_no_runs(tmp_path: Path) -> None:
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    runner = CliRunner()
+    result = runner.invoke(app, ["eval", "history", "--dir", str(empty)])
+    assert result.exit_code == 0, result.stdout
+    assert "no eval runs" in result.stdout
+
+
+def test_eval_history_lists_saved_runs(
+    indexed_project: Path, queries_file: Path, tmp_path: Path
+) -> None:
+    save_dir = tmp_path / "runs"
+    runner = CliRunner()
+    # First save a run so there's something to list.
+    save_result = runner.invoke(
+        app,
+        [
+            "eval",
+            "run",
+            str(indexed_project),
+            "--queries",
+            str(queries_file),
+            "--save-to",
+            str(save_dir),
+        ],
+    )
+    assert save_result.exit_code == 0, save_result.stdout
+
+    history_result = runner.invoke(
+        app, ["eval", "history", "--dir", str(save_dir), "--limit", "5"]
+    )
+    assert history_result.exit_code == 0, history_result.stdout
+    assert "| run |" in history_result.stdout
+    assert ".json" in history_result.stdout
+
+
+def test_eval_run_json_emits_machine_readable_metrics(
+    indexed_project: Path, queries_file: Path
+) -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "eval",
+            "run",
+            str(indexed_project),
+            "--queries",
+            str(queries_file),
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["schema_version"] == 1
+    for key in (
+        "recall_at_5_files",
+        "precision_at_3_files",
+        "recall_at_5_symbols",
+        "mrr_files",
+        "impact_recall_at_5",
+    ):
+        assert isinstance(payload[key], (int, float)), key
+    assert isinstance(payload["query_results"], list)
+    assert payload["ragas"] is None  # no LLM judge wired in from CLI
+
+
+def test_eval_run_json_rejects_baseline(
+    indexed_project: Path, queries_file: Path
+) -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "eval",
+            "run",
+            str(indexed_project),
+            "--queries",
+            str(queries_file),
+            "--json",
+            "--baseline",
+            "aider",
+        ],
+    )
+    assert result.exit_code == 2
+
+
+def test_eval_run_json_with_save_to(
+    indexed_project: Path, queries_file: Path, tmp_path: Path
+) -> None:
+    save_dir = tmp_path / "runs"
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "eval",
+            "run",
+            str(indexed_project),
+            "--queries",
+            str(queries_file),
+            "--json",
+            "--save-to",
+            str(save_dir),
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    # stdout must be pure JSON so promptfoo can parse it;
+    # the "saved snapshot:" message goes to stderr.
+    payload = json.loads(result.stdout)
+    assert payload["schema_version"] == 1
+    assert len(list(save_dir.glob("*.json"))) == 1
+
+
+def test_eval_compare_diffs_two_snapshots(
+    indexed_project: Path, queries_file: Path, tmp_path: Path
+) -> None:
+    save_dir = tmp_path / "runs"
+    runner = CliRunner()
+    for name in ("a", "b"):
+        result = runner.invoke(
+            app,
+            [
+                "eval",
+                "run",
+                str(indexed_project),
+                "--queries",
+                str(queries_file),
+                "--save-to",
+                str(save_dir),
+            ],
+        )
+        assert result.exit_code == 0, result.stdout
+        # Rename the latest snapshot to a predictable path.
+        latest = max(save_dir.glob("*.json"), key=lambda p: p.stat().st_mtime)
+        latest.rename(save_dir / f"{name}.json")
+
+    compare_result = runner.invoke(
+        app,
+        [
+            "eval",
+            "compare",
+            str(save_dir / "a.json"),
+            str(save_dir / "b.json"),
+        ],
+    )
+    assert compare_result.exit_code == 0, compare_result.stdout
+    out = compare_result.stdout
+    assert "| metric | a | b | delta |" in out
+    assert "recall_at_5_files" in out

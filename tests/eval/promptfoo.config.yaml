@@ -1,0 +1,100 @@
+# promptfoo CI gate for LV_DCP retrieval eval (see specs/006, T027).
+#
+# How it works
+# ------------
+# promptfoo calls `ctx eval run --json` against the indexed sample_repo
+# fixture, parses stdout as JSON, and asserts that recall@5 files has
+# not regressed by more than 2 pp versus the committed baseline.
+#
+# The baseline is `tests/eval/baselines/main.json`. It is refreshed
+# manually via the `baseline-refresh` GH Actions job (T032), not
+# automatically on merge — we want humans to consciously approve
+# quality shifts.
+#
+# Tolerance (0.02 == 2 percentage points) matches ADR-002 §3: any
+# retrieval regression larger than that is a blocker.
+
+description: "LV_DCP retrieval regression gate"
+
+# Provider: shell out to our CLI; output on stdout is a JSON EvalReport.
+providers:
+  - id: lvdcp-eval
+    label: "ctx eval run (json)"
+    config:
+      command: "uv run ctx eval run tests/eval/fixtures/sample_repo --queries tests/eval/queries.yaml --impact-queries tests/eval/impact_queries.yaml --json"
+      # promptfoo passes the test vars as JSON on stdin; we ignore them
+      # because the harness has its own YAML query set. Leaving `vars`
+      # empty (below) keeps promptfoo happy without a no-op pipe.
+      transformResponse: "output"  # stdout is already the full payload
+
+# One test case. We could split by metric, but the baseline JSON already
+# carries all five IR metrics, and the assertion engine asserts on each.
+tests:
+  - description: "No metric regresses by more than 2 pp vs tests/eval/baselines/main.json"
+    vars: {}
+    assert:
+      # recall@5 files — the headline number.
+      - type: javascript
+        value: |
+          const report = JSON.parse(output);
+          const baseline = require('./baselines/main.json');
+          const TOL = 0.02;
+          if (report.recall_at_5_files + TOL < baseline.recall_at_5_files) {
+            return {
+              pass: false,
+              reason: `recall@5 regressed: ${report.recall_at_5_files.toFixed(3)} vs baseline ${baseline.recall_at_5_files.toFixed(3)} (tolerance ${TOL})`,
+            };
+          }
+          return { pass: true, reason: 'recall@5 within tolerance' };
+
+      - type: javascript
+        value: |
+          const report = JSON.parse(output);
+          const baseline = require('./baselines/main.json');
+          const TOL = 0.02;
+          if (report.precision_at_3_files + TOL < baseline.precision_at_3_files) {
+            return {
+              pass: false,
+              reason: `precision@3 regressed: ${report.precision_at_3_files.toFixed(3)} vs baseline ${baseline.precision_at_3_files.toFixed(3)} (tolerance ${TOL})`,
+            };
+          }
+          return { pass: true, reason: 'precision@3 within tolerance' };
+
+      - type: javascript
+        value: |
+          const report = JSON.parse(output);
+          const baseline = require('./baselines/main.json');
+          const TOL = 0.02;
+          if (report.recall_at_5_symbols + TOL < baseline.recall_at_5_symbols) {
+            return {
+              pass: false,
+              reason: `recall@5 symbols regressed: ${report.recall_at_5_symbols.toFixed(3)} vs baseline ${baseline.recall_at_5_symbols.toFixed(3)} (tolerance ${TOL})`,
+            };
+          }
+          return { pass: true, reason: 'recall@5 symbols within tolerance' };
+
+      - type: javascript
+        value: |
+          const report = JSON.parse(output);
+          const baseline = require('./baselines/main.json');
+          const TOL = 0.02;
+          if (report.mrr_files + TOL < baseline.mrr_files) {
+            return {
+              pass: false,
+              reason: `MRR regressed: ${report.mrr_files.toFixed(3)} vs baseline ${baseline.mrr_files.toFixed(3)} (tolerance ${TOL})`,
+            };
+          }
+          return { pass: true, reason: 'MRR within tolerance' };
+
+      - type: javascript
+        value: |
+          const report = JSON.parse(output);
+          const baseline = require('./baselines/main.json');
+          const TOL = 0.02;
+          if (report.impact_recall_at_5 + TOL < baseline.impact_recall_at_5) {
+            return {
+              pass: false,
+              reason: `impact_recall@5 regressed: ${report.impact_recall_at_5.toFixed(3)} vs baseline ${baseline.impact_recall_at_5.toFixed(3)} (tolerance ${TOL})`,
+            };
+          }
+          return { pass: true, reason: 'impact_recall@5 within tolerance' };

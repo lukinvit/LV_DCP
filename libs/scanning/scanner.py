@@ -295,8 +295,11 @@ def scan_project(  # noqa: PLR0912, PLR0915
                 "wiki_dirty_tracking_failed", exc_info=exc
             )  # Best-effort: wiki tracking must never kill a scan
 
-        # Embedding: upsert changed files to Qdrant (best-effort, never blocks scan)
-        if changed_for_embed and only is None:
+        # Embedding: upsert changed files to Qdrant (best-effort, never blocks scan).
+        # Runs for both full and incremental scans — daemon-triggered partial scans
+        # must keep vectors in sync with the SQLite graph; otherwise Qdrant drifts
+        # until the next manual `ctx scan`.
+        if changed_for_embed:
             try:
                 from libs.core.projects_config import load_config  # noqa: PLC0415
                 from libs.embeddings.service import embed_project_files  # noqa: PLC0415

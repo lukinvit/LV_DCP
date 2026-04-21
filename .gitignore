@@ -59,6 +59,8 @@ coverage.xml
 data/
 dist/
 env/
+eval-results/*
+!eval-results/.gitkeep
 htmlcov/
 logs/
 pgdata/
