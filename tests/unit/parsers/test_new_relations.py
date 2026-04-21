@@ -94,8 +94,8 @@ def test_tests_for_skips_stdlib() -> None:
 def test_tests_for_accepts_ddd_roots() -> None:
     """DDD-style roots like `domains/` and `services/` count as internal.
 
-    LV_Presentation and similar DDD projects use `domains/identity/...`
-    as the source layout; tests there must still produce tests_for.
+    DDD projects use `domains/identity/...` as the source layout;
+    tests there must still produce tests_for.
     """
     code = (
         b"from domains.identity.mcp.server import create_identity_mcp_server\n\n"
