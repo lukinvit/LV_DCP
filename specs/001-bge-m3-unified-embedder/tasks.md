@@ -43,10 +43,10 @@ description: "Task list for bge-m3 unified embedder (dense + sparse + multivecto
 **Purpose**: базовые абстракции, без которых US1 не заработает.
 
 - [x] **T006** В `libs/embeddings/adapter.py` добавить `MultiVectorEmbeddingAdapter(Protocol)` с методом `embed_batch_multi(texts, *, dense, sparse, colbert) -> BatchMultiVectorResult`. `BatchMultiVectorResult` — dataclass с полями `dense: list[list[float]] | None`, `sparse: list[SparseVec] | None`, `colbert: list[list[list[float]]] | None`.
-- [ ] **T007** В `libs/embeddings/bge_m3.py` реализовать `BgeM3Adapter` (использует `FlagModel`/`BGEM3FlagModel` из FlagEmbedding; `torch` forward под `asyncio.to_thread`). Device: MPS → CUDA → CPU (auto-detect).
-- [ ] **T008** В `libs/embeddings/qdrant_store.py`: переписать `ensure_collections()` под named vectors — `vectors_config={dense: VectorParams, colbert: VectorParams(multivector_config=...)}`, `sparse_vectors_config={sparse: SparseVectorParams}`. Добавить `upsert_multi(collection, points: list[MultiVectorPoint])`.
-- [ ] **T009** Реализовать `QdrantStore.search_hybrid(collection, query_vectors: QueryVectors, filter, limit) -> list[ScoredPoint]` через Qdrant `query_points` API с `Fusion.RRF`.
-- [ ] **T010** **Checkpoint**: все unit-тесты `T006–T009` зелёные; можно перейти к US1 и далее.
+- [x] **T007** В `libs/embeddings/bge_m3.py` реализовать `BgeM3Adapter` (использует `FlagModel`/`BGEM3FlagModel` из FlagEmbedding; `torch` forward под `asyncio.to_thread`). Device: MPS → CUDA → CPU (auto-detect).
+- [x] **T008** В `libs/embeddings/qdrant_store.py`: переписать `ensure_collections()` под named vectors — `vectors_config={dense: VectorParams, colbert: VectorParams(multivector_config=...)}`, `sparse_vectors_config={sparse: SparseVectorParams}`. Добавить `upsert_multi(collection, points: list[MultiVectorPoint])`. *(`ensure_collections(hybrid=True)` — колбert+sparse slots; `hybrid=False` сохраняет dense-only back-compat для OpenAI/Ollama.)*
+- [x] **T009** Реализовать `QdrantStore.search_hybrid(collection, query_vectors: QueryVectors, filter, limit) -> list[ScoredPoint]` через Qdrant `query_points` API с `Fusion.RRF`. *(Project-id filter applied на prefetch-уровне + outer query — cross-project leak невозможен.)*
+- [x] **T010** **Checkpoint**: все unit-тесты `T006–T009` зелёные; можно перейти к US1 и далее. *(808 unit-тестов green; 16 qdrant_store + 11 bge_m3 + 8 fake adapter.)*
 
 ---
 
