@@ -1,0 +1,283 @@
+# Gold queries for edit-task retrieval (see specs/006, T023).
+# Each entry describes an edit the user would ask for; expected files are
+# the ones the agent must touch (or at least read) to do the task correctly.
+
+queries:
+  - id: e01-add-ragas-metric
+    text: add a new RAGAS metric alongside context_precision / context_recall / faithfulness
+    mode: edit
+    expected:
+      files: [libs/eval/ragas_adapter.py]
+      symbols: [libs.eval.ragas_adapter.RagasAdapter]
+    tags: [edit, ragas]
+
+  - id: e02-extend-cost-guard-budget
+    text: allow CostGuard to accept per-model overrides, not just a single max_usd
+    mode: edit
+    expected:
+      files: [libs/eval/cost_guard.py, tests/eval/test_cost_guard.py]
+      symbols: [libs.eval.cost_guard.CostGuard]
+    tags: [edit, cost]
+
+  - id: e03-add-gold-query-field
+    text: add an optional `difficulty` field to GoldQuery
+    mode: edit
+    expected:
+      files:
+        - libs/eval/dataset_schema.py
+        - tests/eval/test_dataset_schema.py
+      symbols: [libs.eval.dataset_schema.GoldQuery]
+    tags: [edit, schema]
+
+  - id: e04-report-show-cache-ratio
+    text: show cache hit ratio in the LLM-judge section of the markdown report
+    mode: edit
+    expected:
+      files:
+        - libs/eval/report.py
+        - tests/unit/eval/test_per_query_report.py
+      symbols: [libs.eval.report.generate_per_query_report]
+    tags: [edit, report]
+
+  - id: e05-history-prune-old-runs
+    text: add a --keep-last N option to ctx eval run to prune older snapshots
+    mode: edit
+    expected:
+      files:
+        - apps/cli/commands/eval_cmd.py
+        - libs/eval/history.py
+        - tests/unit/cli/test_eval_cmd.py
+      symbols: []
+    tags: [edit, cli, history]
+
+  - id: e06-compare-threshold-flag
+    text: add --max-regression to ctx eval compare so it exits non-zero on regressions
+    mode: edit
+    expected:
+      files:
+        - apps/cli/commands/eval_cmd.py
+        - tests/unit/cli/test_eval_cmd.py
+      symbols: [apps.cli.commands.eval_cmd.compare_subcommand]
+    tags: [edit, cli]
+
+  - id: e07-json-output-run
+    text: add --json flag to ctx eval run to emit metrics as stdout JSON (for promptfoo)
+    mode: edit
+    expected:
+      files:
+        - apps/cli/commands/eval_cmd.py
+        - tests/unit/cli/test_eval_cmd.py
+      symbols: [apps.cli.commands.eval_cmd.run_subcommand]
+    tags: [edit, cli]
+
+  - id: e08-enrich-timeout
+    text: add a timeout to enrich_with_ragas so stuck LLM calls do not hang the eval
+    mode: edit
+    expected:
+      files:
+        - libs/eval/runner.py
+        - tests/eval/test_eval_full.py
+      symbols: [libs.eval.runner.enrich_with_ragas]
+    tags: [edit, resilience]
+
+  - id: e09-cache-size-limit
+    text: add an LRU bound to the RagasAdapter per-key cache so it does not grow unbounded
+    mode: edit
+    expected:
+      files:
+        - libs/eval/ragas_adapter.py
+        - tests/eval/test_ragas_adapter.py
+      symbols: [libs.eval.ragas_adapter.RagasAdapter]
+    tags: [edit, perf]
+
+  - id: e10-load-all-with-glob
+    text: teach load_all_gold_datasets to accept a glob pattern in addition to explicit paths
+    mode: edit
+    expected:
+      files:
+        - libs/eval/dataset_schema.py
+        - tests/eval/test_dataset_schema.py
+      symbols: [libs.eval.dataset_schema.load_all_gold_datasets]
+    tags: [edit, loader]
+
+  - id: e11-default-file-reader-size-cap
+    text: cap context text size in default_file_reader to avoid huge prompt blowups
+    mode: edit
+    expected:
+      files: [libs/eval/runner.py]
+      symbols: [libs.eval.runner.default_file_reader]
+    tags: [edit, safety]
+
+  - id: e12-add-answer-relevancy
+    text: add answer_relevancy RAGAS metric via an injected embeddings provider
+    mode: edit
+    expected:
+      files:
+        - libs/eval/ragas_adapter.py
+        - tests/eval/test_ragas_adapter.py
+      symbols: [libs.eval.ragas_adapter.RagasAdapter]
+    tags: [edit, ragas]
+
+  - id: e13-eval-report-versioning
+    text: bump eval history SCHEMA_VERSION when adding a new metric, with migration
+    mode: edit
+    expected:
+      files:
+        - libs/eval/history.py
+        - tests/eval/test_history.py
+      symbols: [libs.eval.history.load_run]
+    tags: [edit, schema]
+
+  - id: e14-ragas-sample-deterministic-hash
+    text: make RagasQuerySample hash ignore list order in retrieved_contexts
+    mode: edit
+    expected:
+      files:
+        - libs/eval/ragas_adapter.py
+        - tests/eval/test_ragas_adapter.py
+      symbols: [libs.eval.ragas_adapter._hash_key]
+    tags: [edit, determinism]
+
+  - id: e15-metric-delta-percent
+    text: add a .percent property to MetricDelta (percent change of before -> after)
+    mode: edit
+    expected:
+      files:
+        - libs/eval/history.py
+        - tests/eval/test_history.py
+      symbols: [libs.eval.history.MetricDelta]
+    tags: [edit, api]
+
+  - id: e16-compare-cli-emoji-arrows
+    text: render up/down arrows (or +/-) in ctx eval compare to make regressions obvious
+    mode: edit
+    expected:
+      files: [apps/cli/commands/eval_cmd.py]
+      symbols: [apps.cli.commands.eval_cmd.compare_subcommand]
+    tags: [edit, ux]
+
+  - id: e17-history-filter-by-tag
+    text: let ctx eval history filter by a tag stored in the saved JSON
+    mode: edit
+    expected:
+      files:
+        - apps/cli/commands/eval_cmd.py
+        - libs/eval/history.py
+      symbols: [apps.cli.commands.eval_cmd.history_subcommand]
+    tags: [edit, cli]
+
+  - id: e18-save-tag-with-git-sha
+    text: tag each saved eval run with the current git commit sha
+    mode: edit
+    expected:
+      files: [apps/cli/commands/eval_cmd.py, libs/eval/history.py]
+      symbols: [libs.eval.history.save_run]
+    tags: [edit, metadata]
+
+  - id: e19-config-validation-from-yaml
+    text: validate EvalConfig keys against the top-level config YAML loader
+    mode: edit
+    expected:
+      files: [libs/core/projects_config.py]
+      symbols: [libs.core.projects_config.EvalConfig]
+    tags: [edit, config]
+
+  - id: e20-graph-mode-retrieval-flag
+    text: wire graph mode through run_eval so graph queries receive a different retriever
+    mode: edit
+    expected:
+      files: [libs/eval/runner.py]
+      symbols: [libs.eval.runner.run_eval]
+    tags: [edit, retrieval]
+
+  - id: e21-remove-unused-imports
+    text: clean up unused imports flagged by ruff in libs/eval
+    mode: edit
+    expected:
+      files:
+        - libs/eval/runner.py
+        - libs/eval/ragas_adapter.py
+      symbols: []
+    tags: [edit, hygiene]
+
+  - id: e22-cli-eval-run-dry-run
+    text: add --dry-run to ctx eval run that prints plan without executing retrieval
+    mode: edit
+    expected:
+      files: [apps/cli/commands/eval_cmd.py, tests/unit/cli/test_eval_cmd.py]
+      symbols: [apps.cli.commands.eval_cmd.run_subcommand]
+    tags: [edit, cli]
+
+  - id: e23-latest-runs-respects-filter
+    text: make latest_runs accept a suffix filter (e.g. only .json not .yaml)
+    mode: edit
+    expected:
+      files: [libs/eval/history.py, tests/eval/test_history.py]
+      symbols: [libs.eval.history.latest_runs]
+    tags: [edit, api]
+
+  - id: e24-runner-expected-answer-fallback
+    text: when expected.answer_text missing, fall back to concatenation of expected files
+    mode: edit
+    expected:
+      files: [libs/eval/runner.py]
+      symbols: [libs.eval.runner.enrich_with_ragas]
+    tags: [edit, fallback]
+
+  - id: e25-ragas-mock-fixture
+    text: extract the adapter_with_stubs fixture into a reusable helper for other tests
+    mode: edit
+    expected:
+      files:
+        - tests/eval/test_ragas_adapter.py
+        - tests/eval/test_eval_full.py
+      symbols: []
+    tags: [edit, tests]
+
+  - id: e26-report-compact-mode
+    text: add a compact=True mode to generate_per_query_report that hides per-query table
+    mode: edit
+    expected:
+      files:
+        - libs/eval/report.py
+        - tests/unit/eval/test_per_query_report.py
+      symbols: [libs.eval.report.generate_per_query_report]
+    tags: [edit, report]
+
+  - id: e27-eval-config-env-override
+    text: let ANTHROPIC_API_KEY override EvalConfig.judge_model via env when using run_subcommand
+    mode: edit
+    expected:
+      files:
+        - apps/cli/commands/eval_cmd.py
+        - libs/core/projects_config.py
+      symbols: []
+    tags: [edit, config]
+
+  - id: e28-history-describe-run
+    text: add ctx eval describe <snapshot> that prints full per-query breakdown of a saved run
+    mode: edit
+    expected:
+      files:
+        - apps/cli/commands/eval_cmd.py
+        - tests/unit/cli/test_eval_cmd.py
+      symbols: []
+    tags: [edit, cli]
+
+  - id: e29-rename-judge-model-option
+    text: rename judge_model to llm_judge_model in EvalConfig (deprecate old name cleanly)
+    mode: edit
+    expected:
+      files:
+        - libs/core/projects_config.py
+        - libs/eval/ragas_adapter.py
+      symbols: [libs.core.projects_config.EvalConfig]
+    tags: [edit, refactor]
+
+  - id: e30-save-gzip
+    text: add optional gzip compression to save_run for large eval snapshots
+    mode: edit
+    expected:
+      files: [libs/eval/history.py, tests/eval/test_history.py]
+      symbols: [libs.eval.history.save_run]
+    tags: [edit, io]

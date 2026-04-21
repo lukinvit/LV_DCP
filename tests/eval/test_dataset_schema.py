@@ -102,6 +102,41 @@ def test_load_gold_dataset_malformed(tmp_path: Path) -> None:
         load_gold_dataset(path)
 
 
+GOLD_DATASETS_DIR = Path(__file__).resolve().parent / "datasets"
+GOLD_DATASET_FILES = [
+    "rare_symbols.yaml",
+    "close_siblings.yaml",
+    "graph_expansion.yaml",
+    "edit_tasks.yaml",
+]
+
+
+@pytest.mark.parametrize("filename", GOLD_DATASET_FILES)
+def test_shipped_gold_dataset_is_schema_valid(filename: str) -> None:
+    """Every YAML file in tests/eval/datasets/ must load without validation error."""
+    queries = load_gold_dataset(GOLD_DATASETS_DIR / filename)
+    assert queries, f"{filename} yielded zero queries"
+    seen: set[str] = set()
+    for q in queries:
+        assert q.id not in seen, f"duplicate query id {q.id} in {filename}"
+        seen.add(q.id)
+
+
+def test_shipped_gold_datasets_meet_size_floors() -> None:
+    """Minimum counts from specs/006-ragas-promptfoo-eval/spec.md (SC-005)."""
+    counts = {
+        "rare_symbols.yaml": 20,
+        "close_siblings.yaml": 15,
+        "graph_expansion.yaml": 15,
+        "edit_tasks.yaml": 30,
+    }
+    for filename, floor in counts.items():
+        queries = load_gold_dataset(GOLD_DATASETS_DIR / filename)
+        assert len(queries) >= floor, (
+            f"{filename} has {len(queries)} queries, need at least {floor} (SC-005)"
+        )
+
+
 def test_load_all_gold_datasets(tmp_path: Path) -> None:
     p1 = tmp_path / "a.yaml"
     p2 = tmp_path / "b.yaml"

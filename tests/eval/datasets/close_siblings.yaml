@@ -1,0 +1,144 @@
+# Gold queries with close-sibling symbols (see specs/006, T021).
+# Each pair targets a narrow disambiguation: sync vs async, pre vs post refactor,
+# nearly-synonymous operations. Retrieval quality here correlates with users'
+# experience of "did the system find the *right* one" vs "a nearby cousin".
+
+queries:
+  - id: s01-run-eval-sync-vs-async-enrich
+    text: synchronous run_eval without llm judge
+    mode: navigate
+    expected:
+      files: [libs/eval/runner.py]
+      symbols: [libs.eval.runner.run_eval]
+    notes: "Must NOT surface enrich_with_ragas (async)."
+    tags: [sibling, sync-vs-async]
+
+  - id: s02-async-enrich-with-ragas
+    text: async enrich with llm judge scores
+    mode: navigate
+    expected:
+      files: [libs/eval/runner.py]
+      symbols: [libs.eval.runner.enrich_with_ragas]
+    notes: "Must NOT surface run_eval (sync)."
+    tags: [sibling, sync-vs-async]
+
+  - id: s03-generate-per-query-report
+    text: generate per-query markdown report
+    mode: navigate
+    expected:
+      files: [libs/eval/report.py]
+      symbols: [libs.eval.report.generate_per_query_report]
+    notes: "Close sibling of generate_comparison_report."
+    tags: [sibling, report]
+
+  - id: s04-generate-comparison-report
+    text: side-by-side baseline comparison report
+    mode: navigate
+    expected:
+      files: [libs/eval/report.py]
+      symbols: [libs.eval.report.generate_comparison_report]
+    tags: [sibling, report]
+
+  - id: s05-context-precision-metric
+    text: ragas context precision LLM judge
+    mode: navigate
+    expected:
+      files: [libs/eval/ragas_adapter.py]
+      symbols: []
+    tags: [sibling, ragas-metric]
+
+  - id: s06-context-recall-metric
+    text: ragas context recall LLM judge
+    mode: navigate
+    expected:
+      files: [libs/eval/ragas_adapter.py]
+      symbols: []
+    tags: [sibling, ragas-metric]
+
+  - id: s07-faithfulness-metric
+    text: ragas faithfulness LLM judge
+    mode: navigate
+    expected:
+      files: [libs/eval/ragas_adapter.py]
+      symbols: []
+    tags: [sibling, ragas-metric]
+
+  - id: s08-load-queries-file
+    text: load queries yaml file navigate
+    mode: navigate
+    expected:
+      files: [libs/eval/loader.py]
+      symbols: []
+    tags: [sibling, loader]
+
+  - id: s09-load-optional-queries-file
+    text: load optional impact queries yaml
+    mode: navigate
+    expected:
+      files: [libs/eval/loader.py]
+      symbols: []
+    tags: [sibling, loader]
+
+  - id: s10-save-run-atomic-json
+    text: save eval snapshot atomic json
+    mode: navigate
+    expected:
+      files: [libs/eval/history.py]
+      symbols: [libs.eval.history.save_run]
+    tags: [sibling, io]
+
+  - id: s11-load-run-json
+    text: load eval snapshot from disk
+    mode: navigate
+    expected:
+      files: [libs/eval/history.py]
+      symbols: [libs.eval.history.load_run]
+    tags: [sibling, io]
+
+  - id: s12-recall-at-k-metric
+    text: recall at k metric helper
+    mode: navigate
+    expected:
+      files: [libs/eval/metrics.py]
+      symbols: []
+    tags: [sibling, metric]
+
+  - id: s13-precision-at-k-metric
+    text: precision at k metric helper
+    mode: navigate
+    expected:
+      files: [libs/eval/metrics.py]
+      symbols: []
+    tags: [sibling, metric]
+
+  - id: s14-mean-reciprocal-rank
+    text: mean reciprocal rank MRR files
+    mode: navigate
+    expected:
+      files: [libs/eval/metrics.py]
+      symbols: []
+    tags: [sibling, metric]
+
+  - id: s15-run-subcommand-cli
+    text: ctx eval run subcommand typer
+    mode: navigate
+    expected:
+      files: [apps/cli/commands/eval_cmd.py]
+      symbols: [apps.cli.commands.eval_cmd.run_subcommand]
+    tags: [sibling, cli]
+
+  - id: s16-compare-subcommand-cli
+    text: ctx eval compare subcommand typer diff
+    mode: navigate
+    expected:
+      files: [apps/cli/commands/eval_cmd.py]
+      symbols: [apps.cli.commands.eval_cmd.compare_subcommand]
+    tags: [sibling, cli]
+
+  - id: s17-history-subcommand-cli
+    text: ctx eval history subcommand recent runs
+    mode: navigate
+    expected:
+      files: [apps/cli/commands/eval_cmd.py]
+      symbols: [apps.cli.commands.eval_cmd.history_subcommand]
+    tags: [sibling, cli]

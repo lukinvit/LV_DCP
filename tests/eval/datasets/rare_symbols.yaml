@@ -1,0 +1,181 @@
+# Gold queries targeting rare / private / hash-like symbols (see specs/006, T020).
+# Expected paths are relative to the LV_DCP repo root (self-hosted retrieval test).
+# These probe whether retrieval finds needles — UUIDs, SHA keys, private helpers,
+# and obscurely-named primitives that grep-style approaches usually surface first.
+
+queries:
+  - id: r01-ragas-adapter-class
+    text: RagasAdapter
+    mode: navigate
+    expected:
+      files: [libs/eval/ragas_adapter.py]
+      symbols: [libs.eval.ragas_adapter.RagasAdapter]
+    tags: [rare, class]
+
+  - id: r02-cost-guard-exceeded-exception
+    text: CostGuardExceeded
+    mode: navigate
+    expected:
+      files: [libs/eval/cost_guard.py]
+      symbols: [libs.eval.cost_guard.CostGuardExceeded]
+    tags: [rare, exception]
+
+  - id: r03-hash-key-helper
+    text: _hash_key sha256 eval cache
+    mode: navigate
+    expected:
+      files: [libs/eval/ragas_adapter.py]
+      symbols: [libs.eval.ragas_adapter._hash_key]
+    tags: [rare, private-helper]
+
+  - id: r04-default-file-reader
+    text: default_file_reader retrieval contexts
+    mode: navigate
+    expected:
+      files: [libs/eval/runner.py]
+      symbols: [libs.eval.runner.default_file_reader]
+    tags: [rare, private-helper]
+
+  - id: r05-metric-delta-dataclass
+    text: MetricDelta before after delta
+    mode: navigate
+    expected:
+      files: [libs/eval/history.py]
+      symbols: [libs.eval.history.MetricDelta]
+    tags: [rare, dataclass]
+
+  - id: r06-diff-report-dataclass
+    text: DiffReport per-metric deltas
+    mode: navigate
+    expected:
+      files: [libs/eval/history.py]
+      symbols: [libs.eval.history.DiffReport]
+    tags: [rare, dataclass]
+
+  - id: r07-ragas-per-query-sample
+    text: RagasQuerySample per-query
+    mode: navigate
+    expected:
+      files: [libs/eval/ragas_adapter.py]
+      symbols: [libs.eval.ragas_adapter.RagasQuerySample]
+    tags: [rare, dataclass]
+
+  - id: r08-project-not-indexed
+    text: ProjectNotIndexedError
+    mode: navigate
+    expected:
+      files: [libs/project_index/index.py]
+      symbols: [libs.project_index.index.ProjectNotIndexedError]
+    tags: [rare, exception]
+
+  - id: r09-schema-version-constant
+    text: SCHEMA_VERSION eval history json
+    mode: navigate
+    expected:
+      files: [libs/eval/history.py]
+      symbols: []
+    tags: [rare, constant]
+
+  - id: r10-enrich-with-ragas
+    text: enrich_with_ragas llm judge
+    mode: navigate
+    expected:
+      files: [libs/eval/runner.py]
+      symbols: [libs.eval.runner.enrich_with_ragas]
+    tags: [rare, async-helper]
+
+  - id: r11-build-anthropic-llm
+    text: _build_anthropic_llm native provider
+    mode: navigate
+    expected:
+      files: [libs/eval/ragas_adapter.py]
+      symbols: [libs.eval.ragas_adapter._build_anthropic_llm]
+    tags: [rare, private-factory]
+
+  - id: r12-cost-guard-incur
+    text: CostGuard incur tokens pricing
+    mode: navigate
+    expected:
+      files: [libs/eval/cost_guard.py]
+      symbols: [libs.eval.cost_guard.CostGuard.incur]
+    tags: [rare, method]
+
+  - id: r13-latest-runs-helper
+    text: latest_runs mtime sorted
+    mode: navigate
+    expected:
+      files: [libs/eval/history.py]
+      symbols: [libs.eval.history.latest_runs]
+    tags: [rare, fn]
+
+  - id: r14-save-run-atomic
+    text: save_run atomic tmp rename
+    mode: navigate
+    expected:
+      files: [libs/eval/history.py]
+      symbols: [libs.eval.history.save_run]
+    tags: [rare, fn]
+
+  - id: r15-gold-query-model
+    text: GoldQuery dataset schema pydantic
+    mode: navigate
+    expected:
+      files: [libs/eval/dataset_schema.py]
+      symbols: [libs.eval.dataset_schema.GoldQuery]
+    tags: [rare, pydantic]
+
+  - id: r16-ragas-metrics-aggregate
+    text: RagasMetrics aggregate context_precision
+    mode: navigate
+    expected:
+      files: [libs/eval/ragas_adapter.py]
+      symbols: [libs.eval.ragas_adapter.RagasMetrics]
+    tags: [rare, dataclass]
+
+  - id: r17-ragas-per-query-breakdown
+    text: RagasPerQuery context_precision context_recall
+    mode: navigate
+    expected:
+      files: [libs/eval/ragas_adapter.py]
+      symbols: [libs.eval.ragas_adapter.RagasPerQuery]
+    tags: [rare, dataclass]
+
+  - id: r18-eval-config-section
+    text: EvalConfig judge_model llm_judge_max_cost_usd
+    mode: navigate
+    expected:
+      files: [libs/core/projects_config.py]
+      symbols: [libs.core.projects_config.EvalConfig]
+    tags: [rare, config]
+
+  - id: r19-load-all-gold-datasets
+    text: load_all_gold_datasets multiple yaml files
+    mode: navigate
+    expected:
+      files: [libs/eval/dataset_schema.py]
+      symbols: [libs.eval.dataset_schema.load_all_gold_datasets]
+    tags: [rare, fn]
+
+  - id: r20-query-mode-literal
+    text: QueryMode literal navigate edit graph
+    mode: navigate
+    expected:
+      files: [libs/eval/dataset_schema.py]
+      symbols: []
+    tags: [rare, type-alias]
+
+  - id: r21-fmt-opt-private-helper
+    text: _fmt_opt optional metric em-dash
+    mode: navigate
+    expected:
+      files: [libs/eval/report.py]
+      symbols: [libs.eval.report._fmt_opt]
+    tags: [rare, private-helper]
+
+  - id: r22-eval-report-ragas-field
+    text: EvalReport ragas optional RagasMetrics
+    mode: navigate
+    expected:
+      files: [libs/eval/runner.py]
+      symbols: [libs.eval.runner.EvalReport]
+    tags: [rare, dataclass-field]

@@ -90,15 +90,15 @@ description: "Task list for RAGAS + promptfoo eval layer (delta-only)"
 
 **Independent Test**: `pytest tests/eval/test_dataset_schema.py` — все файлы валидны; `run_eval(stub_retrieve, queries=load_gold_dataset('rare_symbols.yaml'))` работает.
 
-- [ ] **T020** [P] [US4] `tests/eval/datasets/rare_symbols.yaml` — 20+ entries с UUID, SHA-хешами, приватными/подчёркнутыми символами. Expected — пути из sample_repo или реальные из LV_DCP (self-hosting).
-- [ ] **T021** [P] [US4] `tests/eval/datasets/close_siblings.yaml` — 15+ пар близких функций (sync/async, v1/v2).
-- [ ] **T022** [P] [US4] `tests/eval/datasets/graph_expansion.yaml` — 15+ seed-symbol → expected top-K callers/callees (для #7).
-- [ ] **T023** [P] [US4] `tests/eval/datasets/edit_tasks.yaml` — 30+ edit-задач (для #9): описание задачи + expected modified files + expected operations.
-- [ ] **T024** [US4] CI schema-validation job — pytest `tests/eval/test_dataset_schema.py` запускается в default CI (не только eval).
-- [ ] **T025** [US4] Расширить `libs/eval/loader.py`: функция `load_all_gold_datasets(names: list[str]) -> list[GoldQuery]`.
-- [ ] **T026** [US4] Документация `docs/eval/gold-datasets.md` — как добавлять новые queries, соглашения.
+- [x] **T020** ✅ `tests/eval/datasets/rare_symbols.yaml` — 22 queries (UUID-like, SHA-хеши, private _underscore symbols). Path self-hosted на LV_DCP.
+- [x] **T021** ✅ `tests/eval/datasets/close_siblings.yaml` — 17 pairs (sync vs async, v1 vs v2, pre/post refactor).
+- [x] **T022** ✅ `tests/eval/datasets/graph_expansion.yaml` — 15 seed-symbol → expected top-K callers/callees/consumers.
+- [x] **T023** ✅ `tests/eval/datasets/edit_tasks.yaml` — 30 edit tasks (e01-e30) с expected files + symbols.
+- [x] **T024** ✅ CI schema-validation: `tests/eval/test_dataset_schema.py` расширен `test_shipped_gold_dataset_is_schema_valid` (parametrized) + `test_shipped_gold_datasets_meet_size_floors` (SC-005 floors 20/15/15/30). 12 tests зелёные.
+- [x] **T025** ✅ `load_all_gold_datasets` уже реализована в T006 (`libs/eval/dataset_schema.py`).
+- [x] **T026** ✅ `docs/eval/gold-datasets.md` — user guide: schema, соглашения (stable IDs, under-specify symbols), `ctx eval run --queries ...`, cross-ref на spec/runner.
 
-**Checkpoint US4**: все 4 файла валидны, harness может их загрузить.
+**Checkpoint US4**: ✅ 4 датасета валидны, floors SC-005 соблюдены, schema-validation в default CI (не требует marker).
 
 ---
 

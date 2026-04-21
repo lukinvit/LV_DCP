@@ -1,0 +1,151 @@
+# Gold queries testing graph expansion (see specs/006, T022).
+# Mode 'graph': seed symbol → expected top-K callers/callees/references.
+# These are the queries that punish systems which return only direct hits
+# and miss the dependency neighborhood an engineer actually needs to read.
+
+queries:
+  - id: g01-ragas-adapter-callers
+    text: RagasAdapter callers and usage sites
+    mode: graph
+    expected:
+      files:
+        - libs/eval/runner.py
+        - tests/eval/test_ragas_adapter.py
+        - tests/eval/test_eval_full.py
+      symbols:
+        - libs.eval.runner.enrich_with_ragas
+    tags: [graph, callers]
+
+  - id: g02-cost-guard-usage-sites
+    text: CostGuard injection and consumers
+    mode: graph
+    expected:
+      files:
+        - libs/eval/ragas_adapter.py
+        - tests/eval/test_cost_guard.py
+      symbols: []
+    tags: [graph, consumers]
+
+  - id: g03-eval-report-consumers
+    text: EvalReport consumers that read recall or ragas fields
+    mode: graph
+    expected:
+      files:
+        - libs/eval/report.py
+        - libs/eval/history.py
+        - libs/eval/runner.py
+        - apps/cli/commands/eval_cmd.py
+      symbols: []
+    tags: [graph, consumers]
+
+  - id: g04-load-queries-file-callers
+    text: load_queries_file callers across eval harness
+    mode: graph
+    expected:
+      files:
+        - tests/eval/run_eval.py
+        - apps/cli/commands/eval_cmd.py
+      symbols: []
+    tags: [graph, callers]
+
+  - id: g05-project-index-retrieve
+    text: ProjectIndex.retrieve callers in eval CLI
+    mode: graph
+    expected:
+      files: [apps/cli/commands/eval_cmd.py]
+      symbols: [apps.cli.commands.eval_cmd._lvdcp_retriever]
+    tags: [graph, callers]
+
+  - id: g06-metrics-helpers-consumers
+    text: recall_at_k precision_at_k callers
+    mode: graph
+    expected:
+      files:
+        - libs/eval/runner.py
+      symbols: []
+    tags: [graph, callers]
+
+  - id: g07-save-run-callers
+    text: save_run callers (CLI + tests)
+    mode: graph
+    expected:
+      files:
+        - apps/cli/commands/eval_cmd.py
+        - tests/eval/test_history.py
+      symbols: []
+    tags: [graph, callers]
+
+  - id: g08-load-run-callers
+    text: load_run callers (compare + history CLI)
+    mode: graph
+    expected:
+      files:
+        - apps/cli/commands/eval_cmd.py
+        - tests/eval/test_history.py
+      symbols: []
+    tags: [graph, callers]
+
+  - id: g09-calculate-cost-consumers
+    text: calculate_cost users in eval layer
+    mode: graph
+    expected:
+      files: [libs/eval/cost_guard.py]
+      symbols: []
+    tags: [graph, callers]
+
+  - id: g10-compare-reports-uses
+    text: compare function users in CLI and tests
+    mode: graph
+    expected:
+      files:
+        - apps/cli/commands/eval_cmd.py
+        - tests/eval/test_history.py
+      symbols: []
+    tags: [graph, callers]
+
+  - id: g11-ragas-query-sample-builders
+    text: RagasQuerySample construction sites
+    mode: graph
+    expected:
+      files:
+        - libs/eval/runner.py
+        - tests/eval/test_ragas_adapter.py
+        - tests/eval/test_eval_full.py
+      symbols: []
+    tags: [graph, callers]
+
+  - id: g12-generate-per-query-report-callers
+    text: generate_per_query_report callers
+    mode: graph
+    expected:
+      files:
+        - apps/cli/commands/eval_cmd.py
+        - tests/eval/run_eval.py
+      symbols: []
+    tags: [graph, callers]
+
+  - id: g13-cost-guard-incur-callers
+    text: CostGuard.incur callers inside adapter
+    mode: graph
+    expected:
+      files: [libs/eval/ragas_adapter.py]
+      symbols: [libs.eval.ragas_adapter.RagasAdapter._score]
+    tags: [graph, callers]
+
+  - id: g14-eval-app-wiring
+    text: ctx eval Typer sub-app wiring in main
+    mode: graph
+    expected:
+      files: [apps/cli/main.py]
+      symbols: []
+    tags: [graph, wiring]
+
+  - id: g15-ragas-metrics-readers
+    text: RagasMetrics field readers across report and history
+    mode: graph
+    expected:
+      files:
+        - libs/eval/report.py
+        - libs/eval/history.py
+      symbols: []
+    tags: [graph, readers]
