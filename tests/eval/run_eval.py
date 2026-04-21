@@ -1,20 +1,20 @@
-"""Eval harness runner.
+"""Eval harness adapter for the sample_repo fixture and pytest wrappers.
 
-Loads queries.yaml, invokes a retrieval callable against the fixture repo,
-and returns aggregated metrics. No pytest dependency here — this is importable
-from scripts and from the pytest wrapper in test_eval_harness.py.
+Canonical harness is :mod:`libs.eval.runner`. This module adds the
+fixture-specific paths and a ``run_eval(retriever)`` convenience that
+preserves the original signature used by existing tests and scripts.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
-
-from tests.eval.metrics import mean_reciprocal_rank, precision_at_k, recall_at_k
+from libs.eval.loader import load_optional_queries_file, load_queries_file
+from libs.eval.report import generate_per_query_report
+from libs.eval.runner import EvalReport, QueryResult, RetrievalFn, stub_retrieve
+from libs.eval.runner import run_eval as _run_eval
 
 EVAL_DIR = Path(__file__).resolve().parent
 FIXTURE_REPO = EVAL_DIR / "fixtures" / "sample_repo"
@@ -22,45 +22,30 @@ QUERIES_YAML = EVAL_DIR / "queries.yaml"
 IMPACT_QUERIES_YAML = EVAL_DIR / "impact_queries.yaml"
 THRESHOLDS_YAML = EVAL_DIR / "thresholds.yaml"
 
-
-@dataclass(frozen=True)
-class QueryResult:
-    query_id: str
-    mode: str
-    retrieved_files: list[str]
-    retrieved_symbols: list[str]
-    expected_files: list[str]
-    expected_symbols: list[str]
-
-
-@dataclass(frozen=True)
-class EvalReport:
-    query_results: list[QueryResult]
-    recall_at_5_files: float
-    precision_at_3_files: float
-    recall_at_5_symbols: float
-    mrr_files: float
-    impact_recall_at_5: float
-
-
-RetrievalFn = Callable[[str, str, Path], tuple[list[str], list[str]]]
-# (query_text, mode, repo_path) -> (retrieved_files_ordered, retrieved_symbols_ordered)
+__all__ = [
+    "EVAL_DIR",
+    "FIXTURE_REPO",
+    "IMPACT_QUERIES_YAML",
+    "QUERIES_YAML",
+    "THRESHOLDS_YAML",
+    "EvalReport",
+    "QueryResult",
+    "RetrievalFn",
+    "generate_per_query_report",
+    "load_impact_queries",
+    "load_queries",
+    "load_thresholds",
+    "run_eval",
+    "stub_retrieve",
+]
 
 
 def load_queries() -> list[dict[str, Any]]:
-    data = yaml.safe_load(QUERIES_YAML.read_text(encoding="utf-8"))
-    queries = data["queries"]
-    assert isinstance(queries, list)
-    return queries
+    return load_queries_file(QUERIES_YAML)
 
 
 def load_impact_queries() -> list[dict[str, Any]]:
-    if not IMPACT_QUERIES_YAML.exists():
-        return []
-    data = yaml.safe_load(IMPACT_QUERIES_YAML.read_text(encoding="utf-8"))
-    queries = data.get("queries", [])
-    assert isinstance(queries, list)
-    return queries
+    return load_optional_queries_file(IMPACT_QUERIES_YAML)
 
 
 def load_thresholds() -> dict[str, Any]:
@@ -70,97 +55,13 @@ def load_thresholds() -> dict[str, Any]:
 
 
 def run_eval(retrieve: RetrievalFn, *, repo_path: Path = FIXTURE_REPO) -> EvalReport:
-    queries = load_queries() + load_impact_queries()
-    impact_ids = {q["id"] for q in load_impact_queries()}
-    results: list[QueryResult] = []
-    for q in queries:
-        retrieved_files, retrieved_symbols = retrieve(q["text"], q["mode"], repo_path)
-        expected = q.get("expected", {}) or {}
-        results.append(
-            QueryResult(
-                query_id=q["id"],
-                mode=q["mode"],
-                retrieved_files=list(retrieved_files),
-                retrieved_symbols=list(retrieved_symbols),
-                expected_files=list(expected.get("files", []) or []),
-                expected_symbols=list(expected.get("symbols", []) or []),
-            )
-        )
-
-    recall_5_files = _avg(recall_at_k(r.retrieved_files, r.expected_files, k=5) for r in results)
-    precision_3_files = _avg(
-        precision_at_k(r.retrieved_files, r.expected_files, k=3) for r in results
+    """Backward-compatible wrapper — loads fixture queries and runs the harness."""
+    return _run_eval(
+        retrieve,
+        repo_path=repo_path,
+        navigate_queries=load_queries(),
+        impact_queries=load_impact_queries(),
     )
-    recall_5_symbols = _avg(
-        recall_at_k(r.retrieved_symbols, r.expected_symbols, k=5) for r in results
-    )
-    mrr_f = mean_reciprocal_rank(
-        [r.retrieved_files for r in results],
-        [r.expected_files for r in results],
-    )
-
-    # New: impact_recall computed ONLY over impact queries
-    impact_results = [r for r in results if r.query_id in impact_ids]
-    impact_recall_5 = _avg(
-        recall_at_k(r.retrieved_files, r.expected_files, k=5) for r in impact_results
-    )
-
-    return EvalReport(
-        query_results=results,
-        recall_at_5_files=recall_5_files,
-        precision_at_3_files=precision_3_files,
-        recall_at_5_symbols=recall_5_symbols,
-        mrr_files=mrr_f,
-        impact_recall_at_5=impact_recall_5,
-    )
-
-
-def _avg(values: "Any") -> float:  # noqa: UP037
-    lst = list(values)
-    if not lst:
-        return 0.0
-    return float(sum(lst) / len(lst))
-
-
-def stub_retrieve(query: str, mode: str, repo_path: Path) -> tuple[list[str], list[str]]:
-    """Phase 0 placeholder — returns nothing. Exists so the harness is runnable."""
-    return [], []
-
-
-def generate_per_query_report(report: EvalReport, *, tag: str = "eval") -> str:
-    """Render a Markdown per-query eval report."""
-    from datetime import UTC, datetime
-
-    ts = datetime.now(tz=UTC).strftime("%Y-%m-%d %H:%M UTC")
-    lines: list[str] = [
-        f"# Eval Report — {ts} — {tag}",
-        "",
-        "## Summary",
-        f"- recall@5 files:    {report.recall_at_5_files:.3f}",
-        f"- precision@3 files: {report.precision_at_3_files:.3f}",
-        f"- recall@5 symbols:  {report.recall_at_5_symbols:.3f}",
-        f"- MRR files:         {report.mrr_files:.3f}",
-        f"- impact_recall@5:   {report.impact_recall_at_5:.3f}",
-        "",
-        "## Per-query breakdown",
-        "",
-        "| id | mode | exp_files | recall@5 | missed |",
-        "|---|---|---|---|---|",
-    ]
-    for qr in report.query_results:
-        if not qr.expected_files:
-            continue
-        expected_set = set(qr.expected_files)
-        retrieved_set = set(qr.retrieved_files[:5])
-        hits = expected_set & retrieved_set
-        missed = expected_set - retrieved_set
-        recall = len(hits) / len(expected_set) if expected_set else 1.0
-        missed_str = ", ".join(sorted(missed)) if missed else "—"
-        lines.append(
-            f"| {qr.query_id} | {qr.mode} | {len(expected_set)} | {recall:.2f} | {missed_str} |"
-        )
-    lines.append("")
-    return "\n".join(lines)
 
 
 if __name__ == "__main__":
