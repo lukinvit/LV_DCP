@@ -19,10 +19,17 @@ from typing import Any
 from libs.core.projects_config import DaemonConfig, EmbeddingConfig, QdrantConfig
 from libs.embeddings.adapter import (
     EmbeddingAdapter,
+    FakeBgeM3Adapter,
     FakeEmbeddingAdapter,
+    MultiVectorEmbeddingAdapter,
     OpenAIEmbeddingAdapter,
 )
-from libs.embeddings.qdrant_store import QdrantStore, SummarySearchHit, SummaryVectorItem
+from libs.embeddings.qdrant_store import (
+    MultiVectorItem,
+    QdrantStore,
+    SummarySearchHit,
+    SummaryVectorItem,
+)
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +43,16 @@ OLLAMA_DUMMY_API_KEY = "ollama"
 def _build_adapter(cfg: EmbeddingConfig) -> EmbeddingAdapter:
     if cfg.provider == "fake":
         return FakeEmbeddingAdapter(dimension=cfg.dimension)
+    if cfg.provider == "fake_bge_m3":
+        # Deterministic multi-vector adapter for tests that want the hybrid
+        # routing path without loading the real 2.3 GB FlagEmbedding model.
+        return FakeBgeM3Adapter(dimension=cfg.dimension)
+    if cfg.provider == "bge_m3":
+        # Lazy import — keeps the service importable when the [bge-m3] extra
+        # isn't installed (e.g. the agent daemon on a fresh dev machine).
+        from libs.embeddings.bge_m3 import BgeM3Adapter  # noqa: PLC0415
+
+        return BgeM3Adapter(device=cfg.bge_m3_device)
     if cfg.provider == "openai":
         api_key = os.environ.get(cfg.api_key_env_var) if cfg.api_key_env_var else None
         kwargs: dict[str, Any] = {"model": cfg.model, "dimension": cfg.dimension}
@@ -57,6 +74,11 @@ def _build_adapter(cfg: EmbeddingConfig) -> EmbeddingAdapter:
     return FakeEmbeddingAdapter(dimension=cfg.dimension)
 
 
+def _is_multi_vector(adapter: EmbeddingAdapter) -> bool:
+    """Runtime check — does ``adapter`` support the hybrid retrieval protocol?"""
+    return isinstance(adapter, MultiVectorEmbeddingAdapter)
+
+
 def _build_store(cfg: QdrantConfig) -> QdrantStore:
     api_key = os.environ.get(cfg.api_key_env_var, "") if cfg.api_key_env_var else None
     return QdrantStore(url=cfg.url, api_key=api_key if api_key else None)
@@ -71,7 +93,13 @@ def _run_embed_once(
     adapter = _build_adapter(config.embedding)
     store = _build_store(config.qdrant)
     return asyncio.run(
-        _do_embed(adapter=adapter, store=store, project_id=project_id, files_data=files_data)
+        _do_embed(
+            adapter=adapter,
+            store=store,
+            project_id=project_id,
+            files_data=files_data,
+            cfg=config.embedding,
+        )
     )
 
 
@@ -179,20 +207,92 @@ def embed_project_files(
         return 0
 
 
+async def _embed_and_upsert_multi(  # noqa: PLR0913 — four collaborators + two toggles
+    *,
+    adapter: MultiVectorEmbeddingAdapter,
+    store: QdrantStore,
+    project_id: str,
+    files_data: list[SummaryVectorItem],
+    use_sparse: bool,
+    use_colbert: bool,
+) -> int:
+    """Embed file summaries with dense + sparse + colbert and upsert via hybrid path."""
+    if not files_data:
+        return 0
+
+    texts = [f["text"] for f in files_data]
+
+    dense_all: list[list[float]] = []
+    sparse_all: list[Any] = []
+    colbert_all: list[list[list[float]]] = []
+
+    batch_size = 100
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i : i + batch_size]
+        multi = await adapter.embed_batch_multi(
+            batch,
+            dense=True,
+            sparse=use_sparse,
+            colbert=use_colbert,
+        )
+        assert multi.dense is not None  # dense is always requested
+        dense_all.extend(multi.dense)
+        if multi.sparse is not None:
+            sparse_all.extend(multi.sparse)
+        if multi.colbert is not None:
+            colbert_all.extend(multi.colbert)
+
+    items: list[MultiVectorItem] = []
+    for idx, fd in enumerate(files_data):
+        mv_item: MultiVectorItem = {
+            "file_path": fd["file_path"],
+            "content_hash": fd.get("content_hash", ""),
+            "language": fd.get("language", ""),
+            "entity_type": fd.get("entity_type", "file"),
+            "dense": dense_all[idx],
+        }
+        if sparse_all:
+            mv_item["sparse"] = sparse_all[idx]
+        if colbert_all:
+            mv_item["colbert"] = colbert_all[idx]
+        items.append(mv_item)
+
+    upsert_batch = 100
+    for i in range(0, len(items), upsert_batch):
+        await store.upsert_multi(
+            collection="devctx_summaries",
+            project_id=project_id,
+            items=items[i : i + upsert_batch],
+        )
+    return len(items)
+
+
 async def _do_embed(
     *,
     adapter: EmbeddingAdapter,
     store: QdrantStore,
     project_id: str,
     files_data: list[SummaryVectorItem],
+    cfg: EmbeddingConfig,
 ) -> int:
-    await store.ensure_collections(dimension=adapter.dimension)
-    count = await _embed_and_upsert(
-        adapter=adapter,
-        store=store,
-        project_id=project_id,
-        files_data=files_data,
-    )
+    hybrid = _is_multi_vector(adapter)
+    await store.ensure_collections(dimension=adapter.dimension, hybrid=hybrid)
+    if hybrid:
+        count = await _embed_and_upsert_multi(
+            adapter=adapter,  # type: ignore[arg-type]
+            store=store,
+            project_id=project_id,
+            files_data=files_data,
+            use_sparse=cfg.bge_m3_use_sparse,
+            use_colbert=cfg.bge_m3_use_colbert,
+        )
+    else:
+        count = await _embed_and_upsert(
+            adapter=adapter,
+            store=store,
+            project_id=project_id,
+            files_data=files_data,
+        )
     await store.close()
     return count
 
@@ -206,24 +306,46 @@ async def vector_search(
 ) -> dict[str, float]:
     """Search Qdrant for files matching query. Returns {file_path: score}.
 
-    Returns empty dict if qdrant disabled or unavailable.
+    When the adapter supports ``MultiVectorEmbeddingAdapter`` the query runs
+    through ``search_hybrid`` with Fusion.RRF; otherwise the dense-only path
+    (``search_summaries``) is used. Returns empty dict on error or when
+    qdrant is disabled.
     """
     if not config.qdrant.enabled:
         return {}
 
     adapter = _build_adapter(config.embedding)
     store = _build_store(config.qdrant)
+    hybrid = _is_multi_vector(adapter)
 
     try:
-        await store.ensure_collections(dimension=adapter.dimension)
-        query_vec = (await adapter.embed_batch([query]))[0]
-        results = await store.search_summaries(
-            vector=query_vec,
-            project_id=project_id,
-            limit=limit,
-        )
+        await store.ensure_collections(dimension=adapter.dimension, hybrid=hybrid)
+        if hybrid:
+            mv_adapter: MultiVectorEmbeddingAdapter = adapter  # type: ignore[assignment]
+            multi = await mv_adapter.embed_batch_multi(
+                [query],
+                dense=True,
+                sparse=config.embedding.bge_m3_use_sparse,
+                colbert=config.embedding.bge_m3_use_colbert,
+            )
+            assert multi.dense is not None
+            hits = await store.search_hybrid(
+                collection="devctx_summaries",
+                project_id=project_id,
+                dense_query=multi.dense[0],
+                sparse_query=multi.sparse[0] if multi.sparse else None,
+                colbert_query=multi.colbert[0] if multi.colbert else None,
+                limit=limit,
+            )
+        else:
+            query_vec = (await adapter.embed_batch([query]))[0]
+            hits = await store.search_summaries(
+                vector=query_vec,
+                project_id=project_id,
+                limit=limit,
+            )
         await store.close()
-        typed_results: list[SummarySearchHit] = results
+        typed_results: list[SummarySearchHit] = hits
         return {r["file_path"]: r.get("score", 0.0) for r in typed_results if r["file_path"]}
     except Exception:
         log.warning("vector search failed for %s, returning empty", project_id, exc_info=True)

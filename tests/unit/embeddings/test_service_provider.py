@@ -1,14 +1,22 @@
-"""Tests for _build_adapter provider routing (openai / ollama / fake)."""
+"""Tests for _build_adapter provider routing (openai / ollama / fake / bge_m3)."""
 
 from __future__ import annotations
 
+import sys
+from unittest.mock import MagicMock
+
 import pytest
 from libs.core.projects_config import EmbeddingConfig
-from libs.embeddings.adapter import FakeEmbeddingAdapter, OpenAIEmbeddingAdapter
+from libs.embeddings.adapter import (
+    FakeBgeM3Adapter,
+    FakeEmbeddingAdapter,
+    OpenAIEmbeddingAdapter,
+)
 from libs.embeddings.service import (
     OLLAMA_DEFAULT_BASE_URL,
     OLLAMA_DUMMY_API_KEY,
     _build_adapter,
+    _is_multi_vector,
 )
 
 
@@ -92,3 +100,88 @@ class TestOllamaProvider:
         # Should construct fine without any OpenAI env var.
         adapter = _build_adapter(cfg)
         assert isinstance(adapter, OpenAIEmbeddingAdapter)
+
+
+# --- T013 / T015: bge-m3 routing ----------------------------------------
+
+
+class TestBgeM3Provider:
+    def test_fake_bge_m3_provider_returns_fake_adapter(self) -> None:
+        cfg = EmbeddingConfig(provider="fake_bge_m3", dimension=64)
+        adapter = _build_adapter(cfg)
+        assert isinstance(adapter, FakeBgeM3Adapter)
+        assert adapter.dimension == 64
+
+    def test_bge_m3_provider_lazy_imports_real_adapter(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Stub FlagEmbedding so the real BgeM3Adapter constructor doesn't try
+        # to download ~2.3 GB of weights.
+        model = MagicMock()
+        module = MagicMock()
+        module.BGEM3FlagModel = MagicMock(return_value=model)
+        monkeypatch.setitem(sys.modules, "FlagEmbedding", module)
+
+        from libs.embeddings.bge_m3 import BgeM3Adapter
+
+        cfg = EmbeddingConfig(provider="bge_m3", dimension=1024, bge_m3_device="cpu")
+        adapter = _build_adapter(cfg)
+        assert isinstance(adapter, BgeM3Adapter)
+
+    def test_is_multi_vector_true_for_fake_bge_m3(self) -> None:
+        adapter = FakeBgeM3Adapter(dimension=32)
+        assert _is_multi_vector(adapter) is True
+
+    def test_is_multi_vector_false_for_dense_only(self) -> None:
+        adapter = FakeEmbeddingAdapter(dimension=32)
+        assert _is_multi_vector(adapter) is False
+
+
+class TestVectorSearchRouting:
+    """T015: vector_search must pick the right store method per adapter type."""
+
+    @pytest.mark.asyncio
+    async def test_routes_to_search_hybrid_when_adapter_is_multi(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from unittest.mock import AsyncMock
+
+        from libs.core.projects_config import DaemonConfig, QdrantConfig
+        from libs.embeddings import service
+        from libs.embeddings.qdrant_store import QdrantStore
+
+        store = QdrantStore(location=":memory:")
+        store.search_hybrid = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        store.search_summaries = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        monkeypatch.setattr(service, "_build_store", lambda cfg: store)
+
+        config = DaemonConfig(
+            qdrant=QdrantConfig(enabled=True, url="http://unused"),
+            embedding=EmbeddingConfig(provider="fake_bge_m3", dimension=64),
+        )
+        await service.vector_search(config=config, query="q", project_id="p")
+        store.search_hybrid.assert_called_once()
+        store.search_summaries.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_routes_to_search_summaries_for_dense_only(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from unittest.mock import AsyncMock
+
+        from libs.core.projects_config import DaemonConfig, QdrantConfig
+        from libs.embeddings import service
+        from libs.embeddings.qdrant_store import QdrantStore
+
+        store = QdrantStore(location=":memory:")
+        store.search_hybrid = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        store.search_summaries = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        monkeypatch.setattr(service, "_build_store", lambda cfg: store)
+
+        config = DaemonConfig(
+            qdrant=QdrantConfig(enabled=True, url="http://unused"),
+            embedding=EmbeddingConfig(provider="fake", dimension=64),
+        )
+        await service.vector_search(config=config, query="q", project_id="p")
+        store.search_summaries.assert_called_once()
+        store.search_hybrid.assert_not_called()
