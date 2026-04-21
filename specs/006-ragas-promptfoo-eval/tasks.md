@@ -31,26 +31,19 @@ description: "Task list for RAGAS + promptfoo eval layer (delta-only)"
 ## Phase 1: Setup (Shared Infrastructure)
 
 - [x] **T001** ✅ Добавлено `ragas>=0.4.3` в `[project.optional-dependencies] eval`. Phase 0 smoke passed → `langchain-anthropic` **не добавлен** (native `provider='anthropic'`); см. `research.md`.
-- [ ] **T002** [P] Расширить `libs/core/projects_config.py` секцией `EvalConfig` (`judge_model: str = "claude-haiku-4-5"`, `llm_judge_max_cost_usd: float = 1.0`, `cache_ragas_responses: bool = True`).
-- [ ] **T003** [P] Обновить `Makefile`:
-  ```
-  eval:          # unchanged
-  eval-full:     ## Run full eval with LLM judges
-  	uv run ctx eval run --full --output eval-results/$(shell date +%Y-%m-%d)-$(shell git rev-parse --short HEAD).json
-  eval-ci:       ## Run promptfoo gate (local sanity)
-  	npx -y promptfoo@latest eval -c tests/eval/promptfoo.config.yaml
-  ```
-- [ ] **T004** [P] `.gitignore`: добавить `eval-results/` (keep-last-5 через pre-commit hook в future item).
-- [ ] **T005** [P] `eval-results/.gitkeep` — создать папку.
+- [x] **T002** ✅ `libs/core/projects_config.py` расширен секцией `EvalConfig` (`judge_model`, `llm_judge_max_cost_usd`, `cache_ragas_responses`).
+- [x] **T003** ✅ `Makefile` обновлён — цели `eval-full` и `eval-ci` добавлены.
+- [x] **T004** ✅ `.gitignore` игнорирует `eval-results/*`, сохраняя `.gitkeep`.
+- [x] **T005** ✅ `eval-results/.gitkeep` создан.
 
 ---
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-- [ ] **T006** `libs/eval/dataset_schema.py` — Pydantic schema для gold YAML: `GoldQuery` с полями `{id, query, mode, expected: {files, symbols, answer_text?}, notes?, tags}`; функция `load_gold_dataset(path) -> list[GoldQuery]`.
-- [ ] **T007** [P] `libs/eval/cost_guard.py` — class `CostGuard(max_usd: float)` c методами `incur(tokens_in, tokens_out, model) -> None` (raises `CostGuardExceeded` при превышении); use `libs/llm/cost.py` как source of truth для цен.
-- [ ] **T008** Unit тесты: `tests/eval/test_dataset_schema.py` (valid/invalid YAML), `tests/eval/test_cost_guard.py` (under/over threshold).
-- [ ] **T009** **Checkpoint**: `pytest tests/eval -k "schema or cost_guard" -q` — зелёный.
+- [x] **T006** ✅ `libs/eval/dataset_schema.py` — `GoldQuery` + `load_gold_dataset` / `load_all_gold_datasets` реализованы (field `text`, не `query`, для консистентности с `queries.yaml`).
+- [x] **T007** ✅ `libs/eval/cost_guard.py` — `CostGuard(max_usd)` + `incur(...)` + `CostGuardExceeded`; цены из `libs/llm/cost.py`.
+- [x] **T008** ✅ Unit tests: `tests/eval/test_dataset_schema.py` (7 tests), `tests/eval/test_cost_guard.py` (6 tests).
+- [x] **T009** ✅ Checkpoint зелёный — 13 тестов dataset/cost_guard.
 
 ---
 
@@ -60,20 +53,17 @@ description: "Task list for RAGAS + promptfoo eval layer (delta-only)"
 
 **Independent Test**: integration-тест с mock Anthropic клиентом; ассертить presence полей и determinism при включённом кэше.
 
-- [ ] **T010** [US1] `libs/eval/ragas_adapter.py`:
-  - class `RagasAdapter(judge_model: str, cost_guard: CostGuard)`.
-  - `async run(queries, retrieved_contents) -> RagasMetrics` — вызывает ragas `context_precision`, `context_recall`, `faithfulness`, `answer_relevancy`.
-  - LLM через `ragas.llms.llm_factory('claude-haiku-4-5', provider='anthropic', client=anthropic.Anthropic(...))`.
-  - Metrics import: `from ragas.metrics.collections import context_precision, context_recall, faithfulness, answer_relevancy` (новый путь, старый deprecated в v1.0).
-  - Dataset: `ragas.dataset_schema.SingleTurnSample(user_input, response, retrieved_contexts, reference)`.
-  - Per-query cache: `functools.lru_cache` по `(query_hash, context_hash, metric)`.
-- [ ] **T011** [US1] `libs/eval/runner.py::run_eval`: добавить аргумент `llm_judge: bool = False`; when True → вызов `RagasAdapter.run()`; добавить `ragas: RagasMetrics | None` в `EvalReport`.
-- [ ] **T012** [P] [US1] `libs/eval/report.py`: extend `EvalReport.to_markdown()` — секция «LLM-judge metrics» при наличии `ragas`.
-- [ ] **T013** [US1] Unit-тест `tests/eval/test_ragas_adapter.py`:
-  - mock Anthropic client через `unittest.mock.patch("anthropic.Anthropic")` или patch на `InstructorLLM.agenerate`.
-  - ассертить: каждая метрика вызывается, cost_guard инкрементируется, cache перехватывает повтор.
-- [ ] **T014** [US1] Integration-тест `tests/eval/test_eval_full.py` (marker `@pytest.mark.eval @pytest.mark.llm`): на sample_repo с кэшированными fixture-LLM ответами; ассертить determinism (два запуска → identical numbers).
-- [ ] **T015** [US1] Pilot-проверка (manual, не CI): запустить `make eval-full` реально на Claude Haiku; записать первые numbers + cost; если cost > $0.50 — настроить кэш агрессивнее.
+- [x] **T010** ✅ `libs/eval/ragas_adapter.py`:
+  - `RagasAdapter` (builder-kwargs, llm_override support для тестов, cache_enabled).
+  - `async run(samples) -> RagasMetrics` — 3 метрики (`context_precision`, `context_recall`, `faithfulness`). `answer_relevancy` **отложен** — требует отдельный `BaseRagasEmbedding` (documented в docstring).
+  - LLM через `ragas.llms.llm_factory(model, provider='anthropic', client=anthropic.Anthropic(api_key))`.
+  - Class imports: `from ragas.metrics.collections import ContextPrecision, ContextRecall, Faithfulness`.
+  - Per-key SHA256 cache (не lru_cache — нужно count hits/misses).
+- [x] **T011** ✅ `libs/eval/runner.py`: `run_eval` остался sync (backward-compat с 26 callers). Added: `FileReader`, `default_file_reader`, `async def enrich_with_ragas(...)`. `EvalReport.ragas: RagasMetrics | None = None`.
+- [x] **T012** ✅ `libs/eval/report.py::generate_per_query_report` — «LLM-judge metrics» section + `cp / cr / f` колонки в per-query таблице. +5 unit-тестов. Reports без `ragas` рендерятся без изменений.
+- [x] **T013** ✅ Unit тесты: `tests/eval/test_ragas_adapter.py` (9 tests) — `MagicMock(spec=InstructorBaseRagasLLM)` удовлетворяет ragas isinstance-check, покрыты: all-metrics-fire, skip по missing fields, cache hits, cost_guard incrementation + exception.
+- [x] **T014** ✅ Integration test: `tests/eval/test_eval_full.py` (markers `eval + llm`) — 3 теста: end-to-end wiring, determinism с кэшем, cache hits на duplicate queries.
+- [ ] **T015** [US1] Pilot-проверка (manual, не CI): запустить `make eval-full` реально на Claude Haiku; записать первые numbers + cost; если cost > $0.50 — настроить кэш агрессивнее. **BLOCKED** — требует `ANTHROPIC_API_KEY` в env.
 
 **Checkpoint US1**: `make eval-full` работает, produces JSON с RAGAS полями, cost < $0.50, determinism подтверждён.
 
