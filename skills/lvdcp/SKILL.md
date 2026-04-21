@@ -31,6 +31,16 @@ under the project root), these tools replace ad-hoc grep/read flows:
   and shared dependencies across all indexed projects. Use before
   scaffolding a new module so suggestions align with the user's own
   workspace conventions.
+- `lvdcp_memory_propose(path, topic, body, tags?)` — persist a
+  non-obvious project fact the user will want next session (naming
+  conventions, env overrides, undocumented invariants). Writes a
+  `proposed` markdown memory the human must accept before it is
+  surfaced in retrieval. Do NOT use for things already visible in
+  code — those are already pack-retrievable.
+- `lvdcp_memory_list(path, status?)` — list reviewable memories.
+  Call with `status="accepted"` to ground an edit decision in
+  previously-approved facts, or `status="proposed"` to see the
+  review queue before writing a duplicate.
 
 ## Retrieval order contract
 

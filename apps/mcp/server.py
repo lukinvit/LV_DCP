@@ -17,6 +17,12 @@ from apps.mcp.tools import (
     lvdcp_inspect as _lvdcp_inspect,
 )
 from apps.mcp.tools import (
+    lvdcp_memory_list as _lvdcp_memory_list,
+)
+from apps.mcp.tools import (
+    lvdcp_memory_propose as _lvdcp_memory_propose,
+)
+from apps.mcp.tools import (
     lvdcp_neighbors as _lvdcp_neighbors,
 )
 from apps.mcp.tools import (
@@ -51,6 +57,8 @@ mcp.tool()(_lvdcp_status)
 mcp.tool()(_lvdcp_neighbors)
 mcp.tool()(_lvdcp_cross_project_patterns)
 mcp.tool()(_lvdcp_history)
+mcp.tool()(_lvdcp_memory_propose)
+mcp.tool()(_lvdcp_memory_list)
 
 
 def run_stdio() -> None:

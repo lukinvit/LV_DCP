@@ -15,6 +15,8 @@ def test_server_exposes_all_registered_tools() -> None:
         "lvdcp_neighbors",
         "lvdcp_cross_project_patterns",
         "lvdcp_history",
+        "lvdcp_memory_propose",
+        "lvdcp_memory_list",
     }
 
 

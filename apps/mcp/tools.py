@@ -85,6 +85,33 @@ class CrossProjectPatternsResult(BaseModel):
     structural_patterns: list[CrossProjectPattern]
 
 
+class MemoryEntry(BaseModel):
+    id: str
+    status: Literal["proposed", "accepted", "rejected"]
+    topic: str
+    tags: list[str]
+    created_at_iso: str
+    created_by: str
+    body: str
+    path: str
+
+
+class MemoryProposeResult(BaseModel):
+    memory: MemoryEntry
+    review_hint: str = Field(
+        description=(
+            "Human-readable hint describing how to review the proposed entry — "
+            "where it was written and what edit to make to accept/reject it."
+        )
+    )
+
+
+class MemoryListResult(BaseModel):
+    project: str
+    status_filter: str | None
+    memories: list[MemoryEntry]
+
+
 class HistoryCommitModel(BaseModel):
     sha: str
     author: str
@@ -524,4 +551,102 @@ def lvdcp_history(
             for c in commits
         ],
         truncated=len(commits) >= limit,
+    )
+
+
+def _memory_to_entry(m: object) -> MemoryEntry:
+    # `m` is a libs.memory.models.Memory; wrap in the MCP DTO.
+    from libs.memory.models import Memory  # noqa: PLC0415
+
+    assert isinstance(m, Memory)
+    return MemoryEntry(
+        id=m.id,
+        status=m.status.value,
+        topic=m.topic,
+        tags=list(m.tags),
+        created_at_iso=m.created_at_iso,
+        created_by=m.created_by,
+        body=m.body,
+        path=m.path,
+    )
+
+
+def lvdcp_memory_propose(
+    path: str,
+    topic: str,
+    body: str,
+    tags: list[str] | None = None,
+) -> MemoryProposeResult:
+    """Write a reviewable memory entry for a project as a ``proposed`` item.
+
+    CALL THIS WHEN:
+    - You want to persist a non-obvious insight the user will want next time
+      ("this codebase names session-rotation handlers with the `rotate_*`
+      prefix", "`.env.production.local` overrides `.env.production`")
+    - The user asks you to "remember" something about the project
+
+    DO NOT CALL FOR:
+    - Facts that are already obvious from the code (a good `lvdcp_pack` call
+      would surface them) — that clutters the review queue
+    - Personal preferences about working style — those belong in the user's
+      CLAUDE.md, not the project's memory store
+
+    The memory is written as a markdown file under
+    ``<project>/.context/memory/`` with YAML frontmatter. It starts in
+    ``status: proposed`` — a human must flip it to ``accepted`` before it
+    is surfaced by retrieval. Matches ByteRover's reviewable memory
+    pattern but stays local-first (the file is just Markdown — any editor
+    or Obsidian can be the review UI).
+    """
+    from libs.memory.store import MemoryError, propose_memory  # noqa: PLC0415
+
+    root = Path(path).resolve()
+    try:
+        memory = propose_memory(
+            root,
+            topic=topic,
+            body=body,
+            tags=tags,
+            created_by="agent",
+        )
+    except MemoryError as exc:
+        raise ValueError(f"memory_rejected: {exc}") from exc
+
+    return MemoryProposeResult(
+        memory=_memory_to_entry(memory),
+        review_hint=(
+            f"Proposed memory written to {memory.path}. "
+            f"Edit the frontmatter 'status' from 'proposed' to 'accepted' "
+            f"(or 'rejected') to approve it. Or run: "
+            f"ctx memory accept {memory.id} --project {root}"
+        ),
+    )
+
+
+def lvdcp_memory_list(
+    path: str,
+    status: Literal["proposed", "accepted", "rejected"] | None = None,
+) -> MemoryListResult:
+    """List reviewable memory entries for a project, optionally filtered by status.
+
+    CALL THIS WHEN:
+    - You need to see what the user has accepted as project facts
+      (before writing a new memory or when grounding an edit decision)
+    - You want to check the review queue (``status='proposed'``) before
+      asking the user about something the previous session flagged
+
+    DO NOT CALL FOR:
+    - Bulk reads (the full body of every memory is returned — cap your
+      listing by passing ``status='accepted'`` to skip the review queue)
+    """
+    from libs.memory.models import MemoryStatus  # noqa: PLC0415
+    from libs.memory.store import list_memories  # noqa: PLC0415
+
+    root = Path(path).resolve()
+    status_enum = MemoryStatus(status) if status is not None else None
+    memories = list_memories(root, status=status_enum)
+    return MemoryListResult(
+        project=root.name,
+        status_filter=status,
+        memories=[_memory_to_entry(m) for m in memories],
     )
