@@ -16,7 +16,7 @@ from libs.gitintel.models import GitFileStats
 
 # Phase 1 has no formal migration path; bumping this constant is advisory.
 # ADR-002 Phase 2 will introduce proper migration dispatch (see review issue I2).
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS files (
@@ -85,6 +85,25 @@ CREATE TABLE IF NOT EXISTS git_stats (
     last_author     TEXT NOT NULL DEFAULT '',
     computed_at_ts  REAL NOT NULL DEFAULT 0
 );
+
+-- spec #1 T004: tracks per-project re-embedding runs when switching models
+-- (e.g. OpenAI dense -> bge-m3 named-vectors). When Postgres/Alembic
+-- lands this table migrates there; for now the state is host-local.
+CREATE TABLE IF NOT EXISTS embedding_model_migrations (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_model        TEXT NOT NULL,
+    to_model          TEXT NOT NULL,
+    started_at        REAL NOT NULL,
+    finished_at       REAL,
+    points_total      INTEGER NOT NULL DEFAULT 0,
+    points_migrated   INTEGER NOT NULL DEFAULT 0,
+    status            TEXT NOT NULL CHECK (status IN ('running', 'done', 'failed')),
+    error_message     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_emb_mig_status
+    ON embedding_model_migrations(status);
+CREATE INDEX IF NOT EXISTS idx_emb_mig_started
+    ON embedding_model_migrations(started_at DESC);
 """
 
 
@@ -157,6 +176,13 @@ class SqliteCache:
 
         if current_version == 3:
             self._migrate_v3_to_v4(conn)
+            # Fall through — v4 table (git_stats) is now present; still need
+            # v4 -> v5 to land the embedding_model_migrations table.
+            self._migrate_v4_to_v5(conn)
+            return
+
+        if current_version == 4:
+            self._migrate_v4_to_v5(conn)
             return
 
         if current_version > SCHEMA_VERSION:
@@ -183,6 +209,27 @@ class SqliteCache:
                 last_author     TEXT NOT NULL DEFAULT '',
                 computed_at_ts  REAL NOT NULL DEFAULT 0
             );
+        """)
+        # Do not bump user_version here — caller chains v3 -> v4 -> v5.
+        conn.commit()
+
+    def _migrate_v4_to_v5(self, conn: sqlite3.Connection) -> None:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS embedding_model_migrations (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                from_model        TEXT NOT NULL,
+                to_model          TEXT NOT NULL,
+                started_at        REAL NOT NULL,
+                finished_at       REAL,
+                points_total      INTEGER NOT NULL DEFAULT 0,
+                points_migrated   INTEGER NOT NULL DEFAULT 0,
+                status            TEXT NOT NULL CHECK (status IN ('running', 'done', 'failed')),
+                error_message     TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_emb_mig_status
+                ON embedding_model_migrations(status);
+            CREATE INDEX IF NOT EXISTS idx_emb_mig_started
+                ON embedding_model_migrations(started_at DESC);
         """)
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         conn.commit()

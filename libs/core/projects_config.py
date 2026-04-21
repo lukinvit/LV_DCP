@@ -56,11 +56,12 @@ class QdrantConfig(BaseModel):
 
 
 class EmbeddingConfig(BaseModel):
-    provider: str = "openai"  # "openai" | "ollama" | "fake"
+    provider: str = "openai"  # "openai" | "ollama" | "bge_m3" | "fake"
     model: str = "text-embedding-3-small"
     # Must match the model. OpenAI text-embedding-3-small=1536,
-    # Ollama nomic-embed-text=768, mxbai-embed-large=1024, all-minilm=384.
-    # Changing dimension after scans requires dropping Qdrant collections.
+    # Ollama nomic-embed-text=768, mxbai-embed-large=1024, all-minilm=384,
+    # bge-m3=1024. Changing dimension after scans requires dropping Qdrant
+    # collections.
     dimension: int = 1536
     api_key_env_var: str = "OPENAI_API_KEY"
     # Override for OpenAI-compatible endpoints (Ollama, LocalAI, vLLM, etc.).
@@ -68,10 +69,46 @@ class EmbeddingConfig(BaseModel):
     # http://localhost:11434/v1.
     base_url: str = ""
 
+    # bge-m3 unified embedder (spec #1). Ignored when provider != "bge_m3".
+    # Device auto-detect: MPS -> CUDA -> CPU.
+    bge_m3_device: str = "auto"  # "auto" | "mps" | "cuda" | "cpu"
+    bge_m3_use_sparse: bool = True
+    bge_m3_use_colbert: bool = True
+    # RRF fusion weights for hybrid search across the three vector kinds.
+    fusion_weights: dict[str, float] = Field(
+        default_factory=lambda: {"dense": 1.0, "sparse": 1.0, "colbert": 0.7}
+    )
+    # Gradual rollout gate — off by default; flipping to True without
+    # explicit migration is rejected by the embed service.
+    enable_bge_m3: bool = False
+
     @field_validator("api_key_env_var")
     @classmethod
     def _check_not_secret(cls, v: str) -> str:
         return _validate_env_var_name(v)
+
+    @field_validator("bge_m3_device")
+    @classmethod
+    def _check_device(cls, v: str) -> str:
+        allowed = {"auto", "mps", "cuda", "cpu"}
+        if v not in allowed:
+            msg = f"bge_m3_device must be one of {sorted(allowed)}, got {v!r}"
+            raise ValueError(msg)
+        return v
+
+    @field_validator("fusion_weights")
+    @classmethod
+    def _check_fusion_weights(cls, v: dict[str, float]) -> dict[str, float]:
+        required = {"dense", "sparse", "colbert"}
+        missing = required - v.keys()
+        if missing:
+            msg = f"fusion_weights missing keys: {sorted(missing)}"
+            raise ValueError(msg)
+        for key, weight in v.items():
+            if weight < 0:
+                msg = f"fusion_weights[{key!r}] must be >= 0, got {weight}"
+                raise ValueError(msg)
+        return v
 
 
 class ObsidianConfig(BaseModel):

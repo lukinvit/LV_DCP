@@ -244,3 +244,94 @@ def test_retrieval_traces_table_exists(cache: SqliteCache) -> None:
     ).fetchone()
     conn.close()
     assert row == ("t1", "high")
+
+
+def test_embedding_model_migrations_table_exists(cache: SqliteCache) -> None:
+    """spec #1 T004: per-project re-embedding run ledger.
+
+    Verifies the v5 schema bump lands the table + indexes + CHECK constraint.
+    """
+    conn = sqlite3.connect(cache.db_path)
+    conn.execute(
+        """
+        INSERT INTO embedding_model_migrations
+            (from_model, to_model, started_at, status)
+        VALUES (?, ?, ?, ?)
+        """,
+        ("text-embedding-3-small", "bge-m3-v1", 1_700_000_000.0, "running"),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT from_model, to_model, status, points_total, points_migrated "
+        "FROM embedding_model_migrations "
+        "WHERE from_model = ? AND to_model = ?",
+        ("text-embedding-3-small", "bge-m3-v1"),
+    ).fetchone()
+    assert row == ("text-embedding-3-small", "bge-m3-v1", "running", 0, 0)
+
+    # CHECK constraint rejects bogus statuses
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            """
+            INSERT INTO embedding_model_migrations
+                (from_model, to_model, started_at, status)
+            VALUES (?, ?, ?, ?)
+            """,
+            ("a", "b", 1.0, "bogus"),
+        )
+        conn.commit()
+    conn.close()
+
+
+def test_v4_cache_migrates_to_v5_and_gets_embedding_table(tmp_path: Path) -> None:
+    """Simulate an on-disk v4 cache and verify migrate() lands v5 table.
+
+    Regression guard: v4 -> v5 chain must add embedding_model_migrations
+    without dropping existing rows.
+    """
+    db_path = tmp_path / "cache.db"
+    conn = sqlite3.connect(db_path)
+    conn.executescript(
+        """
+        CREATE TABLE files (
+            path          TEXT PRIMARY KEY,
+            content_hash  TEXT NOT NULL,
+            size_bytes    INTEGER NOT NULL,
+            language      TEXT NOT NULL,
+            role          TEXT NOT NULL,
+            is_generated  INTEGER NOT NULL DEFAULT 0,
+            is_binary     INTEGER NOT NULL DEFAULT 0,
+            has_secrets   INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE git_stats (
+            file_path       TEXT PRIMARY KEY,
+            commit_count    INTEGER NOT NULL DEFAULT 0,
+            churn_30d       INTEGER NOT NULL DEFAULT 0,
+            last_modified_ts REAL NOT NULL DEFAULT 0,
+            age_days        INTEGER NOT NULL DEFAULT 0,
+            authors_json    TEXT NOT NULL DEFAULT '[]',
+            primary_author  TEXT NOT NULL DEFAULT '',
+            last_author     TEXT NOT NULL DEFAULT '',
+            computed_at_ts  REAL NOT NULL DEFAULT 0
+        );
+        """
+    )
+    conn.execute(
+        "INSERT INTO files VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        ("a.py", "h", 1, "python", "source", 0, 0, 0),
+    )
+    conn.execute("PRAGMA user_version = 4")
+    conn.commit()
+    conn.close()
+
+    cache = SqliteCache(db_path)
+    cache.migrate()
+
+    conn = sqlite3.connect(db_path)
+    # Existing row survives the migration.
+    assert conn.execute("SELECT path FROM files").fetchone() == ("a.py",)
+    # New table is present.
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "embedding_model_migrations" in tables
+    assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == 5
+    conn.close()

@@ -1,5 +1,10 @@
 version: "3.8"
 
+# Qdrant 1.12+ required for named vectors + sparse + multivector in one
+# collection (spec #1 — bge-m3 unified embedder). The pinned 1.13.6 already
+# satisfies that. When adding a worker image that runs bge-m3 directly,
+# mount a model cache via `HF_HOME=/models` + named volume so weights
+# persist between restarts.
 services:
   qdrant:
     image: qdrant/qdrant:v1.13.6
