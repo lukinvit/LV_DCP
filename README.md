@@ -53,7 +53,7 @@ $ ctx pack . "refresh token rotation" --mode edit
 
 ## Status
 
-**Phase 7c complete (2026-04-21)** — PageRank centrality boost (Aider parity), adaptive vector/FTS fusion, `lvdcp_neighbors` + `lvdcp_history` + `lvdcp_cross_project_patterns` MCP tools, disambiguation suggestions, Go `tests_for` inference, directory-aware ancestor path boost, recency-aware centrality, `ctx eval` CLI, reusable `libs/eval` wheel package, Claude Code skill published.
+**Phase 7c complete (2026-04-21)** — PageRank centrality boost (Aider parity), adaptive vector/FTS fusion, disambiguation suggestions on ambiguous packs, Go `tests_for` inference, directory-aware ancestor path boost, recency-aware centrality, reusable `libs/eval` wheel package, Claude Code skill, ByteRover-style reviewable engineering memory (proposed → accepted lifecycle). Five new MCP tools (`lvdcp_neighbors`, `lvdcp_history`, `lvdcp_cross_project_patterns`, `lvdcp_memory_propose`, `lvdcp_memory_list`) + two new CLI commands (`ctx eval`, `ctx memory`).
 
 **Phase 7b complete (2026-04-16)** — TypeScript/JS graph enrichment: `tests_for` relations, tighter path-filter rejecting unresolved module specifiers and npm subpaths. Verified on a 926-file Next.js codebase.
 
@@ -98,11 +98,11 @@ Release note: [docs/release/2026-04-13-v0.6.1-stabilization.md](docs/release/202
 | 6.1 | **0.6.1** | **Done** | Stabilization pass: mandatory CI quality gates, green `ruff` + `mypy`, async/Qdrant runtime hardening, 662 tests passing |
 | 7a | — | **Done** | Identifier-aware path retrieval, wiki post-scan hook, real-project eval harness, precision@3 0.568→0.693 |
 | 7b | — | **Done** | TS/JS `tests_for` + `inherits` relations, DDD/FSD alias resolution, path-filter tightening (reject `./`, `../`, `@/`, npm subpaths). Verified on three real projects: Next.js app (82 tests_for, 29 inherits), large TS monorepo (440 tests_for, 26 inherits), DDD frontend (131 tests_for) |
-| 7c | — | **Done** | PageRank centrality boost (Aider parity), adaptive vector/FTS fusion weight, Go `tests_for` inference, `lvdcp_neighbors` graph follow-up tool, disambiguation suggestions on ambiguous packs, directory-aware ancestor path boost, `lvdcp_history` git-history MCP tool, recency-aware centrality, `ctx eval` CLI + reusable `libs/eval`, Claude Code skill |
+| 7c | — | **Done** | PageRank centrality boost (Aider parity), adaptive vector/FTS fusion weight, Go `tests_for` inference, `lvdcp_neighbors` graph follow-up tool, disambiguation suggestions on ambiguous packs, directory-aware ancestor path boost, `lvdcp_history` git-history MCP tool, recency-aware centrality, `ctx eval` CLI + reusable `libs/eval`, Claude Code skill. Round-4: `lvdcp_memory_propose` + `lvdcp_memory_list` MCP tools, `ctx memory` CLI, ByteRover-style reviewable engineering memory |
 
 ### Test suite
 
-778 tests in suite, 0 failures. Current green baseline: 777 collected (1 deselected). Eval harness: 32 synthetic queries; multi-project eval currently covers 9 advisory queries across 4 registered projects.
+798 tests in suite, 0 failures. Current green baseline: 798 collected (1 deselected). Eval harness: 32 synthetic queries; multi-project eval currently covers 9 advisory queries across 4 registered projects.
 
 For advisory real-project eval setup and report commands, see [docs/eval/real-project-eval.md](docs/eval/real-project-eval.md).
 
@@ -258,7 +258,7 @@ claude mcp list
 
 Replace `/absolute/path/to/LV_DCP` with your actual clone path.
 
-After this, restart your Claude Code session (or VS Code if using the extension). Claude will now see `lvdcp_pack`, `lvdcp_scan`, `lvdcp_inspect`, `lvdcp_explain`, `lvdcp_neighbors`, `lvdcp_history`, `lvdcp_cross_project_patterns` as available tools and will call them automatically per the behavioral rules in `~/.claude/CLAUDE.md`.
+After this, restart your Claude Code session (or VS Code if using the extension). Claude will now see `lvdcp_pack`, `lvdcp_scan`, `lvdcp_inspect`, `lvdcp_explain`, `lvdcp_neighbors`, `lvdcp_history`, `lvdcp_cross_project_patterns`, `lvdcp_memory_propose`, `lvdcp_memory_list` as available tools and will call them automatically per the behavioral rules in `~/.claude/CLAUDE.md`.
 
 ## Usage
 
@@ -289,6 +289,8 @@ uv run --directory /path/to/LV_DCP ctx inspect .
 | `ctx mcp install --scope {user\|project\|local}` | Patch `~/.claude/CLAUDE.md` with a behavioral rule (⚠ currently writes to wrong file — see Phase 3 backlog M8). Use `claude mcp add` directly for now. |
 | `ctx watch add/remove/list/start` | Manage the auto-indexing daemon (watchdog + FSEvents, incremental scan on file change). |
 | `ctx eval <path> [--queries <file>]` | Run the retrieval eval harness against a project and print recall/precision/MRR metrics. |
+| `ctx memory list <path> [--status proposed\|accepted\|rejected]` | List reviewable engineering memories for a project. |
+| `ctx memory propose <path> --topic <topic> --body <body>` | Persist a non-obvious project fact for human review. |
 
 ### What gets indexed
 
@@ -378,7 +380,7 @@ make test          # pytest, excluding eval and llm markers
 make eval          # retrieval evaluation harness
 ```
 
-Current: 778 tests (777 collected, 1 deselected), eval harness with 32 synthetic queries, plus 9 advisory multi-project queries. Phase 6 feature baseline tagged `phase-6-complete`.
+Current: 798 tests (798 collected, 1 deselected), eval harness with 32 synthetic queries, plus 9 advisory multi-project queries. Phase 6 feature baseline tagged `phase-6-complete`.
 
 ### Running the daemon
 
@@ -401,7 +403,7 @@ The daemon uses `watchdog.observers.Observer` which auto-selects `FSEventsObserv
 - **Stabilization 0.6.1** (done) — GitHub Actions quality gates, repository-wide green `ruff` / `mypy`, warning-free embeddings and Qdrant runtime, 684 tests at release.
 - **Phase 7a** (done) — Identifier-aware path retrieval (path aliases in FTS index, camelCase/snake_case tokenization), wiki post-scan hook with ThreadPoolExecutor, Cyrillic tokenization in pack enrichment, real-project eval harness, precision@3 improved 0.568→0.693.
 - **Phase 7b** (done) — TypeScript/JavaScript graph enrichment: `tests_for` and `inherits` relations ported from Python parser. TS module resolution supports `./`, `../`, `@/` alias, FSD-style `@shared/` / `@entities/` / `@widgets/` / `@features/` / `@app/` / `@pages/` / `@processes/` aliases, rooted paths, and DDD-style roots (`domains`, `services`, `backend`, `frontend`). Test-path heuristic extended for `.test.ts` / `.spec.tsx` / `__tests__/` conventions. Graph-expansion filter tightened to reject unresolved import specifiers and npm package subpaths (`./flow-engine`, `@/lib/foo`, `next-auth/jwt`, `@playwright/test`). Verified on three real projects: Next.js app (82 tests_for, 29 inherits), large TS monorepo (440 tests_for, 26 inherits), DDD frontend (131 tests_for via DDD heuristic).
-- **Phase 7c** (done) — PageRank centrality boost, adaptive vector/FTS fusion, `lvdcp_neighbors` tool for agentic graph follow-ups, disambiguation suggestions on ambiguous packs, Go `tests_for` inference, directory-aware ancestor path boost, `lvdcp_history` git-history MCP tool, recency-aware centrality, `ctx eval` CLI + reusable `libs/eval` wheel package, Claude Code skill.
+- **Phase 7c** (done) — PageRank centrality boost, adaptive vector/FTS fusion, `lvdcp_neighbors` tool for agentic graph follow-ups, disambiguation suggestions on ambiguous packs, Go `tests_for` inference, directory-aware ancestor path boost, `lvdcp_history` git-history MCP tool, recency-aware centrality, `ctx eval` CLI + reusable `libs/eval` wheel package, Claude Code skill. Round-4: `lvdcp_memory_propose` + `lvdcp_memory_list` MCP tools, `ctx memory` CLI, ByteRover-style reviewable engineering memory (proposed → accepted lifecycle).
 - **Phase 8** (next) — Native onboarding flow, Java/Kotlin/Swift parsers, LLM-based rerank, VS Code marketplace, Obsidian nightly sync.
 
 ## Contributing
