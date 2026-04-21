@@ -35,6 +35,7 @@ apps/vscode/*.vsix
 .cache/
 .claude/scheduled_tasks.lock
 .claude/settings.json
+.claude/worktrees/
 .coverage
 .coverage.*
 .env
