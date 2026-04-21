@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from libs.scanning.scanner import CACHE_REL, ScanResult, scan_project
@@ -41,6 +42,52 @@ def test_scan_project_incremental_reparses_modified(sample_project: Path) -> Non
     (sample_project / "app" / "main.py").write_text("def entry() -> int:\n    return 42\n")
     result = scan_project(sample_project, mode="incremental")
     assert result.files_reparsed == 1
+
+
+def test_scan_incremental_upserts_vectors_for_changed_files(
+    sample_project: Path,
+) -> None:
+    """Daemon-triggered partial scans (mode=incremental, only={...}) must still
+    push changed files to Qdrant. Prior regression: the embedding path was
+    gated by ``only is None``, so vectors drifted out of sync with the
+    SQLite graph whenever the watcher re-indexed a modified file.
+    """
+    scan_project(sample_project, mode="full")
+    (sample_project / "app" / "main.py").write_text(
+        "def entry() -> int:\n    return 42\n"
+    )
+
+    # Force the qdrant-enabled config branch + observe the embed call.
+    class _StubQdrant:
+        enabled = True
+
+    class _StubConfig:
+        qdrant = _StubQdrant()
+
+    with (
+        patch(
+            "libs.core.projects_config.load_config",
+            return_value=_StubConfig(),
+        ),
+        patch(
+            "libs.embeddings.service.embed_project_files",
+            return_value=1,
+        ) as mock_embed,
+    ):
+        scan_project(
+            sample_project,
+            mode="incremental",
+            only={"app/main.py"},
+        )
+
+    assert mock_embed.called, (
+        "incremental scan with qdrant.enabled should upsert the changed file; "
+        "regression: embedding path was previously gated by `only is None`"
+    )
+    kwargs = mock_embed.call_args.kwargs
+    changed = kwargs["changed_files"]
+    assert len(changed) == 1
+    assert changed[0]["file_path"] == "app/main.py"
 
 
 def test_scan_marks_file_with_secret_content(tmp_path: Path) -> None:
