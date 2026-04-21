@@ -30,11 +30,11 @@ description: "Task list for bge-m3 unified embedder (dense + sparse + multivecto
 
 **Purpose**: зависимости, конфиги, фикстуры.
 
-- [ ] **T001** Добавить `FlagEmbedding`, `transformers`, `torch` в `pyproject.toml` (секция `[project.optional-dependencies] bge-m3`); `torch` без CUDA-вариации, Apple Silicon тянет MPS через `torch` напрямую.
-- [ ] **T002** [P] Обновить `libs/core/projects_config.py`: добавить `EmbeddingConfig.provider: Literal["openai","ollama","bge_m3","fake"]`, `bge_m3_device`, `bge_m3_use_sparse`, `bge_m3_use_colbert`, `fusion_weights`.
-- [ ] **T003** [P] Обновить `docker-compose/backend.yml` — Qdrant 1.12+; worker image получает `HF_HOME=/models` volume.
-- [ ] **T004** Alembic ревизия `embedding_model_migrations` (id UUID, project_id UUID FK, from_model, to_model, started_at, finished_at TIMESTAMPTZ NULL, points_total, points_migrated, status ENUM{running, done, failed}).
-- [ ] **T005** [P] Фикстуры pytest: `tests/conftest.py` → `bge_m3_fake_adapter` (deterministic hash vectors of required shapes).
+- [x] **T001** Добавить `FlagEmbedding`, `transformers`, `torch` в `pyproject.toml` (секция `[project.optional-dependencies] bge-m3`); `torch` без CUDA-вариации, Apple Silicon тянет MPS через `torch` напрямую.
+- [x] **T002** [P] Обновить `libs/core/projects_config.py`: добавить `EmbeddingConfig.provider: Literal["openai","ollama","bge_m3","fake"]`, `bge_m3_device`, `bge_m3_use_sparse`, `bge_m3_use_colbert`, `fusion_weights`.
+- [x] **T003** [P] Обновить `docker-compose/backend.yml` — Qdrant 1.12+; worker image получает `HF_HOME=/models` volume. *(Qdrant уже на 1.13.6; HF_HOME контракт задокументирован в `deploy/docker-compose/qdrant.yml`; worker-образ — позже.)*
+- [x] **T004** Alembic ревизия `embedding_model_migrations` (id UUID, project_id UUID FK, from_model, to_model, started_at, finished_at TIMESTAMPTZ NULL, points_total, points_migrated, status ENUM{running, done, failed}). *(Адаптировано: таблица живёт в `SqliteCache` через миграцию схемы v4→v5 до появления Postgres/Alembic-инфраструктуры.)*
+- [x] **T005** [P] Фикстуры pytest: `tests/conftest.py` → `bge_m3_fake_adapter` (deterministic hash vectors of required shapes).
 
 ---
 
@@ -42,7 +42,7 @@ description: "Task list for bge-m3 unified embedder (dense + sparse + multivecto
 
 **Purpose**: базовые абстракции, без которых US1 не заработает.
 
-- [ ] **T006** В `libs/embeddings/adapter.py` добавить `MultiVectorEmbeddingAdapter(Protocol)` с методом `embed_batch_multi(texts, *, dense, sparse, colbert) -> BatchMultiVectorResult`. `BatchMultiVectorResult` — dataclass с полями `dense: list[list[float]] | None`, `sparse: list[SparseVec] | None`, `colbert: list[list[list[float]]] | None`.
+- [x] **T006** В `libs/embeddings/adapter.py` добавить `MultiVectorEmbeddingAdapter(Protocol)` с методом `embed_batch_multi(texts, *, dense, sparse, colbert) -> BatchMultiVectorResult`. `BatchMultiVectorResult` — dataclass с полями `dense: list[list[float]] | None`, `sparse: list[SparseVec] | None`, `colbert: list[list[list[float]]] | None`.
 - [ ] **T007** В `libs/embeddings/bge_m3.py` реализовать `BgeM3Adapter` (использует `FlagModel`/`BGEM3FlagModel` из FlagEmbedding; `torch` forward под `asyncio.to_thread`). Device: MPS → CUDA → CPU (auto-detect).
 - [ ] **T008** В `libs/embeddings/qdrant_store.py`: переписать `ensure_collections()` под named vectors — `vectors_config={dense: VectorParams, colbert: VectorParams(multivector_config=...)}`, `sparse_vectors_config={sparse: SparseVectorParams}`. Добавить `upsert_multi(collection, points: list[MultiVectorPoint])`.
 - [ ] **T009** Реализовать `QdrantStore.search_hybrid(collection, query_vectors: QueryVectors, filter, limit) -> list[ScoredPoint]` через Qdrant `query_points` API с `Fusion.RRF`.
