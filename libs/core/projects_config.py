@@ -105,6 +105,48 @@ class StorageConfig(BaseModel):
     encryption_key_env: str | None = None
 
 
+class TimelineConfig(BaseModel):
+    """Symbol timeline index (spec-010).
+
+    Append-only event store answering "when was X implemented?" and
+    "what disappeared after release Y?" with indexed lookups instead
+    of git-log walks. ``enabled=False`` is a zero-overhead opt-out:
+    scanner skips sink registration entirely.
+    """
+
+    enabled: bool = True
+    # Relative name under ~/.lvdcp/ when no absolute override is supplied.
+    store_filename: str = "symbol_timeline.db"
+    # None = keep everything; integer N = prune events older than N days
+    # on every append (matches ``scan_history`` behaviour).
+    retention_days: int | None = None
+    privacy_mode: str = Field(default="balanced")  # strict | balanced | off
+    rename_similarity_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
+    enable_timeline_enrichment: bool = True
+    pack_enrichment_markers: list[str] = Field(
+        default_factory=lambda: [
+            "когда",
+            "when was",
+            "since v",
+            "removed",
+            "между v",
+            "между релизами",
+        ],
+    )
+    tag_watcher_poll_seconds: int = Field(default=60, gt=0)
+    # ``pkg.module:ClassName`` import paths for additional sinks (Obsidian, etc.).
+    sink_plugins: list[str] = Field(default_factory=list)
+
+    @field_validator("privacy_mode")
+    @classmethod
+    def _check_privacy_mode(cls, v: str) -> str:
+        allowed = {"strict", "balanced", "off"}
+        if v not in allowed:
+            msg = f"privacy_mode must be one of {allowed}, got {v!r}"
+            raise ValueError(msg)
+        return v
+
+
 class DaemonConfig(BaseModel):
     version: int = Field(default=1)
     projects: list[ProjectEntry] = Field(default_factory=list)
@@ -114,6 +156,7 @@ class DaemonConfig(BaseModel):
     obsidian: ObsidianConfig = Field(default_factory=ObsidianConfig)
     wiki: WikiConfig = Field(default_factory=WikiConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
+    timeline: TimelineConfig = Field(default_factory=TimelineConfig)
 
 
 def load_config(path: Path) -> DaemonConfig:
