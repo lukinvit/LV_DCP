@@ -1,20 +1,20 @@
-"""Integration test for hybrid retrieval on rare-identifier corpus (T012).
+"""Integration tests for hybrid retrieval on the spec-001 eval datasets.
 
-Loads ``tests/eval/datasets/rare_symbols.yaml`` and builds a synthetic
-corpus made of one target per query (carrying the rare token) plus a
-pile of generic distractors. The corpus is indexed into an in-memory
-Qdrant collection via :class:`FakeBgeM3Adapter` (dense + sparse; colbert
-is intentionally disabled — the fake adapter's colbert seed depends on
-token position, which this synthetic setup cannot guarantee to match
-across query and document).
+Two scenarios are covered:
 
-We then measure Recall@5 for:
+* T012 (US1) — rare-identifier lookup. Builds a corpus from
+  ``tests/eval/datasets/rare_symbols.yaml`` (one target per query plus
+  generic distractors) and compares Recall@5 for the dense-only path
+  against hybrid (dense + sparse). The fake adapter's colbert seed is
+  position-dependent, so colbert is disabled here — sparse alone is the
+  signal that dense-only misses.
 
-- the dense-only production path (``QdrantStore.search_summaries``),
-- the hybrid path (``QdrantStore.search_hybrid`` with RRF fusing dense
-  and sparse stages).
-
-Spec §T012 target: hybrid > 0.8, dense-only < 0.4.
+* T018 (US2) — close-sibling disambiguation. Builds a corpus from
+  ``tests/eval/datasets/close_siblings.yaml`` (two twin documents per
+  pair, differing in exactly one distinguishing token which appears at
+  position 0 of both query and target_a). Measures accuracy =
+  ``target_a ranked above target_b in top-5`` and asserts hybrid beats
+  dense-only by ≥ 15 pp per spec §US2.
 """
 
 from __future__ import annotations
@@ -25,9 +25,11 @@ from typing import cast
 import pytest
 import yaml
 from libs.embeddings.adapter import FakeBgeM3Adapter
-from libs.embeddings.qdrant_store import MultiVectorItem, QdrantStore
+from libs.embeddings.qdrant_store import MultiVectorItem, QdrantStore, SummarySearchHit
 
-DATASET_PATH = Path(__file__).resolve().parents[2] / "eval" / "datasets" / "rare_symbols.yaml"
+DATASETS_DIR = Path(__file__).resolve().parents[2] / "eval" / "datasets"
+RARE_SYMBOLS_PATH = DATASETS_DIR / "rare_symbols.yaml"
+CLOSE_SIBLINGS_PATH = DATASETS_DIR / "close_siblings.yaml"
 
 _DISTRACTOR_THEMES = (
     "Inventory audit flow summarises the stock count once a week.",
@@ -44,8 +46,36 @@ _DISTRACTOR_THEMES = (
 
 
 def _load_dataset() -> list[dict[str, str]]:
-    raw = yaml.safe_load(DATASET_PATH.read_text(encoding="utf-8"))
+    raw = yaml.safe_load(RARE_SYMBOLS_PATH.read_text(encoding="utf-8"))
     return cast(list[dict[str, str]], raw["queries"])
+
+
+def _load_close_siblings() -> list[dict[str, str]]:
+    raw = yaml.safe_load(CLOSE_SIBLINGS_PATH.read_text(encoding="utf-8"))
+    return cast(list[dict[str, str]], raw["pairs"])
+
+
+def _a_outranks_b(
+    hits: list[SummarySearchHit], target_a: str, target_b: str
+) -> bool:
+    """Return True iff ``target_a`` appears ahead of ``target_b`` in ``hits``.
+
+    - both present → compare ranks,
+    - only A present → A wins,
+    - only B present → A loses,
+    - neither present → counted as a loss (no disambiguation evidence).
+    """
+    idx_a = next(
+        (i for i, h in enumerate(hits) if h["file_path"] == target_a), None
+    )
+    idx_b = next(
+        (i for i, h in enumerate(hits) if h["file_path"] == target_b), None
+    )
+    if idx_a is None:
+        return False
+    if idx_b is None:
+        return True
+    return idx_a < idx_b
 
 
 def _distractors(count: int) -> list[tuple[str, str]]:
@@ -127,4 +157,98 @@ async def test_hybrid_beats_dense_only_on_rare_symbols() -> None:
     assert hybrid_recall - dense_recall > 0.4, (
         f"hybrid must dominate dense-only by > 0.4 on rare tokens "
         f"(got hybrid={hybrid_recall:.3f}, dense={dense_recall:.3f})"
+    )
+
+
+@pytest.mark.asyncio
+async def test_colbert_disambiguation_close_siblings() -> None:
+    """T018 — hybrid with colbert disambiguates between close siblings.
+
+    Corpus = 2 targets per pair (variant A and variant B, differing by
+    exactly one token placed at position 0) + generic distractors. For
+    each query we check whether ``target_a`` outranks ``target_b`` in
+    the top-5 hybrid hits. Dense-only baseline is ~0.5 (random between
+    the twins because their full-text SHA hashes are uncorrelated);
+    spec §US2 demands hybrid ≥ dense + 0.15.
+    """
+    pairs = _load_close_siblings()
+    assert len(pairs) >= 15, "dataset must contain the 15+ pairs spec'd in T017"
+
+    adapter = FakeBgeM3Adapter(dimension=128)
+    store = QdrantStore(location=":memory:")
+    await store.ensure_collections(dimension=adapter.dimension, hybrid=True)
+
+    corpus: list[tuple[str, str]] = []
+    for p in pairs:
+        corpus.append((p["target_a_file"], p["target_a_text"]))
+        corpus.append((p["target_b_file"], p["target_b_text"]))
+    corpus.extend(_distractors(60))
+
+    texts = [text for _, text in corpus]
+    multi = await adapter.embed_batch_multi(
+        texts, dense=True, sparse=True, colbert=True
+    )
+    assert multi.dense is not None
+    assert multi.sparse is not None
+    assert multi.colbert is not None
+
+    items: list[MultiVectorItem] = []
+    for (path, _), dense_vec, sparse_vec, colbert_vecs in zip(
+        corpus, multi.dense, multi.sparse, multi.colbert, strict=True
+    ):
+        items.append(
+            {
+                "file_path": path,
+                "content_hash": "",
+                "language": "synthetic",
+                "entity_type": "file",
+                "dense": dense_vec,
+                "sparse": sparse_vec,
+                "colbert": colbert_vecs,
+            }
+        )
+    await store.upsert_multi(
+        collection="devctx_summaries", project_id="sibs", items=items
+    )
+
+    hybrid_correct = 0
+    dense_correct = 0
+    for p in pairs:
+        q_multi = await adapter.embed_batch_multi(
+            [p["query"]], dense=True, sparse=True, colbert=True
+        )
+        assert q_multi.dense is not None
+        assert q_multi.sparse is not None
+        assert q_multi.colbert is not None
+
+        hybrid = await store.search_hybrid(
+            collection="devctx_summaries",
+            project_id="sibs",
+            dense_query=q_multi.dense[0],
+            sparse_query=q_multi.sparse[0],
+            colbert_query=q_multi.colbert[0],
+            limit=5,
+        )
+        dense = await store.search_summaries(
+            vector=q_multi.dense[0], project_id="sibs", limit=5
+        )
+
+        if _a_outranks_b(hybrid, p["target_a_file"], p["target_b_file"]):
+            hybrid_correct += 1
+        if _a_outranks_b(dense, p["target_a_file"], p["target_b_file"]):
+            dense_correct += 1
+
+    await store.close()
+
+    total = len(pairs)
+    hybrid_acc = hybrid_correct / total
+    dense_acc = dense_correct / total
+
+    assert hybrid_acc - dense_acc >= 0.15, (
+        f"hybrid must beat dense-only by ≥ 0.15 on close siblings "
+        f"(hybrid={hybrid_acc:.3f}, dense={dense_acc:.3f}, delta={hybrid_acc - dense_acc:.3f})"
+    )
+    assert hybrid_acc >= 0.85, (
+        f"hybrid accuracy = {hybrid_acc:.3f} below 0.85 — colbert + sparse should "
+        "reliably disambiguate when the distinguishing token sits at position 0"
     )

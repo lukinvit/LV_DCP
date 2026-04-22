@@ -164,6 +164,25 @@ scripts/
 | Миграция зависает при крупном корпусе | M | Chunked migration с checkpoint в `embedding_model_migrations`; возобновление |
 | RRF weights не оптимальны по дефолту | L | Конфигурируемые веса в `EmbeddingConfig.fusion_weights`; дефолт из Qdrant best practice |
 
+## Configuration knobs (bge-m3 hybrid)
+
+Живут в `EmbeddingConfig` (см. `libs/core/projects_config.py`). Все игнорируются при `provider != "bge_m3"` и `provider != "fake_bge_m3"`.
+
+| Поле | Тип | Дефолт | Назначение |
+|------|-----|--------|-----------|
+| `provider` | Literal | `"openai"` | `"bge_m3"` — реальный адаптер (требует extras `[bge-m3]`); `"fake_bge_m3"` — детерминистский стаб для тестов. |
+| `bge_m3_device` | Literal | `"auto"` | `"mps" / "cuda" / "cpu"`; `auto` = MPS → CUDA → CPU. |
+| `bge_m3_use_sparse` | bool | `True` | Включает sparse ветвь при hybrid retrieval и upsert. |
+| `bge_m3_use_colbert` | bool | `True` | Включает multivector (MAX_SIM) ветвь. |
+| `fusion_weights` | dict | `{dense: 1.0, sparse: 1.0, colbert: 0.7}` | Веса для per-stage переоценки. **NB:** Qdrant `Fusion.RRF` на текущий день (qdrant-client 1.12–1.17) игнорирует веса — поле зарезервировано под client-side rerank (item #2) и будущий `Fusion.DBSF` c весами. На сервере пока работает стандартный RRF. |
+| `enable_bge_m3` | bool | `False` | Rollout gate; `False` означает, что пайплайн продолжает использовать OpenAI/Ollama adapter даже при `provider="bge_m3"` (см. T030). |
+
+### Миграционные сочетания
+
+- Legacy OpenAI/Ollama → ничего не трогать: `provider="openai"` оставляет dense-only схему (sparse/colbert slots не создаются).
+- bge-m3 без multivector: `provider="bge_m3"`, `bge_m3_use_colbert=False` — экономит storage × 2.
+- dense-only bge-m3: `bge_m3_use_sparse=False` + `bge_m3_use_colbert=False` — бенчмарк-совместимо с OpenAI, но с локальной моделью.
+
 ## Out of Scope
 
 - Дообучение bge-m3 на код-корпусе (последующая идея).

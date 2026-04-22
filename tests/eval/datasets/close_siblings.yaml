@@ -1,0 +1,135 @@
+# Close-sibling retrieval eval dataset (spec-001 US2 — T017).
+#
+# Each entry is a "twin" pair: two files (``target_a`` and ``target_b``)
+# whose content differs in exactly one distinguishing token. The query
+# contains that distinguishing token at position 0 so the integration
+# test (T018) can measure how well the adapter disambiguates between
+# close siblings. Dense-only retrieval is expected to behave randomly
+# between the twins (their SHA-based dense hashes are uncorrelated),
+# while hybrid with sparse + colbert should rank ``target_a`` above
+# ``target_b`` because:
+#
+#  - sparse hashes "fetch_user_sync_strict" (a) differently from
+#    "fetch_user_async_lenient" (b) — exact match wins,
+#  - colbert seeds the token at position 0 with the same string in the
+#    query and ``target_a`` but not ``target_b`` — MAX_SIM pairs up.
+#
+# Accuracy metric = fraction of queries where ``target_a`` outranks
+# ``target_b`` in the top-5 hybrid hits. Dense-only baseline hovers at
+# 50 %; hybrid target is ≥ dense_baseline + 15 pp per spec-001 US2.
+#
+# Each ``target_*_file`` is a synthetic path; the integration test
+# builds an in-memory corpus from these fields plus distractors.
+version: 1
+pairs:
+  - id: sibling-01-sync-async
+    query: "fetch_user_sync_strict payload validator"
+    target_a_file: libs/users/sync_client.py
+    target_a_text: "fetch_user_sync_strict payload validator enforces schema on every return value."
+    target_b_file: libs/users/async_client.py
+    target_b_text: "fetch_user_async_lenient payload validator enforces schema on every return value."
+
+  - id: sibling-02-api-v1-v2
+    query: "api_v2_broadcast ingest buffer"
+    target_a_file: apps/backend/routes/broadcast_v2.py
+    target_a_text: "api_v2_broadcast ingest buffer fans out to downstream subscribers in order."
+    target_b_file: apps/backend/routes/broadcast_v1.py
+    target_b_text: "api_v1_broadcast ingest buffer fans out to downstream subscribers in order."
+
+  - id: sibling-03-read-write
+    query: "buffer_read_blocking retry policy"
+    target_a_file: libs/io/reader.py
+    target_a_text: "buffer_read_blocking retry policy applies exponential backoff on transient failure."
+    target_b_file: libs/io/writer.py
+    target_b_text: "buffer_write_blocking retry policy applies exponential backoff on transient failure."
+
+  - id: sibling-04-push-pop
+    query: "queue_push_priority capacity guard"
+    target_a_file: libs/queue/producer.py
+    target_a_text: "queue_push_priority capacity guard rejects inserts above the watermark."
+    target_b_file: libs/queue/consumer.py
+    target_b_text: "queue_pop_priority capacity guard rejects inserts above the watermark."
+
+  - id: sibling-05-enable-disable
+    query: "flag_enable_beta_rollout cohort mapping"
+    target_a_file: libs/flags/toggle_on.py
+    target_a_text: "flag_enable_beta_rollout cohort mapping routes the canary to the staging pipeline."
+    target_b_file: libs/flags/toggle_off.py
+    target_b_text: "flag_disable_beta_rollout cohort mapping routes the canary to the staging pipeline."
+
+  - id: sibling-06-encode-decode
+    query: "payload_encode_brotli framing header"
+    target_a_file: libs/codecs/encode_brotli.py
+    target_a_text: "payload_encode_brotli framing header prefixes every compressed chunk with a magic."
+    target_b_file: libs/codecs/decode_brotli.py
+    target_b_text: "payload_decode_brotli framing header prefixes every compressed chunk with a magic."
+
+  - id: sibling-07-open-close
+    query: "session_open_handler idle deadline"
+    target_a_file: libs/session/open.py
+    target_a_text: "session_open_handler idle deadline resets on every interactive keystroke in the client."
+    target_b_file: libs/session/close.py
+    target_b_text: "session_close_handler idle deadline resets on every interactive keystroke in the client."
+
+  - id: sibling-08-subscribe-unsubscribe
+    query: "topic_subscribe_hook delivery channel"
+    target_a_file: libs/pubsub/subscribe.py
+    target_a_text: "topic_subscribe_hook delivery channel emits the acknowledgement back to the broker."
+    target_b_file: libs/pubsub/unsubscribe.py
+    target_b_text: "topic_unsubscribe_hook delivery channel emits the acknowledgement back to the broker."
+
+  - id: sibling-09-validate-sanitize
+    query: "request_validate_strict error envelope"
+    target_a_file: libs/http/validate.py
+    target_a_text: "request_validate_strict error envelope returns a structured problem detail to the caller."
+    target_b_file: libs/http/sanitize.py
+    target_b_text: "request_sanitize_strict error envelope returns a structured problem detail to the caller."
+
+  - id: sibling-10-mount-unmount
+    query: "volume_mount_exclusive lease owner"
+    target_a_file: libs/storage/mount.py
+    target_a_text: "volume_mount_exclusive lease owner is recorded in the distributed metadata service."
+    target_b_file: libs/storage/unmount.py
+    target_b_text: "volume_unmount_exclusive lease owner is recorded in the distributed metadata service."
+
+  - id: sibling-11-start-stop
+    query: "pipeline_start_signal propagation depth"
+    target_a_file: libs/pipeline/start.py
+    target_a_text: "pipeline_start_signal propagation depth bounds how many stages react at once."
+    target_b_file: libs/pipeline/stop.py
+    target_b_text: "pipeline_stop_signal propagation depth bounds how many stages react at once."
+
+  - id: sibling-12-lock-unlock
+    query: "mutex_lock_reentrant hold timeout"
+    target_a_file: libs/concurrency/lock.py
+    target_a_text: "mutex_lock_reentrant hold timeout surfaces a deadlock hint to observability."
+    target_b_file: libs/concurrency/unlock.py
+    target_b_text: "mutex_unlock_reentrant hold timeout surfaces a deadlock hint to observability."
+
+  - id: sibling-13-allow-deny
+    query: "policy_allow_egress subject principal"
+    target_a_file: libs/policy/allow.py
+    target_a_text: "policy_allow_egress subject principal must hold the workload identity binding."
+    target_b_file: libs/policy/deny.py
+    target_b_text: "policy_deny_egress subject principal must hold the workload identity binding."
+
+  - id: sibling-14-commit-rollback
+    query: "txn_commit_atomic write barrier"
+    target_a_file: libs/txn/commit.py
+    target_a_text: "txn_commit_atomic write barrier drains pending journals before acknowledging the caller."
+    target_b_file: libs/txn/rollback.py
+    target_b_text: "txn_rollback_atomic write barrier drains pending journals before acknowledging the caller."
+
+  - id: sibling-15-upsert-delete
+    query: "record_upsert_cascade foreign key"
+    target_a_file: libs/records/upsert.py
+    target_a_text: "record_upsert_cascade foreign key propagation respects the deferred constraint window."
+    target_b_file: libs/records/delete.py
+    target_b_text: "record_delete_cascade foreign key propagation respects the deferred constraint window."
+
+  - id: sibling-16-grant-revoke
+    query: "access_grant_temporary audit trail"
+    target_a_file: libs/access/grant.py
+    target_a_text: "access_grant_temporary audit trail records the granting principal and expiry time."
+    target_b_file: libs/access/revoke.py
+    target_b_text: "access_revoke_temporary audit trail records the granting principal and expiry time."

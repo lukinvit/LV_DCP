@@ -73,12 +73,12 @@ description: "Task list for bge-m3 unified embedder (dense + sparse + multivecto
 
 **Independent Test**: `tests/eval/datasets/close_siblings.yaml` — пары близких символов; accuracy выбора правильного варианта +15 п.п. над dense-only.
 
-- [ ] **T017** [US2] `tests/eval/datasets/close_siblings.yaml` — 15+ пар «близнецов».
-- [ ] **T018** [US2] Тест `test_hybrid_search.py::test_colbert_disambiguation` — включает multivector ветку RRF, ассертит accuracy.
-- [ ] **T019** [US2] Настроить веса RRF в `EmbeddingConfig.fusion_weights = {dense: 1.0, sparse: 1.0, colbert: 0.7}` (дефолт); документировать в quickstart.
-- [ ] **T020** [US2] Проверить memory footprint реальных данных (профилирование `scripts/bench_embedder.py --profile memory`); если multivector > SC-005 → ограничить `colbert_on_collections={summaries,symbols}`.
+- [x] **T017** [US2] `tests/eval/datasets/close_siblings.yaml` — 15+ пар «близнецов». *(16 пар sync/async, v1/v2, push/pop, enable/disable и т.д.; query + target_a + target_b с distinguishing token на позиции 0 — single-token MAX_SIM delta.)*
+- [x] **T018** [US2] Тест `test_hybrid_search.py::test_colbert_disambiguation` — включает multivector ветку RRF, ассертит accuracy. *(Метрика: fraction of pairs where `target_a` outranks `target_b` в top-5; dense-only baseline ≈ 0.5 random, hybrid ≥ 0.85, delta ≥ 0.15.)*
+- [x] **T019** [US2] Настроить веса RRF в `EmbeddingConfig.fusion_weights = {dense: 1.0, sparse: 1.0, colbert: 0.7}` (дефолт); документировать в quickstart. *(Config field + validator были добавлены ещё в T002; документация по knobs добавлена в `specs/001-bge-m3-unified-embedder/plan.md` секция «Configuration knobs». **NB:** qdrant-client 1.12–1.17 игнорирует веса в `Fusion.RRF` — поле зарезервировано под client-side rerank (spec #2) и будущий `Fusion.DBSF`; на сервере пока работает vanilla RRF.)*
+- [ ] **T020** [US2] Проверить memory footprint реальных данных (профилирование `scripts/bench_embedder.py --profile memory`); если multivector > SC-005 → ограничить `colbert_on_collections={summaries,symbols}`. *(Deferred: требует скрипта из T021 и реальной bge-m3 модели; закрывается в Phase 5.)*
 
-**Checkpoint US2**: disambiguation accuracy +15 п.п.; memory footprint в пределах SC-005.
+**Checkpoint US2**: disambiguation accuracy +15 п.п.; memory footprint в пределах SC-005. *(✅ +0.15 pp ассерт зелёный на fake-adapter корпусе; memory footprint отложен до Phase 5 T021 bench.)*
 
 ---
 
