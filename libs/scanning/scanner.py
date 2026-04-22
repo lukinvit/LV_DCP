@@ -170,6 +170,7 @@ def scan_project(  # noqa: PLR0912, PLR0915
     *,
     mode: Literal["full", "incremental"] = "incremental",
     only: set[str] | None = None,
+    timeline_sink: object | None = None,
 ) -> ScanResult:
     """Scan a project and regenerate .context/ artifacts.
 
@@ -180,8 +181,13 @@ def scan_project(  # noqa: PLR0912, PLR0915
         only: if provided, restrict work to this set of POSIX relative paths.
               Used by the daemon to scan a single changed file. Stale-file
               detection is skipped when this is set.
+        timeline_sink: optional :class:`libs.symbol_timeline.sinks.TimelineSink`
+              to receive ``on_scan_begin``/``on_*``/``on_scan_end`` events.
+              If ``None``, the scanner auto-instantiates the default SQLite
+              sink when ``DaemonConfig.timeline.enabled`` is True.
     """
     start = time.perf_counter()
+    wall_start = time.time()
     root = root.resolve()
     cache_path = root / CACHE_REL
     fts_path = root / FTS_REL
@@ -191,6 +197,13 @@ def scan_project(  # noqa: PLR0912, PLR0915
     try:
         cache.migrate()
         fts.create()
+
+        # Timeline: the PRE-scan snapshot lives in a sidecar JSON under
+        # .context/ — written at the end of the previous scan. Daemon-triggered
+        # partial scans (``only`` set) skip timeline emission because a partial
+        # view produces false ``removed`` events.
+        if only is None and timeline_sink is None:
+            timeline_sink = _maybe_build_default_timeline_sink()
 
         existing_paths: set[str] = (
             set() if only is not None else {f.path for f in cache.iter_files()}
@@ -325,6 +338,21 @@ def scan_project(  # noqa: PLR0912, PLR0915
             elapsed_seconds=elapsed,
             wiki_dirty_count=_wiki_dirty_count,
         )
+        # Timeline: diff prev sidecar snapshot vs fresh post-scan snapshot,
+        # emit events, rewrite sidecar. Best-effort — must never kill the scan.
+        if only is None and timeline_sink is not None:
+            try:
+                _emit_timeline_for_scan(
+                    cache=cache,
+                    sink=timeline_sink,
+                    project_root=str(root),
+                    root_path=root,
+                    wall_start=wall_start,
+                    elapsed=elapsed,
+                )
+            except Exception as exc:
+                log.debug("timeline_emit_failed", exc_info=exc)
+
         # Only write a history event for whole-project scans (no `only` filter).
         # Daemon-triggered partial scans write their own event via process_pending_events.
         if only is None:
@@ -351,6 +379,120 @@ def scan_project(  # noqa: PLR0912, PLR0915
     finally:
         fts.close()
         cache.close()
+
+
+def _maybe_build_default_timeline_sink() -> object | None:
+    """Load daemon config and instantiate the default SqliteTimelineSink.
+
+    Returns ``None`` when timeline is disabled in config, config is missing,
+    or instantiation fails for any reason — a timeline-aware scan must never
+    blow up a project that has never opted in.
+    """
+    try:
+        from libs.core.projects_config import load_config  # noqa: PLC0415
+        from libs.symbol_timeline.sinks import SqliteTimelineSink  # noqa: PLC0415
+        from libs.symbol_timeline.store import (  # noqa: PLC0415
+            SymbolTimelineStore,
+            resolve_default_store_path,
+        )
+
+        cfg = load_config(Path.home() / ".lvdcp" / "config.yaml")
+        tl = cfg.timeline
+        if not tl.enabled:
+            return None
+        store_path = resolve_default_store_path()
+        store = SymbolTimelineStore(store_path)
+        store.migrate()
+        return SqliteTimelineSink(store=store, retention_days=tl.retention_days)
+    except Exception as exc:
+        log.debug("timeline_default_sink_unavailable", exc_info=exc)
+        return None
+
+
+def _emit_timeline_for_scan(  # noqa: PLR0913 - keyword-only scan-lifecycle glue
+    *,
+    cache: SqliteCache,
+    sink: object,
+    project_root: str,
+    root_path: Path,
+    wall_start: float,
+    elapsed: float,
+) -> None:
+    """Delegate to symbol_timeline scan bracket + update scan state row."""
+    from libs.core.projects_config import load_config  # noqa: PLC0415
+    from libs.symbol_timeline.differ import AstSnapshot  # noqa: PLC0415
+    from libs.symbol_timeline.scan_bracket import emit_timeline  # noqa: PLC0415
+    from libs.symbol_timeline.snapshot_builder import (  # noqa: PLC0415
+        PREV_SNAPSHOT_RELPATH,
+        build_snapshot_from_cache,
+        load_snapshot,
+        save_snapshot,
+    )
+    from libs.symbol_timeline.store import (  # noqa: PLC0415
+        SymbolTimelineStore,
+        resolve_default_store_path,
+        upsert_scan_state,
+    )
+
+    cfg = load_config(Path.home() / ".lvdcp" / "config.yaml")
+    similarity = cfg.timeline.rename_similarity_threshold
+    head_sha = _resolve_head_sha(root_path)
+    timestamp = wall_start + elapsed  # anchor to finish-time for stable ordering
+
+    prev_path = root_path / PREV_SNAPSHOT_RELPATH
+    prev = load_snapshot(prev_path) or AstSnapshot(symbols={}, commit_sha=None)
+    curr = build_snapshot_from_cache(
+        cache.iter_symbols(),
+        project_root=project_root,
+        root_path=root_path,
+        commit_sha=head_sha,
+    )
+
+    emit_timeline(
+        sink=sink,  # type: ignore[arg-type]
+        project_root=project_root,
+        commit_sha=head_sha,
+        prev=prev,
+        curr=curr,
+        started_at=wall_start,
+        finished_at=timestamp,
+        timestamp=timestamp,
+        similarity_threshold=similarity,
+    )
+
+    # Persist the just-computed snapshot for the next scan.
+    save_snapshot(curr, path=prev_path)
+
+    # Persist last-scan state for reconcile / next-scan diff.
+    state_store = SymbolTimelineStore(resolve_default_store_path())
+    state_store.migrate()
+    upsert_scan_state(
+        state_store,
+        project_root=project_root,
+        last_scan_commit_sha=head_sha,
+        last_scan_ts=timestamp,
+    )
+    state_store.close()
+
+
+def _resolve_head_sha(root: Path) -> str | None:
+    """Return HEAD commit SHA for ``root`` or ``None`` if not a git repo."""
+    import subprocess  # noqa: PLC0415
+
+    try:
+        out = subprocess.run(  # noqa: S603 - args are hardcoded
+            ["git", "-C", str(root), "rev-parse", "HEAD"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0:
+        return None
+    sha = out.stdout.strip()
+    return sha or None
 
 
 def _walk(root: Path) -> list[Path]:

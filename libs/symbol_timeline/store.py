@@ -1,11 +1,12 @@
 """Symbol timeline event store — append-only SQLite at ``~/.lvdcp/symbol_timeline.db``.
 
 Mirrors :mod:`libs.scan_history.store` in shape: WAL mode, lazy connect,
-env-overridable path, retention prune on every append. Three tables:
+env-overridable path, retention prune on every append. Four tables:
 
 * ``symbol_timeline_events`` — added / modified / removed / renamed / moved
 * ``symbol_timeline_snapshots`` — per-release immutable anchors
 * ``symbol_timeline_rename_edges`` — pair links when rename detected
+* ``symbol_timeline_scan_state`` — per-project last-scan metadata
 
 Spec: specs/010-feature-timeline-index/data-model.md §1.
 """
@@ -71,6 +72,15 @@ class RenameEdgeRow:
     is_candidate: bool = False
 
 
+@dataclass(frozen=True)
+class ScanState:
+    """Per-project last-scan metadata — drives diff + reconcile."""
+
+    project_root: str
+    last_scan_commit_sha: str | None
+    last_scan_ts: float
+
+
 _SCHEMA: Final[str] = """
 CREATE TABLE IF NOT EXISTS symbol_timeline_events (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -127,6 +137,12 @@ CREATE INDEX IF NOT EXISTS idx_tre_root_old
     ON symbol_timeline_rename_edges (project_root, old_symbol_id);
 CREATE INDEX IF NOT EXISTS idx_tre_root_new
     ON symbol_timeline_rename_edges (project_root, new_symbol_id);
+
+CREATE TABLE IF NOT EXISTS symbol_timeline_scan_state (
+    project_root         TEXT PRIMARY KEY,
+    last_scan_commit_sha TEXT,
+    last_scan_ts         REAL NOT NULL
+);
 """
 
 
@@ -321,6 +337,76 @@ def append_rename_edge(store: SymbolTimelineStore, *, edge: RenameEdgeRow) -> No
         ),
     )
     conn.commit()
+
+
+def upsert_scan_state(
+    store: SymbolTimelineStore,
+    *,
+    project_root: str,
+    last_scan_commit_sha: str | None,
+    last_scan_ts: float,
+) -> None:
+    """Record the commit_sha and timestamp of the most recent scan for ``project_root``."""
+    conn = store._connect()
+    conn.execute(
+        "INSERT INTO symbol_timeline_scan_state "
+        "(project_root, last_scan_commit_sha, last_scan_ts) "
+        "VALUES (?, ?, ?) "
+        "ON CONFLICT(project_root) DO UPDATE SET "
+        "last_scan_commit_sha = excluded.last_scan_commit_sha, "
+        "last_scan_ts = excluded.last_scan_ts",
+        (project_root, last_scan_commit_sha, last_scan_ts),
+    )
+    conn.commit()
+
+
+def get_scan_state(store: SymbolTimelineStore, *, project_root: str) -> ScanState | None:
+    """Return the most recent scan metadata for ``project_root`` or ``None``."""
+    conn = store._connect()
+    row = conn.execute(
+        "SELECT project_root, last_scan_commit_sha, last_scan_ts "
+        "FROM symbol_timeline_scan_state "
+        "WHERE project_root = ?",
+        (project_root,),
+    ).fetchone()
+    if row is None:
+        return None
+    return ScanState(project_root=row[0], last_scan_commit_sha=row[1], last_scan_ts=row[2])
+
+
+def reconcile_orphaned_events(
+    store: SymbolTimelineStore,
+    *,
+    project_root: str,
+    known_commit_shas: set[str],
+) -> int:
+    """Mark events whose ``commit_sha`` is no longer reachable as ``orphaned``.
+
+    Called after a commit rewrite (rebase, amend) to prevent the timeline from
+    showing history for commits that no longer exist. Events with ``commit_sha
+    IS NULL`` are never orphaned (they record non-git-attributed changes).
+
+    Returns the number of rows newly flagged.
+    """
+    conn = store._connect()
+    # Gather distinct commit_shas for this project that are not NULL and not orphaned.
+    current_rows = conn.execute(
+        "SELECT DISTINCT commit_sha FROM symbol_timeline_events "
+        "WHERE project_root = ? AND commit_sha IS NOT NULL AND orphaned = 0",
+        (project_root,),
+    ).fetchall()
+    stale = [r[0] for r in current_rows if r[0] not in known_commit_shas]
+    if not stale:
+        return 0
+    placeholders = ",".join("?" for _ in stale)
+    cur = conn.execute(
+        # ruff: noqa: S608 - placeholders is a fixed string of '?' per value
+        f"UPDATE symbol_timeline_events SET orphaned = 1 "
+        f"WHERE project_root = ? AND commit_sha IN ({placeholders})",
+        (project_root, *stale),
+    )
+    conn.commit()
+    return cur.rowcount or 0
 
 
 def resolve_default_store_path() -> Path:
