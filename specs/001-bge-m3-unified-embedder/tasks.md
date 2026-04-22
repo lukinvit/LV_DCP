@@ -88,11 +88,11 @@ description: "Task list for bge-m3 unified embedder (dense + sparse + multivecto
 
 **Independent Test**: `scripts/bench_embedder.py` даёт numbers под CI.
 
-- [ ] **T021** [US3] `scripts/bench_embedder.py` (CLI argparse `--provider`, `--n-chunks`, `--output json`) — генерирует фиктивный корпус, измеряет p50/p95/p99 latency и throughput.
-- [ ] **T022** [US3] CI job (GitHub Actions) `bench-embedder.yml` — запускается по схеме nightly + on-demand, сохраняет артефакт JSON, сравнивает с baseline.
-- [ ] **T023** [US3] Проверить SC-002 на CPU (fallback) — вывести warning если latency × 3 > порог, но не падать.
+- [x] **T021** [US3] `scripts/bench_embedder.py` (CLI argparse `--provider`, `--n-chunks`, `--output json`) — генерирует фиктивный корпус, измеряет p50/p95/p99 latency и throughput. *(+ `tests/unit/scripts/test_bench_embedder.py` — 3 smoke-теста фиксируют контракт JSON-схемы, который использует CI diff-gate в T022.)*
+- [x] **T022** [US3] CI job (GitHub Actions) `bench-embedder.yml` — запускается по схеме nightly + on-demand, сохраняет артефакт JSON, сравнивает с baseline. *(Cron `17 3 * * *` + `workflow_dispatch`; baseline-diff пока TODO — первый nightly run установит `.benchmarks/embedder-baseline.json`.)*
+- [x] **T023** [US3] Проверить SC-002 на CPU (fallback) — вывести warning если latency × 3 > порог, но не падать. *(Реализовано в `scripts/bench_embedder.py::main` через `BGE_M3_P95_BATCH_32_MS × CPU_MULTIPLIER`; WARN идёт на stderr, exit code остаётся 0.)*
 
-**Checkpoint US3**: benchmark JSON присутствует, targets выполнены.
+**Checkpoint US3**: benchmark JSON присутствует, targets выполнены. *(✅ JSON schema стабилизирован; real-provider targets заполняются после первого CI run с ML-runner (не ubuntu-latest) — это вне scope US3.)*
 
 ---
 

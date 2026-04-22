@@ -1,0 +1,75 @@
+name: Bench Embedder
+
+# Spec-001 US3 (T022). Runs the fake_bge_m3 benchmark on a nightly
+# schedule and on-demand via workflow_dispatch, uploads the JSON
+# artefact for offline comparison against the previous run. The real
+# bge_m3 provider stays out of CI until GitHub-hosted runners with
+# GPU access are available — the torch + FlagEmbedding install is
+# ~2.3 GB which is unreasonable on ubuntu-latest.
+
+"on":
+  schedule:
+    # Nightly 03:17 UTC — outside the main CI rush hour.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: "Embedding provider under test"
+        required: false
+        default: "fake_bge_m3"
+        type: choice
+        options:
+          - fake
+          - fake_bge_m3
+      n_chunks:
+        description: "Corpus size (chunks)"
+        required: false
+        default: "256"
+      batch_size:
+        description: "Batch size"
+        required: false
+        default: "32"
+
+jobs:
+  bench:
+    name: Bench (${{ github.event.inputs.provider || 'fake_bge_m3' }})
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies (no bge-m3 extras)
+        run: uv sync
+
+      - name: Run bench
+        run: |
+          uv run python scripts/bench_embedder.py \
+            --provider ${{ github.event.inputs.provider || 'fake_bge_m3' }} \
+            --n-chunks ${{ github.event.inputs.n_chunks || '256' }} \
+            --batch-size ${{ github.event.inputs.batch_size || '32' }} \
+            --output json \
+            > bench-result.json
+          cat bench-result.json
+
+      - name: Upload JSON artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-embedder-${{ github.run_id }}
+          path: bench-result.json
+          retention-days: 30
+
+      - name: Compare against baseline (placeholder)
+        # Baseline JSON is stored under .benchmarks/ once the first
+        # nightly run lands; this step diffs p95 latency + throughput
+        # and fails the job on > 30 % regression. Today it's a no-op
+        # so the scheduled run can establish the first baseline.
+        run: |
+          echo "TODO(spec-001 T022): wire diff against .benchmarks/embedder-baseline.json"
