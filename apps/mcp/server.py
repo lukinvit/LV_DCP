@@ -8,6 +8,9 @@ from apps.mcp.tools import (
     lvdcp_cross_project_patterns as _lvdcp_cross_project_patterns,
 )
 from apps.mcp.tools import (
+    lvdcp_diff as _lvdcp_diff,
+)
+from apps.mcp.tools import (
     lvdcp_explain as _lvdcp_explain,
 )
 from apps.mcp.tools import (
@@ -27,6 +30,9 @@ from apps.mcp.tools import (
 )
 from apps.mcp.tools import (
     lvdcp_pack as _lvdcp_pack,
+)
+from apps.mcp.tools import (
+    lvdcp_regressions as _lvdcp_regressions,
 )
 from apps.mcp.tools import (
     lvdcp_removed_since as _lvdcp_removed_since,
@@ -65,6 +71,8 @@ mcp.tool()(_lvdcp_cross_project_patterns)
 mcp.tool()(_lvdcp_history)
 mcp.tool()(_lvdcp_removed_since)
 mcp.tool()(_lvdcp_when)
+mcp.tool()(_lvdcp_diff)
+mcp.tool()(_lvdcp_regressions)
 mcp.tool()(_lvdcp_memory_propose)
 mcp.tool()(_lvdcp_memory_list)
 

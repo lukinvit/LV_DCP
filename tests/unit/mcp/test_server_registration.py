@@ -17,6 +17,8 @@ def test_server_exposes_all_registered_tools() -> None:
         "lvdcp_history",
         "lvdcp_removed_since",
         "lvdcp_when",
+        "lvdcp_diff",
+        "lvdcp_regressions",
         "lvdcp_memory_propose",
         "lvdcp_memory_list",
     }
@@ -46,3 +48,13 @@ def test_server_tool_descriptions_contain_call_triggers() -> None:
     when_desc = by_name["lvdcp_when"].description or ""
     assert "CALL THIS WHEN" in when_desc
     assert "DO NOT CALL" in when_desc
+
+    # lvdcp_diff must tell Claude when to call it (US3)
+    diff_desc = by_name["lvdcp_diff"].description or ""
+    assert "CALL THIS WHEN" in diff_desc
+    assert "DO NOT CALL" in diff_desc
+
+    # lvdcp_regressions must tell Claude when to call it (US3 narrow)
+    reg_desc = by_name["lvdcp_regressions"].description or ""
+    assert "CALL THIS WHEN" in reg_desc
+    assert "DO NOT CALL" in reg_desc

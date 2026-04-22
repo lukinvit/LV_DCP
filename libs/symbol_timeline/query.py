@@ -315,6 +315,347 @@ def find_removed_since(  # noqa: PLR0913 - keyword-only query API
     )
 
 
+@dataclass(frozen=True, slots=True)
+class DiffEntry:
+    """One symbol changed between ``from_ref`` and ``to_ref``."""
+
+    symbol_id: str
+    qualified_name: str | None
+    file_path: str
+    event_type: str  # added | removed | modified
+    at_timestamp: float
+    commit_sha: str | None
+    author: str | None
+    importance: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DiffResult:
+    """Full result of :func:`diff` — four ranked lists.
+
+    Spec US3: bounded output ≤ 15 KB; each list is independently limited
+    and annotated with ``truncated`` when the caller wants to know there
+    was more.
+    """
+
+    from_ref: str
+    to_ref: str
+    from_resolved_sha: str | None
+    to_resolved_sha: str | None
+    from_resolved_timestamp: float | None
+    to_resolved_timestamp: float | None
+    ref_not_found: bool
+    added: list[DiffEntry]
+    removed: list[DiffEntry]
+    modified: list[DiffEntry]
+    renamed: list[RenamePair]
+    total_added: int
+    total_removed: int
+    total_modified: int
+    truncated: bool
+
+
+def _classify_latest(
+    events: list[TimelineEvent],
+) -> dict[str, TimelineEvent]:
+    """Collapse an event stream to the *latest* event per ``symbol_id``.
+
+    A symbol that was ``added`` and then ``removed`` in the window has
+    net-effect ``removed``; ``added → modified → modified`` collapses to
+    the most recent ``modified`` (but we still surface the net-effect as
+    ``added`` if the first event is ``added`` — see :func:`diff`).
+    """
+    latest: dict[str, TimelineEvent] = {}
+    for ev in events:  # events are chronological from events_between
+        latest[ev.symbol_id] = ev
+    return latest
+
+
+def _net_effect(
+    events: list[TimelineEvent],
+) -> dict[str, tuple[str, TimelineEvent]]:
+    """Return ``{symbol_id: (net_effect, latest_event)}``.
+
+    ``net_effect`` is the outward-visible change in the window:
+
+    * ``added``    — first event was ``added`` and last was not ``removed``
+    * ``removed``  — last event is ``removed`` (regardless of first)
+    * ``modified`` — everything else (existed before, still exists)
+    """
+    first: dict[str, str] = {}
+    last_ev: dict[str, TimelineEvent] = {}
+    for ev in events:
+        if ev.symbol_id not in first:
+            first[ev.symbol_id] = ev.event_type
+        last_ev[ev.symbol_id] = ev
+
+    out: dict[str, tuple[str, TimelineEvent]] = {}
+    for sid, ev in last_ev.items():
+        if ev.event_type == "removed":
+            out[sid] = ("removed", ev)
+        elif first[sid] == "added":
+            out[sid] = ("added", ev)
+        else:
+            out[sid] = ("modified", ev)
+    return out
+
+
+def diff(  # noqa: PLR0913, PLR0915, PLR0912 - keyword-only query API with bucketed output
+    store: SymbolTimelineStore,
+    *,
+    project_root: str,
+    from_ref: str,
+    to_ref: str = "HEAD",
+    limit_per_bucket: int = 20,
+    git_root: Path | None = None,
+    importance_lookup: Callable[[str], float | None] | None = None,
+) -> DiffResult:
+    """Compute structural diff ``from_ref → to_ref``.
+
+    Resolution:
+
+    * Both refs resolve via :func:`resolve_git_ref`. If either fails we
+      short-circuit with ``ref_not_found=True``.
+    * Events in the window ``(from_ts, to_ts]`` are precision-filtered by
+      ``git rev-list from..to`` when available — same technique as
+      :func:`find_removed_since` — so events that happened at ``from`` (or
+      outside the range by wall-clock skew) don't leak in.
+
+    Classification:
+
+    * Per-symbol net-effect (see :func:`_net_effect`) bucketed into
+      ``added``, ``removed``, ``modified``.
+    * Rename edges in the window always surface in ``renamed``. When a
+      ``removed`` and its paired ``added`` both fall inside the window
+      AND the edge is *confirmed*, they're hidden from the bucketed
+      lists so the caller doesn't double-count them.
+
+    Ranking:
+
+    * ``importance_lookup`` (typically PageRank centrality) + recency
+      DESC, same policy as :func:`find_removed_since`.
+    """
+    root = git_root or Path(project_root)
+    from_res = resolve_git_ref(root, from_ref)
+    to_res = resolve_git_ref(root, to_ref)
+    if from_res is None or to_res is None:
+        return DiffResult(
+            from_ref=from_ref,
+            to_ref=to_ref,
+            from_resolved_sha=from_res[0] if from_res else None,
+            to_resolved_sha=to_res[0] if to_res else None,
+            from_resolved_timestamp=from_res[1] if from_res else None,
+            to_resolved_timestamp=to_res[1] if to_res else None,
+            ref_not_found=True,
+            added=[],
+            removed=[],
+            modified=[],
+            renamed=[],
+            total_added=0,
+            total_removed=0,
+            total_modified=0,
+            truncated=False,
+        )
+    from_sha, from_ts = from_res
+    to_sha, to_ts = to_res
+
+    if from_sha == to_sha:
+        # Identical endpoints — spec US3.2: empty lists, tiny response.
+        return DiffResult(
+            from_ref=from_ref,
+            to_ref=to_ref,
+            from_resolved_sha=from_sha,
+            to_resolved_sha=to_sha,
+            from_resolved_timestamp=from_ts,
+            to_resolved_timestamp=to_ts,
+            ref_not_found=False,
+            added=[],
+            removed=[],
+            modified=[],
+            renamed=[],
+            total_added=0,
+            total_removed=0,
+            total_modified=0,
+            truncated=False,
+        )
+
+    # Scanner emits events at wall-clock AFTER commit, so event.timestamp is
+    # always strictly greater than the commit_sha's own timestamp. Use a
+    # generous upper cap (same strategy as ``find_removed_since``) and let
+    # the commit_sha precision filter constrain the window to exactly
+    # ``from..to``. If we used ``to_ts`` here we'd drop events that belong
+    # to ``to_sha`` itself.
+    upper = time.time() + 86_400
+    events = events_between(
+        store,
+        project_root=project_root,
+        from_ts=from_ts + 1e-6,
+        to_ts=upper,
+        include_orphaned=False,
+    )
+    # Precision filter: only keep events whose commit_sha is in from..to set.
+    reachable = commits_after_ref(root, from_sha)  # HEAD..from_sha^..HEAD
+    # commits_after_ref gives reachable from HEAD; we need reachable from to_sha
+    # instead. Fall back to a direct `git rev-list from_sha..to_sha` if HEAD != to.
+    if to_sha != _rev_parse_head(root):
+        reachable_pair = commits_between(root, from_sha=from_sha, to_sha=to_sha)
+        if reachable_pair is not None:
+            reachable = reachable_pair
+    if reachable is not None:
+        events = [
+            e for e in events
+            if e.commit_sha is not None and e.commit_sha in reachable
+        ]
+
+    # Gather rename edges in the window for later paired-hiding + display.
+    # Upper bound uses the same generous cap as the event query above — the
+    # ``reachable`` commit_sha set enforces precision.
+    rename_rows = store._connect().execute(
+        "SELECT old_symbol_id, new_symbol_id, commit_sha, timestamp, "
+        "confidence, is_candidate "
+        "FROM symbol_timeline_rename_edges "
+        "WHERE project_root = ? AND timestamp > ? AND timestamp <= ? "
+        "ORDER BY timestamp DESC, id DESC",
+        (project_root, from_ts, upper),
+    ).fetchall()
+    if reachable is not None:
+        rename_rows = [r for r in rename_rows if r[2] is not None and r[2] in reachable]
+
+    # Build qualified_name lookup from event stream for display enrichment.
+    name_by_sid: dict[str, str | None] = {}
+    for ev in events:
+        if ev.qualified_name and ev.symbol_id not in name_by_sid:
+            name_by_sid[ev.symbol_id] = ev.qualified_name
+
+    rename_pairs = [
+        RenamePair(
+            old_symbol_id=r[0],
+            new_symbol_id=r[1],
+            old_qualified_name=name_by_sid.get(r[0]),
+            new_qualified_name=name_by_sid.get(r[1]),
+            commit_sha=r[2],
+            renamed_at=r[3],
+            confidence=r[4],
+            is_candidate=bool(r[5]),
+        )
+        for r in rename_rows
+    ]
+    confirmed_old = {p.old_symbol_id for p in rename_pairs if not p.is_candidate}
+    confirmed_new = {p.new_symbol_id for p in rename_pairs if not p.is_candidate}
+
+    classification = _net_effect(events)
+    added_entries: list[TimelineEvent] = []
+    removed_entries: list[TimelineEvent] = []
+    modified_entries: list[TimelineEvent] = []
+    for sid, (effect, ev) in classification.items():
+        if effect == "added":
+            if sid in confirmed_new:
+                continue  # paired with a confirmed rename predecessor
+            added_entries.append(ev)
+        elif effect == "removed":
+            if sid in confirmed_old:
+                continue  # paired with a confirmed rename successor
+            removed_entries.append(ev)
+        else:
+            modified_entries.append(ev)
+
+    def _rank_key(e: TimelineEvent) -> tuple[float, float]:
+        imp = 0.0
+        if importance_lookup is not None:
+            score = importance_lookup(e.qualified_name or e.file_path)
+            if score is not None:
+                imp = score
+        return (imp, e.timestamp)
+
+    added_entries.sort(key=_rank_key, reverse=True)
+    removed_entries.sort(key=_rank_key, reverse=True)
+    modified_entries.sort(key=_rank_key, reverse=True)
+
+    total_added = len(added_entries)
+    total_removed = len(removed_entries)
+    total_modified = len(modified_entries)
+    truncated = (
+        total_added > limit_per_bucket
+        or total_removed > limit_per_bucket
+        or total_modified > limit_per_bucket
+    )
+
+    def _to_entry(ev: TimelineEvent, net: str) -> DiffEntry:
+        importance: float | None = None
+        if importance_lookup is not None:
+            importance = importance_lookup(ev.qualified_name or ev.file_path)
+        return DiffEntry(
+            symbol_id=ev.symbol_id,
+            qualified_name=ev.qualified_name,
+            file_path=ev.file_path,
+            event_type=net,
+            at_timestamp=ev.timestamp,
+            commit_sha=ev.commit_sha,
+            author=ev.author,
+            importance=importance,
+        )
+
+    return DiffResult(
+        from_ref=from_ref,
+        to_ref=to_ref,
+        from_resolved_sha=from_sha,
+        to_resolved_sha=to_sha,
+        from_resolved_timestamp=from_ts,
+        to_resolved_timestamp=to_ts,
+        ref_not_found=False,
+        added=[_to_entry(e, "added") for e in added_entries[:limit_per_bucket]],
+        removed=[_to_entry(e, "removed") for e in removed_entries[:limit_per_bucket]],
+        modified=[_to_entry(e, "modified") for e in modified_entries[:limit_per_bucket]],
+        renamed=rename_pairs,
+        total_added=total_added,
+        total_removed=total_removed,
+        total_modified=total_modified,
+        truncated=truncated,
+    )
+
+
+def _rev_parse_head(root: Path, *, timeout: float = 5.0) -> str | None:
+    """Return current HEAD sha or ``None`` if git unavailable."""
+    try:
+        res = subprocess.run(  # noqa: S603
+            ["git", "-C", str(root), "rev-parse", "HEAD"],  # noqa: S607
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if res.returncode != 0:
+        return None
+    sha = res.stdout.strip()
+    return sha or None
+
+
+def commits_between(
+    root: Path, *, from_sha: str, to_sha: str, timeout: float = 5.0
+) -> set[str] | None:
+    """Return ``{commit_sha}`` reachable from ``to_sha`` but not from ``from_sha``.
+
+    Uses ``git rev-list from_sha..to_sha``. Empty set when ``from_sha ==
+    to_sha``. Returns ``None`` when git is unreachable so the caller falls
+    back to a timestamp-only window.
+    """
+    try:
+        res = subprocess.run(  # noqa: S603
+            ["git", "-C", str(root), "rev-list", f"{from_sha}..{to_sha}"],  # noqa: S607
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if res.returncode != 0:
+        return None
+    return {line.strip() for line in res.stdout.splitlines() if line.strip()}
+
+
 def _looks_like_symbol_id(s: str) -> bool:
     """True when ``s`` is a 32-hex blob that could be a raw symbol_id (FR-003).
 
@@ -546,12 +887,16 @@ def symbol_timeline(
 
 
 __all__ = [
+    "DiffEntry",
+    "DiffResult",
     "RemovedSinceResult",
     "RemovedSymbol",
     "RenamePair",
     "SymbolCandidate",
     "SymbolTimelineResult",
     "commits_after_ref",
+    "commits_between",
+    "diff",
     "find_removed_since",
     "fuzzy_symbol_lookup",
     "resolve_git_ref",
