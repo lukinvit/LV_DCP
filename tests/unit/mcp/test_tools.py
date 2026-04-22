@@ -134,6 +134,23 @@ def test_lvdcp_removed_since_on_non_git_dir_returns_ref_not_found(
     assert result.ref_resolved_at_iso is None
 
 
+def test_lvdcp_when_on_empty_store_returns_not_found(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unknown symbol on empty timeline store → not_found=True, empty events."""
+    monkeypatch.setenv("LVDCP_TIMELINE_DB", str(tmp_path / "tl.db"))
+
+    from apps.mcp.tools import WhenResponse, lvdcp_when
+
+    result = lvdcp_when(path=str(tmp_path), symbol="does.not.exist")
+    assert isinstance(result, WhenResponse)
+    assert result.not_found is True
+    assert result.events == []
+    assert result.candidates == []
+    assert result.rename_predecessors == []
+    assert result.rename_successors == []
+
+
 def test_lvdcp_history_reports_filter_and_since(tmp_path: Path) -> None:
     from apps.mcp.tools import lvdcp_history
 

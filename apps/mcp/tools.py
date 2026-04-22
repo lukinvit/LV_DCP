@@ -214,6 +214,85 @@ class RemovedSinceResponse(BaseModel):
     truncated: bool = Field(description="True when `removed` was capped by `limit`")
 
 
+class TimelineEventModel(BaseModel):
+    """One event in the life of a symbol (spec US2 output)."""
+
+    symbol_id: str = Field(description="Stable 32-hex identifier from symbol_timeline")
+    event_type: str = Field(
+        description="One of: added, modified, removed, renamed, moved",
+    )
+    timestamp_iso: str = Field(
+        description="UTC ISO-8601 timestamp of the event (seconds precision)"
+    )
+    commit_sha: str | None = Field(
+        default=None,
+        description="Commit sha at which the event was observed (None if no git context)",
+    )
+    author: str | None = Field(
+        default=None, description="Commit author email if attribution is available"
+    )
+    file_path: str = Field(description="Repo-relative path recorded with the event")
+    qualified_name: str | None = Field(
+        default=None, description="Fully qualified dotted name when the parser recorded one"
+    )
+
+
+class SymbolCandidateModel(BaseModel):
+    """One fuzzy-match candidate returned when the queried symbol is ambiguous."""
+
+    symbol_id: str
+    qualified_name: str | None
+    file_path: str
+    latest_event_type: str
+    latest_event_iso: str
+
+
+class WhenResponse(BaseModel):
+    """MCP response for ``lvdcp_when`` — the full biography of one symbol."""
+
+    symbol_id: str = Field(
+        description=(
+            "Resolved 32-hex identifier. Echoes the caller's input when it was "
+            "already a hex id; otherwise the unique fuzzy match."
+        )
+    )
+    qualified_name: str | None = Field(
+        default=None,
+        description="Most recent qualified_name observed for the symbol (None if not_found)",
+    )
+    file_path: str | None = Field(
+        default=None,
+        description="Most recent file path observed for the symbol (None if not_found)",
+    )
+    events: list[TimelineEventModel] = Field(
+        description="All events for this symbol, oldest first",
+    )
+    rename_predecessors: list[RenamePairModel] = Field(
+        description=(
+            "Rename edges where THIS symbol is the new side — i.e. what it was "
+            "called before"
+        )
+    )
+    rename_successors: list[RenamePairModel] = Field(
+        description=(
+            "Rename edges where THIS symbol is the old side — i.e. what it became"
+        )
+    )
+    not_found: bool = Field(
+        description=(
+            "True when the symbol could not be resolved (unknown id or ambiguous "
+            "fuzzy match). In that case `events` is empty; `candidates` may be "
+            "populated so the caller can disambiguate."
+        )
+    )
+    candidates: list[SymbolCandidateModel] = Field(
+        description=(
+            "Top-N fuzzy matches offered when the query was ambiguous. Empty when "
+            "`not_found=False`."
+        )
+    )
+
+
 def lvdcp_scan(path: str, full: bool = False) -> ScanResultResponse:
     """Scan a Python project and refresh its index.
 
@@ -736,6 +815,118 @@ def lvdcp_removed_since(
         ],
         total_before_limit=result.total_before_limit,
         truncated=result.truncated,
+    )
+
+
+def lvdcp_when(
+    path: str,
+    symbol: str,
+    include_orphaned: bool = False,
+    candidate_limit: int = 5,
+) -> WhenResponse:
+    """Return the full event history of one symbol — "when was X implemented?".
+
+    CALL THIS WHEN:
+    - A user asks "когда был добавлен/изменён/переименован X"
+    - You need to show a symbol's full life: added → modified → renamed
+    - You're citing the exact commit sha that introduced a function / class
+    - You want to distinguish a *rename* from a *new implementation*
+
+    DO NOT CALL FOR:
+    - "What disappeared since v0.5.0" — use lvdcp_removed_since
+    - File-level change history — use lvdcp_history
+    - Bulk diffs between releases — use lvdcp_diff once it ships
+
+    ``symbol`` accepts either a 32-hex ``symbol_id`` (exact lookup) or a
+    qualified name / substring (e.g. ``pkg.auth.login`` or ``login``).
+    Unique substring matches are auto-resolved; ambiguous matches return
+    ``not_found=True`` plus a ``candidates`` list of the top-N hits so you
+    can re-call with the disambiguated name.
+
+    Events are returned chronologically (oldest first). Rename edges touching
+    the symbol are split into ``rename_predecessors`` (what it *used to be*)
+    and ``rename_successors`` (what it *became*) so the caller can stitch a
+    multi-name story without duplicating events.
+    """
+    from datetime import UTC, datetime  # noqa: PLC0415
+
+    from libs.symbol_timeline.query import symbol_timeline  # noqa: PLC0415
+    from libs.symbol_timeline.store import (  # noqa: PLC0415
+        SymbolTimelineStore,
+        resolve_default_store_path,
+    )
+
+    root = Path(path).resolve()
+
+    def _iso(ts: float) -> str:
+        return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    store = SymbolTimelineStore(resolve_default_store_path())
+    store.migrate()
+    try:
+        result = symbol_timeline(
+            store,
+            project_root=str(root),
+            symbol=symbol,
+            include_orphaned=include_orphaned,
+            candidate_limit=candidate_limit,
+        )
+    finally:
+        store.close()
+
+    return WhenResponse(
+        symbol_id=result.symbol_id,
+        qualified_name=result.qualified_name,
+        file_path=result.file_path,
+        events=[
+            TimelineEventModel(
+                symbol_id=e.symbol_id,
+                event_type=e.event_type,
+                timestamp_iso=_iso(e.timestamp),
+                commit_sha=e.commit_sha,
+                author=e.author,
+                file_path=e.file_path,
+                qualified_name=e.qualified_name,
+            )
+            for e in result.events
+        ],
+        rename_predecessors=[
+            RenamePairModel(
+                old_symbol_id=p.old_symbol_id,
+                new_symbol_id=p.new_symbol_id,
+                old_qualified_name=p.old_qualified_name,
+                new_qualified_name=p.new_qualified_name,
+                confidence=p.confidence,
+                is_candidate=p.is_candidate,
+                renamed_at_iso=_iso(p.renamed_at),
+                commit_sha=p.commit_sha,
+            )
+            for p in result.rename_predecessors
+        ],
+        rename_successors=[
+            RenamePairModel(
+                old_symbol_id=p.old_symbol_id,
+                new_symbol_id=p.new_symbol_id,
+                old_qualified_name=p.old_qualified_name,
+                new_qualified_name=p.new_qualified_name,
+                confidence=p.confidence,
+                is_candidate=p.is_candidate,
+                renamed_at_iso=_iso(p.renamed_at),
+                commit_sha=p.commit_sha,
+            )
+            for p in result.rename_successors
+        ],
+        not_found=result.not_found,
+        candidates=[
+            SymbolCandidateModel(
+                symbol_id=c.symbol_id,
+                qualified_name=c.qualified_name,
+                file_path=c.file_path,
+                latest_event_type=c.latest_event_type,
+                latest_event_iso=_iso(c.latest_event_ts),
+            )
+            for c in result.candidates
+        ],
     )
 
 

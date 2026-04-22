@@ -13,8 +13,11 @@ import pytest
 from libs.symbol_timeline import query as query_module
 from libs.symbol_timeline.query import (
     RemovedSinceResult,
+    SymbolTimelineResult,
     find_removed_since,
+    fuzzy_symbol_lookup,
     resolve_git_ref,
+    symbol_timeline,
 )
 from libs.symbol_timeline.store import (
     RenameEdgeRow,
@@ -332,3 +335,261 @@ def test_empty_result_type_shape(store: SymbolTimelineStore, stub_ref: None) -> 
     assert result.renamed == []
     assert result.total_before_limit == 0
     assert result.truncated is False
+
+
+# ---------------------------------------------------------------------------
+# T021 — symbol_timeline + fuzzy_symbol_lookup
+# ---------------------------------------------------------------------------
+
+# Valid 32-hex blob used as a direct symbol_id in tests.
+SID_A = "a" * 32
+SID_B = "b" * 32
+SID_C = "c" * 32
+
+
+def test_fuzzy_lookup_case_insensitive_substring(store: SymbolTimelineStore) -> None:
+    """partial_name is matched as case-insensitive substring of qualified_name."""
+    append_event(
+        store,
+        event=_event(
+            symbol_id=SID_A,
+            event_type="added",
+            timestamp=100.0,
+            qualified_name="pkg.Auth.login",
+        ),
+    )
+    append_event(
+        store,
+        event=_event(
+            symbol_id=SID_B,
+            event_type="added",
+            timestamp=110.0,
+            qualified_name="pkg.auth.logout",
+        ),
+    )
+    append_event(
+        store,
+        event=_event(
+            symbol_id=SID_C,
+            event_type="added",
+            timestamp=105.0,
+            qualified_name="pkg.billing.invoice",
+        ),
+    )
+
+    hits = fuzzy_symbol_lookup(store, project_root=PROJECT, partial_name="auth")
+    ids = {c.symbol_id for c in hits}
+    assert ids == {SID_A, SID_B}
+
+
+def test_fuzzy_lookup_ranks_by_recency(store: SymbolTimelineStore) -> None:
+    """Most recent event wins — newest first."""
+    append_event(
+        store,
+        event=_event(
+            symbol_id=SID_A,
+            event_type="added",
+            timestamp=100.0,
+            qualified_name="pkg.auth.foo",
+        ),
+    )
+    append_event(
+        store,
+        event=_event(
+            symbol_id=SID_B,
+            event_type="modified",
+            timestamp=200.0,
+            qualified_name="pkg.auth.bar",
+        ),
+    )
+
+    hits = fuzzy_symbol_lookup(store, project_root=PROJECT, partial_name="auth")
+    assert [c.symbol_id for c in hits] == [SID_B, SID_A]
+    assert hits[0].latest_event_type == "modified"
+
+
+def test_fuzzy_lookup_honours_limit(store: SymbolTimelineStore) -> None:
+    for i in range(7):
+        append_event(
+            store,
+            event=_event(
+                symbol_id=str(i).zfill(32),
+                event_type="added",
+                timestamp=100.0 + i,
+                qualified_name=f"pkg.auth.fn{i}",
+            ),
+        )
+    hits = fuzzy_symbol_lookup(store, project_root=PROJECT, partial_name="auth", limit=3)
+    assert len(hits) == 3
+
+
+def test_fuzzy_lookup_empty_partial_returns_empty(store: SymbolTimelineStore) -> None:
+    append_event(
+        store,
+        event=_event(symbol_id=SID_A, event_type="added", timestamp=100.0, qualified_name="x.y"),
+    )
+    assert fuzzy_symbol_lookup(store, project_root=PROJECT, partial_name="") == []
+
+
+def test_symbol_timeline_direct_id_returns_events_chronological(
+    store: SymbolTimelineStore,
+) -> None:
+    """Passing a 32-hex symbol_id resolves directly; events returned oldest-first."""
+    append_event(
+        store,
+        event=_event(
+            symbol_id=SID_A,
+            event_type="added",
+            timestamp=100.0,
+            qualified_name="pkg.foo",
+        ),
+    )
+    append_event(
+        store,
+        event=_event(
+            symbol_id=SID_A,
+            event_type="modified",
+            timestamp=200.0,
+            qualified_name="pkg.foo",
+        ),
+    )
+    append_event(
+        store,
+        event=_event(
+            symbol_id=SID_A,
+            event_type="modified",
+            timestamp=150.0,
+            qualified_name="pkg.foo",
+        ),
+    )
+
+    result = symbol_timeline(store, project_root=PROJECT, symbol=SID_A)
+    assert isinstance(result, SymbolTimelineResult)
+    assert result.not_found is False
+    assert result.symbol_id == SID_A
+    assert result.qualified_name == "pkg.foo"
+    assert [e.timestamp for e in result.events] == [100.0, 150.0, 200.0]
+
+
+def test_symbol_timeline_unique_fuzzy_match_resolves(store: SymbolTimelineStore) -> None:
+    """Fuzzy substring with exactly one match resolves without candidates list."""
+    append_event(
+        store,
+        event=_event(
+            symbol_id=SID_A,
+            event_type="added",
+            timestamp=100.0,
+            qualified_name="pkg.unique_fn",
+        ),
+    )
+    result = symbol_timeline(store, project_root=PROJECT, symbol="unique_fn")
+    assert result.not_found is False
+    assert result.symbol_id == SID_A
+    assert result.candidates == []
+
+
+def test_symbol_timeline_ambiguous_name_returns_candidates(
+    store: SymbolTimelineStore,
+) -> None:
+    """Multiple substring hits → not_found=True + candidates list, no events."""
+    append_event(
+        store,
+        event=_event(
+            symbol_id=SID_A,
+            event_type="added",
+            timestamp=100.0,
+            qualified_name="pkg.auth.login",
+        ),
+    )
+    append_event(
+        store,
+        event=_event(
+            symbol_id=SID_B,
+            event_type="added",
+            timestamp=110.0,
+            qualified_name="pkg.auth.logout",
+        ),
+    )
+    result = symbol_timeline(store, project_root=PROJECT, symbol="auth")
+    assert result.not_found is True
+    assert result.events == []
+    cand_ids = {c.symbol_id for c in result.candidates}
+    assert cand_ids == {SID_A, SID_B}
+
+
+def test_symbol_timeline_unknown_returns_not_found(store: SymbolTimelineStore) -> None:
+    result = symbol_timeline(store, project_root=PROJECT, symbol="no_such_symbol")
+    assert result.not_found is True
+    assert result.events == []
+    assert result.candidates == []
+
+
+def test_symbol_timeline_includes_rename_context(store: SymbolTimelineStore) -> None:
+    """Rename predecessor/successor edges touching the symbol surface in result."""
+    # SID_A renamed TO SID_B
+    append_event(
+        store,
+        event=_event(symbol_id=SID_A, event_type="added", timestamp=100.0, qualified_name="old.fn"),
+    )
+    append_event(
+        store,
+        event=_event(
+            symbol_id=SID_B,
+            event_type="added",
+            timestamp=120.0,
+            qualified_name="new.fn",
+        ),
+    )
+    append_rename_edge(
+        store,
+        edge=RenameEdgeRow(
+            project_root=PROJECT,
+            old_symbol_id=SID_A,
+            new_symbol_id=SID_B,
+            commit_sha="sha1",
+            timestamp=120.0,
+            confidence=0.95,
+            is_candidate=False,
+        ),
+    )
+
+    # Querying the NEW side — should see predecessor edge
+    result_new = symbol_timeline(store, project_root=PROJECT, symbol=SID_B)
+    assert len(result_new.rename_predecessors) == 1
+    pred = result_new.rename_predecessors[0]
+    assert pred.old_symbol_id == SID_A
+    assert pred.old_qualified_name == "old.fn"
+    assert pred.new_qualified_name == "new.fn"
+
+    # Querying the OLD side — should see successor edge
+    result_old = symbol_timeline(store, project_root=PROJECT, symbol=SID_A)
+    assert len(result_old.rename_successors) == 1
+    succ = result_old.rename_successors[0]
+    assert succ.new_symbol_id == SID_B
+    assert succ.new_qualified_name == "new.fn"
+
+
+def test_symbol_timeline_orphaned_events_hidden_by_default(
+    store: SymbolTimelineStore,
+) -> None:
+    append_event(
+        store,
+        event=TimelineEvent(
+            project_root=PROJECT,
+            symbol_id=SID_A,
+            event_type="added",
+            commit_sha="gone",
+            timestamp=100.0,
+            author=None,
+            content_hash="h",
+            file_path="libs/foo.py",
+            qualified_name="pkg.fn",
+            orphaned=True,
+        ),
+    )
+    result = symbol_timeline(store, project_root=PROJECT, symbol=SID_A)
+    assert result.not_found is True
+    # With include_orphaned, they surface again.
+    result2 = symbol_timeline(store, project_root=PROJECT, symbol=SID_A, include_orphaned=True)
+    assert result2.not_found is False
+    assert len(result2.events) == 1

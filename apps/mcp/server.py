@@ -37,6 +37,9 @@ from apps.mcp.tools import (
 from apps.mcp.tools import (
     lvdcp_status as _lvdcp_status,
 )
+from apps.mcp.tools import (
+    lvdcp_when as _lvdcp_when,
+)
 
 mcp = FastMCP(
     "lvdcp",
@@ -61,6 +64,7 @@ mcp.tool()(_lvdcp_neighbors)
 mcp.tool()(_lvdcp_cross_project_patterns)
 mcp.tool()(_lvdcp_history)
 mcp.tool()(_lvdcp_removed_since)
+mcp.tool()(_lvdcp_when)
 mcp.tool()(_lvdcp_memory_propose)
 mcp.tool()(_lvdcp_memory_list)
 

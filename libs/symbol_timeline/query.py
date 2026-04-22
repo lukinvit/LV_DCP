@@ -19,6 +19,7 @@ from libs.symbol_timeline.store import (
     SymbolTimelineStore,
     TimelineEvent,
     events_between,
+    events_for_symbol,
 )
 
 if TYPE_CHECKING:
@@ -50,6 +51,31 @@ class RenamePair:
     is_candidate: bool
     renamed_at: float
     commit_sha: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class SymbolCandidate:
+    """One fuzzy-match hit for a ``qualified_name`` substring."""
+
+    symbol_id: str
+    qualified_name: str | None
+    file_path: str
+    latest_event_ts: float
+    latest_event_type: str
+
+
+@dataclass(frozen=True, slots=True)
+class SymbolTimelineResult:
+    """Full result of :func:`symbol_timeline` — one symbol's life."""
+
+    symbol_id: str
+    qualified_name: str | None
+    file_path: str | None
+    events: list[TimelineEvent]
+    rename_predecessors: list[RenamePair]
+    rename_successors: list[RenamePair]
+    not_found: bool
+    candidates: list[SymbolCandidate]
 
 
 @dataclass(frozen=True, slots=True)
@@ -289,11 +315,245 @@ def find_removed_since(  # noqa: PLR0913 - keyword-only query API
     )
 
 
+def _looks_like_symbol_id(s: str) -> bool:
+    """True when ``s`` is a 32-hex blob that could be a raw symbol_id (FR-003).
+
+    Used to decide whether to treat the tool's ``symbol`` input as an exact
+    id lookup or as a qualified-name substring to fuzzy-resolve.
+    """
+    if len(s) != 32:
+        return False
+    try:
+        int(s, 16)
+    except ValueError:
+        return False
+    return True
+
+
+def fuzzy_symbol_lookup(
+    store: SymbolTimelineStore,
+    *,
+    project_root: str,
+    partial_name: str,
+    limit: int = 5,
+) -> list[SymbolCandidate]:
+    """Return up to ``limit`` candidates whose ``qualified_name`` contains ``partial_name``.
+
+    Matches are case-insensitive substring matches. Candidates are ranked by
+    recency of their most recent event (newest first), so a just-renamed
+    symbol surfaces above stale ghosts. Only the latest event per
+    ``symbol_id`` is returned — the caller (``symbol_timeline``) expands it
+    to a full history once the user picks one.
+    """
+    if not partial_name:
+        return []
+    # Row per symbol_id with its latest event metadata.
+    rows = store._connect().execute(
+        "SELECT symbol_id, qualified_name, file_path, MAX(timestamp) AS last_ts, "
+        "       ( SELECT event_type FROM symbol_timeline_events e2 "
+        "         WHERE e2.project_root = e.project_root "
+        "           AND e2.symbol_id = e.symbol_id "
+        "         ORDER BY timestamp DESC, id DESC LIMIT 1 ) AS last_type "
+        "FROM symbol_timeline_events e "
+        "WHERE project_root = ? "
+        "  AND qualified_name IS NOT NULL "
+        "  AND LOWER(qualified_name) LIKE ? "
+        "  AND orphaned = 0 "
+        "GROUP BY symbol_id "
+        "ORDER BY last_ts DESC "
+        "LIMIT ?",
+        (project_root, f"%{partial_name.lower()}%", limit),
+    ).fetchall()
+    return [
+        SymbolCandidate(
+            symbol_id=r[0],
+            qualified_name=r[1],
+            file_path=r[2],
+            latest_event_ts=r[3],
+            latest_event_type=r[4],
+        )
+        for r in rows
+    ]
+
+
+def _rename_pairs_for_symbol(
+    store: SymbolTimelineStore,
+    *,
+    project_root: str,
+    symbol_id: str,
+    name_by_sid: dict[str, str | None],
+) -> tuple[list[RenamePair], list[RenamePair]]:
+    """Return ``(predecessors, successors)`` rename pairs touching ``symbol_id``.
+
+    ``predecessors`` = edges where the given symbol is the *new* side — i.e.
+    something was renamed *into* it. ``successors`` = edges where it is the
+    *old* side — i.e. it was later renamed to a new name.
+    """
+    preds_rows = store._connect().execute(
+        "SELECT old_symbol_id, new_symbol_id, commit_sha, timestamp, "
+        "confidence, is_candidate "
+        "FROM symbol_timeline_rename_edges "
+        "WHERE project_root = ? AND new_symbol_id = ? "
+        "ORDER BY timestamp ASC, id ASC",
+        (project_root, symbol_id),
+    ).fetchall()
+    succs_rows = store._connect().execute(
+        "SELECT old_symbol_id, new_symbol_id, commit_sha, timestamp, "
+        "confidence, is_candidate "
+        "FROM symbol_timeline_rename_edges "
+        "WHERE project_root = ? AND old_symbol_id = ? "
+        "ORDER BY timestamp ASC, id ASC",
+        (project_root, symbol_id),
+    ).fetchall()
+
+    def _pair(r: tuple) -> RenamePair:  # type: ignore[type-arg]
+        return RenamePair(
+            old_symbol_id=r[0],
+            new_symbol_id=r[1],
+            old_qualified_name=name_by_sid.get(r[0]),
+            new_qualified_name=name_by_sid.get(r[1]),
+            commit_sha=r[2],
+            renamed_at=r[3],
+            confidence=r[4],
+            is_candidate=bool(r[5]),
+        )
+
+    return [_pair(r) for r in preds_rows], [_pair(r) for r in succs_rows]
+
+
+def _latest_name_file(events: list[TimelineEvent]) -> tuple[str | None, str | None]:
+    """Pick the most-recent non-null qualified_name + file_path from events."""
+    name: str | None = None
+    path: str | None = None
+    for ev in reversed(events):  # events are chronological; scan newest-first
+        if name is None and ev.qualified_name:
+            name = ev.qualified_name
+        if path is None and ev.file_path:
+            path = ev.file_path
+        if name is not None and path is not None:
+            break
+    return name, path
+
+
+def symbol_timeline(
+    store: SymbolTimelineStore,
+    *,
+    project_root: str,
+    symbol: str,
+    include_orphaned: bool = False,
+    candidate_limit: int = 5,
+) -> SymbolTimelineResult:
+    """Return the full event history of one symbol.
+
+    ``symbol`` is either:
+      * a 32-hex ``symbol_id`` — exact lookup; or
+      * a qualified name (or substring) — we fuzzy-resolve via
+        :func:`fuzzy_symbol_lookup`. Exactly one match ⇒ we use it;
+        zero or many matches ⇒ return ``not_found=True`` and list
+        ``candidates`` for the caller to disambiguate.
+
+    Rename edges touching the resolved symbol are returned separately so the
+    caller can show "renamed from/to" context without us duplicating events.
+    """
+    resolved_id: str | None = None
+    candidates: list[SymbolCandidate] = []
+
+    if _looks_like_symbol_id(symbol):
+        resolved_id = symbol
+    else:
+        candidates = fuzzy_symbol_lookup(
+            store, project_root=project_root, partial_name=symbol, limit=candidate_limit
+        )
+        if len(candidates) == 1:
+            resolved_id = candidates[0].symbol_id
+            candidates = []  # a unique match isn't a "candidate"
+
+    if resolved_id is None:
+        return SymbolTimelineResult(
+            symbol_id=symbol,
+            qualified_name=None,
+            file_path=None,
+            events=[],
+            rename_predecessors=[],
+            rename_successors=[],
+            not_found=True,
+            candidates=candidates,
+        )
+
+    events = events_for_symbol(
+        store,
+        project_root=project_root,
+        symbol_id=resolved_id,
+        include_orphaned=include_orphaned,
+    )
+    if not events:
+        # symbol_id was a direct hash but we have no record of it
+        return SymbolTimelineResult(
+            symbol_id=resolved_id,
+            qualified_name=None,
+            file_path=None,
+            events=[],
+            rename_predecessors=[],
+            rename_successors=[],
+            not_found=True,
+            candidates=candidates,
+        )
+
+    qualified_name, file_path = _latest_name_file(events)
+
+    # Build name_by_sid for rename-pair enrichment: the resolved symbol itself
+    # plus any sids it's paired with in rename edges.
+    name_by_sid: dict[str, str | None] = {resolved_id: qualified_name}
+    pred_rows = store._connect().execute(
+        "SELECT old_symbol_id FROM symbol_timeline_rename_edges "
+        "WHERE project_root = ? AND new_symbol_id = ? ",
+        (project_root, resolved_id),
+    ).fetchall()
+    succ_rows = store._connect().execute(
+        "SELECT new_symbol_id FROM symbol_timeline_rename_edges "
+        "WHERE project_root = ? AND old_symbol_id = ? ",
+        (project_root, resolved_id),
+    ).fetchall()
+    paired_sids = {r[0] for r in pred_rows} | {r[0] for r in succ_rows}
+    for sid in paired_sids:
+        # Look up each paired symbol's latest qualified_name for display.
+        paired_events = events_for_symbol(
+            store,
+            project_root=project_root,
+            symbol_id=sid,
+            include_orphaned=include_orphaned,
+        )
+        pname, _ = _latest_name_file(paired_events)
+        name_by_sid[sid] = pname
+
+    predecessors, successors = _rename_pairs_for_symbol(
+        store,
+        project_root=project_root,
+        symbol_id=resolved_id,
+        name_by_sid=name_by_sid,
+    )
+
+    return SymbolTimelineResult(
+        symbol_id=resolved_id,
+        qualified_name=qualified_name,
+        file_path=file_path,
+        events=events,
+        rename_predecessors=predecessors,
+        rename_successors=successors,
+        not_found=False,
+        candidates=[],
+    )
+
+
 __all__ = [
     "RemovedSinceResult",
     "RemovedSymbol",
     "RenamePair",
+    "SymbolCandidate",
+    "SymbolTimelineResult",
     "commits_after_ref",
     "find_removed_since",
+    "fuzzy_symbol_lookup",
     "resolve_git_ref",
+    "symbol_timeline",
 ]
