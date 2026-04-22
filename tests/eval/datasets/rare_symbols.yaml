@@ -1,0 +1,192 @@
+# Rare-identifier retrieval eval dataset (spec-001 US1 — T011).
+#
+# Each entry pairs a query (a rare, high-signal token dense embeddings
+# usually scramble under hash expansion) with the sole document in the
+# synthetic corpus that carries that token as a standalone whitespace-
+# separated word. The integration test `tests/integration/embeddings/
+# test_hybrid_search.py` builds the corpus from these `target_text`
+# fields plus generic distractors, indexes them with `FakeBgeM3Adapter`,
+# and compares Recall@5 between the dense-only path and the hybrid
+# (dense + sparse) path. Hybrid is expected to exceed dense-only by
+# a wide margin because `FakeBgeM3Adapter._sparse` hashes each token
+# verbatim, so the rare token matches exactly once between query and
+# target while dense hashes decorrelate.
+#
+# `target_file` is a synthetic path only — no real file in the repo has
+# to exist. It serves as a stable corpus key.
+version: 1
+queries:
+  - id: rare-01-uuid-session
+    query: "550e8400-e29b-41d4-a716-446655440000"
+    target_file: app/auth/session_cache.py
+    target_text: >-
+      Session cache resolver. Lookup id
+      550e8400-e29b-41d4-a716-446655440000 routed through the auth
+      gateway for a long-lived browser session.
+
+  - id: rare-02-uuid-tenant
+    query: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+    target_file: libs/tenants/registry.py
+    target_text: >-
+      Tenant registry entry
+      6ba7b810-9dad-11d1-80b4-00c04fd430c8 carries the billing profile
+      for the enterprise plan.
+
+  - id: rare-03-sha-short
+    query: "3c59dc048e8850243be8079a5c74d079"
+    target_file: libs/packs/content_hash.py
+    target_text: >-
+      Content-addressed pack snapshot digest
+      3c59dc048e8850243be8079a5c74d079 stored alongside the payload
+      manifest.
+
+  - id: rare-04-sha-long
+    query: "7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069"
+    target_file: libs/audit/integrity.py
+    target_text: >-
+      Manifest integrity anchor
+      7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069
+      pinned in the tamper-evident log.
+
+  - id: rare-05-private-fn
+    query: "_internal_reconcile_queue"
+    target_file: libs/workers/reconcile.py
+    target_text: >-
+      Background worker invokes _internal_reconcile_queue every minute
+      to drain orphaned jobs from the staging buffer.
+
+  - id: rare-06-dunder
+    query: "__dunder_private_flush_sentinel__"
+    target_file: libs/core/internals.py
+    target_text: >-
+      The __dunder_private_flush_sentinel__ marker tells the allocator
+      to invalidate pinned buffers before shutdown.
+
+  - id: rare-07-v2-migration
+    query: "v2_migrate_user_schema_handler"
+    target_file: libs/migrations/v2_users.py
+    target_text: >-
+      The v2_migrate_user_schema_handler performs the forward migration
+      while preserving surrogate keys for downstream consumers.
+
+  - id: rare-08-deprecated-api
+    query: "api_v1_deprecated_broadcast"
+    target_file: apps/backend/legacy/broadcast_v1.py
+    target_text: >-
+      Legacy path api_v1_deprecated_broadcast remains behind a feature
+      toggle until the v3 rollout completes.
+
+  - id: rare-09-sync-variant
+    query: "fetch_user_sync_strict"
+    target_file: libs/users/clients.py
+    target_text: >-
+      Synchronous caller fetch_user_sync_strict validates the payload
+      shape before returning to avoid partial records.
+
+  - id: rare-10-async-variant
+    query: "fetch_user_async_lenient"
+    target_file: libs/users/async_clients.py
+    target_text: >-
+      The async sibling fetch_user_async_lenient returns a best-effort
+      projection without blocking on the downstream fan-out.
+
+  - id: rare-11-err-code
+    query: "ERR_X42_BACKOFF_EXCEEDED"
+    target_file: libs/errors/codes.py
+    target_text: >-
+      Raising ERR_X42_BACKOFF_EXCEEDED signals the caller should
+      surrender retries and escalate to the pager rotation.
+
+  - id: rare-12-feature-flag
+    query: "FEATURE_FLAG_BETA_RELEASE_2026Q2"
+    target_file: libs/flags/schedule.py
+    target_text: >-
+      Cohort gated behind FEATURE_FLAG_BETA_RELEASE_2026Q2 uses the
+      canary ranker with reduced fusion weights.
+
+  - id: rare-13-bind-port
+    query: "bind-port-47382"
+    target_file: deploy/network/ports.py
+    target_text: >-
+      Internal diagnostics listener reserves bind-port-47382 on each
+      agent host so probes can poll without clashing with user apps.
+
+  - id: rare-14-magic-constant
+    query: "MAGIC_CONSTANT_0xDEADBEEF"
+    target_file: libs/codecs/framing.py
+    target_text: >-
+      Framing header begins with MAGIC_CONSTANT_0xDEADBEEF so
+      misrouted packets are rejected at the first byte.
+
+  - id: rare-15-webhook-secret
+    query: "webhook_secret_sk_live_abcd1234xyz"
+    target_file: libs/webhooks/rotation.py
+    target_text: >-
+      Rotation plan revokes webhook_secret_sk_live_abcd1234xyz in
+      favour of an envelope-wrapped KMS reference.
+
+  - id: rare-16-probe
+    query: "__probe__internal_diag"
+    target_file: apps/agent/probes.py
+    target_text: >-
+      The __probe__internal_diag endpoint answers only to loopback
+      callers and is excluded from the public OpenAPI map.
+
+  - id: rare-17-commit-sha
+    query: "commit-a1b2c3d4e5f6789abcd"
+    target_file: libs/gitintel/pins.py
+    target_text: >-
+      Frozen dependency pin commit-a1b2c3d4e5f6789abcd overrides the
+      upstream tag whenever the tag drifts during release gating.
+
+  - id: rare-18-enum-variant
+    query: "ENUM_STATE_PROCESSING_VARIANT_A"
+    target_file: libs/state/enums.py
+    target_text: >-
+      Transition into ENUM_STATE_PROCESSING_VARIANT_A waits for the
+      upstream ledger reconciliation to acknowledge the batch.
+
+  - id: rare-19-custom-exception
+    query: "OrphanedPaymentRecoveryError"
+    target_file: libs/billing/exceptions.py
+    target_text: >-
+      The OrphanedPaymentRecoveryError surfaces when a refund lands
+      before its underlying charge is settled in the ledger.
+
+  - id: rare-20-qualified-private
+    query: "lv_dcp.graph._private_walk_helper"
+    target_file: libs/graph/walkers.py
+    target_text: >-
+      Internal traversal lv_dcp.graph._private_walk_helper is reserved
+      for the centrality scorer and must not be exposed through the
+      public facade.
+
+  - id: rare-21-telemetry-key
+    query: "metric:embedder.bge_m3.fallback_total"
+    target_file: libs/telemetry/metric_names.py
+    target_text: >-
+      Gauge metric:embedder.bge_m3.fallback_total counts adapter
+      fallbacks during the rollout window and feeds the readiness
+      dashboard.
+
+  - id: rare-22-aws-arn
+    query: "arn:aws:lambda:us-east-1:999999999999:function:rare-worker"
+    target_file: deploy/aws/lambda_wiring.py
+    target_text: >-
+      Detached handler
+      arn:aws:lambda:us-east-1:999999999999:function:rare-worker runs
+      the nightly reconciliation job outside the primary pipeline.
+
+  - id: rare-23-hmac-marker
+    query: "hmac_sha256_KJh1WPQrSsBaZNDrCTwp"
+    target_file: libs/security/signing.py
+    target_text: >-
+      Canary verification expects hmac_sha256_KJh1WPQrSsBaZNDrCTwp in
+      the header before honoring any deletion intent.
+
+  - id: rare-24-urn
+    query: "urn:lvdcp:project:rare_symbols_eval"
+    target_file: libs/identity/urns.py
+    target_text: >-
+      Federated identifier urn:lvdcp:project:rare_symbols_eval anchors
+      the eval harness against the production project graph.

@@ -56,14 +56,14 @@ description: "Task list for bge-m3 unified embedder (dense + sparse + multivecto
 
 **Independent Test**: новый eval-датасет `tests/eval/datasets/rare_symbols.yaml`; метрика Recall@5 поднимается с <0.4 (dense-only) до >0.8.
 
-- [ ] **T011** [US1] Создать `tests/eval/datasets/rare_symbols.yaml` с 20+ парами (query, expected_file/symbol): UUID, SHA-хеши, приватные имена, специфичные токены.
-- [ ] **T012** [US1] Integration-тест `tests/integration/embeddings/test_hybrid_search.py`: TestContainer Qdrant 1.12, fake multi-vector adapter, ассертит hybrid > dense-only по Recall@5 на rare_symbols.
-- [ ] **T013** [P] [US1] Модифицировать `libs/embeddings/service.py::vector_search` — если adapter поддерживает `MultiVectorEmbeddingAdapter`, использовать `search_hybrid`; иначе — существующий dense path (совместимость с OpenAI/Ollama).
-- [ ] **T014** [US1] Добавить `libs/embeddings/service.py::embed_project_files_multi()` — новая ветка для MultiVector adapter; используется в worker'е при `provider=bge_m3`.
-- [ ] **T015** [US1] Unit-тест: `test_vector_search_routes_to_hybrid_when_adapter_is_multi`; мок adapter с/без MultiVector protocol.
-- [ ] **T016** [US1] Запустить `pytest tests/unit/embeddings tests/integration/embeddings -k "hybrid or rare"` — все зелёные.
+- [x] **T011** [US1] Создать `tests/eval/datasets/rare_symbols.yaml` с 20+ парами (query, expected_file/symbol): UUID, SHA-хеши, приватные имена, специфичные токены. *(24 пары; каждая строка self-contained — содержит `query`, `target_file`, `target_text` — чтобы synthetic corpus в T012 строился прямо из датасета.)*
+- [x] **T012** [US1] Integration-тест `tests/integration/embeddings/test_hybrid_search.py`: TestContainer Qdrant 1.12, fake multi-vector adapter, ассертит hybrid > dense-only по Recall@5 на rare_symbols. *(Использован `AsyncQdrantClient(location=":memory:")` — поддерживает named vectors + sparse + multivector, TestContainers не требуется для функциональной проверки US1. Corpus = 24 target + 150 distractor docs; ассерты: hybrid > 0.8, dense-only < 0.4, `hybrid − dense > 0.4`.)*
+- [x] **T013** [P] [US1] Модифицировать `libs/embeddings/service.py::vector_search` — если adapter поддерживает `MultiVectorEmbeddingAdapter`, использовать `search_hybrid`; иначе — существующий dense path (совместимость с OpenAI/Ollama).
+- [x] **T014** [US1] Добавить `libs/embeddings/service.py::embed_project_files_multi()` — новая ветка для MultiVector adapter; используется в worker'е при `provider=bge_m3`. *(Адаптировано: вместо параллельной функции добавлен auto-dispatch в `_do_embed` через `_is_multi_vector(adapter)` — один entry-point, routing выбирает `_embed_and_upsert_multi` vs `_embed_and_upsert`. Воркер/сканер остаются на `embed_project_files`, который автоматически попадает в hybrid-ветку при `provider=bge_m3` или `fake_bge_m3` и не требует изменений API.)*
+- [x] **T015** [US1] Unit-тест: `test_vector_search_routes_to_hybrid_when_adapter_is_multi`; мок adapter с/без MultiVector protocol.
+- [x] **T016** [US1] Запустить `pytest tests/unit/embeddings tests/integration/embeddings -k "hybrid or rare"` — все зелёные. *(10/10 passed за 0.83 s; hybrid Recall@5 = 1.000 ≫ 0.8, dense Recall@5 ≈ 0.00 ≪ 0.4.)*
 
-**Checkpoint US1**: rare-identifier Recall@5 ≥ 0.8 на eval-датасете; эта же MVP-веха разблокирует item #2 (reranker).
+**Checkpoint US1**: rare-identifier Recall@5 ≥ 0.8 на eval-датасете; эта же MVP-веха разблокирует item #2 (reranker). *(✅ Достигнуто на synthetic fake-adapter корпусе; реальные bge-m3 latency/throughput метрики закрывает Phase 5 US3 bench; реальные Recall@5 числа — после item #6 eval harness.)*
 
 ---
 
