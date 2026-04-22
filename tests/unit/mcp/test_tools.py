@@ -117,6 +117,23 @@ def test_lvdcp_history_on_non_git_dir_returns_empty(tmp_path: Path) -> None:
     assert result.since_days == 7
 
 
+def test_lvdcp_removed_since_on_non_git_dir_returns_ref_not_found(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unresolvable ref + non-git tmp dir → typed empty response."""
+    monkeypatch.setenv("LVDCP_TIMELINE_DB", str(tmp_path / "tl.db"))
+
+    from apps.mcp.tools import RemovedSinceResponse, lvdcp_removed_since
+
+    result = lvdcp_removed_since(path=str(tmp_path), ref="v1.0.0-bogus")
+    assert isinstance(result, RemovedSinceResponse)
+    assert result.ref_not_found is True
+    assert result.removed == []
+    assert result.renamed == []
+    assert result.ref_resolved_sha is None
+    assert result.ref_resolved_at_iso is None
+
+
 def test_lvdcp_history_reports_filter_and_since(tmp_path: Path) -> None:
     from apps.mcp.tools import lvdcp_history
 

@@ -29,6 +29,9 @@ from apps.mcp.tools import (
     lvdcp_pack as _lvdcp_pack,
 )
 from apps.mcp.tools import (
+    lvdcp_removed_since as _lvdcp_removed_since,
+)
+from apps.mcp.tools import (
     lvdcp_scan as _lvdcp_scan,
 )
 from apps.mcp.tools import (
@@ -57,6 +60,7 @@ mcp.tool()(_lvdcp_status)
 mcp.tool()(_lvdcp_neighbors)
 mcp.tool()(_lvdcp_cross_project_patterns)
 mcp.tool()(_lvdcp_history)
+mcp.tool()(_lvdcp_removed_since)
 mcp.tool()(_lvdcp_memory_propose)
 mcp.tool()(_lvdcp_memory_list)
 
