@@ -46,7 +46,8 @@ def _render_check(report: CopilotCheckReport, *, as_json: bool) -> str:
     )
     lines.append(
         f"  wiki:            present={report.wiki_present} "
-        f"dirty_modules={report.wiki_dirty_modules}"
+        f"dirty_modules={report.wiki_dirty_modules} "
+        f"bg_refresh={report.wiki_refresh_in_progress}"
     )
     lines.append(f"  qdrant enabled:  {report.qdrant_enabled}")
     if report.degraded_modes:
@@ -70,6 +71,7 @@ def _render_refresh(report: CopilotRefreshReport, *, as_json: bool) -> str:
     )
     lines.append(
         f"  wiki:             refreshed={report.wiki_refreshed} "
+        f"bg_started={report.wiki_refresh_background_started} "
         f"modules_updated={report.wiki_modules_updated}"
     )
     if report.messages:
@@ -128,12 +130,26 @@ def refresh_cmd(
     ),
     full: bool = typer.Option(False, "--full", help="Force a full scan, ignoring content hashes."),
     no_wiki: bool = typer.Option(False, "--no-wiki", help="Skip the wiki update step (scan only)."),
+    wiki_background: bool = typer.Option(
+        False,
+        "--wiki-background",
+        help=(
+            "Run the wiki refresh as a detached subprocess. The command returns as soon "
+            "as the scan finishes; progress is visible in "
+            "`.context/wiki/.refresh.log` and via `ctx project check`."
+        ),
+    ),
     as_json: bool = typer.Option(
         False, "--json", help="Emit the CopilotRefreshReport as indented JSON."
     ),
 ) -> None:
     """Scan the project and, by default, refresh the wiki — one command."""
-    report = refresh_project(path, full=full, refresh_wiki_after=not no_wiki)
+    report = refresh_project(
+        path,
+        full=full,
+        refresh_wiki_after=not no_wiki,
+        wiki_background=wiki_background,
+    )
     typer.echo(_render_refresh(report, as_json=as_json))
 
 
@@ -152,6 +168,14 @@ def wiki_cmd(
     ),
     all_modules: bool = typer.Option(
         False, "--all", help="With --refresh, regenerate ALL modules, not just dirty ones."
+    ),
+    background: bool = typer.Option(
+        False,
+        "--background",
+        help=(
+            "With --refresh, spawn a detached subprocess and return immediately. "
+            "Progress is logged to `.context/wiki/.refresh.log`."
+        ),
     ),
     as_json: bool = typer.Option(
         False,
@@ -173,7 +197,7 @@ def wiki_cmd(
     ``ctx project check --json`` instead.
     """
     if do_refresh:
-        report = refresh_wiki(path, all_modules=all_modules)
+        report = refresh_wiki(path, all_modules=all_modules, background=background)
         typer.echo(_render_refresh(report, as_json=as_json))
         return
     # Read-only: reuse check_project and render just the wiki portion.
@@ -184,7 +208,10 @@ def wiki_cmd(
     typer.echo(f"project: {full_report.project_name}  ({full_report.project_root})")
     typer.echo(f"  wiki present:    {full_report.wiki_present}")
     typer.echo(f"  dirty modules:   {full_report.wiki_dirty_modules}")
-    if full_report.wiki_dirty_modules > 0:
+    typer.echo(f"  bg refresh:      {full_report.wiki_refresh_in_progress}")
+    if full_report.wiki_refresh_in_progress:
+        typer.echo("  hint: a background refresh is running — tail `.context/wiki/.refresh.log`")
+    elif full_report.wiki_dirty_modules > 0:
         typer.echo("  hint: run `ctx project wiki <path> --refresh`")
 
 

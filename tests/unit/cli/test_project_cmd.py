@@ -156,3 +156,60 @@ def test_ask_happy_path_prints_pack_and_suggestions(tmp_path: Path) -> None:
     assert "Context pack" in result.stdout or "context pack" in result.stdout.lower()
     # Qdrant is off via _isolated_config → we should see the hint.
     assert "trace_id" in result.stdout
+
+
+def test_refresh_wiki_background_flag_spawns_subprocess(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``ctx project refresh --wiki-background`` must not run the sync wiki path."""
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    _seed_project(proj)
+
+    def _boom_wiki(*_a: object, **_kw: object) -> None:  # pragma: no cover — defensive
+        raise AssertionError("sync wiki must not run with --wiki-background")
+
+    monkeypatch.setattr("libs.copilot.orchestrator._run_wiki_update_in_process", _boom_wiki)
+
+    from libs.copilot import wiki_background
+
+    class _StubPopen:
+        def __init__(self, args: list[str], **_kw: object) -> None:
+            self.args = args
+            self.pid = 55551
+
+    monkeypatch.setattr(wiki_background, "_pid_alive", lambda _pid: True)
+    monkeypatch.setattr("libs.copilot.wiki_background.subprocess.Popen", _StubPopen)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["project", "refresh", str(proj), "--wiki-background"])
+    assert result.exit_code == 0, result.stdout
+    assert "bg_started=True" in result.stdout
+    assert "refreshed=False" in result.stdout
+    assert (proj / ".context" / "wiki" / ".refresh.lock").exists()
+
+
+def test_check_shows_bg_refresh_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``ctx project check`` surfaces ``bg_refresh=True`` when lock is live."""
+    import json as _json
+    import time as _time
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    _seed_project(proj)
+    scan_project(proj, mode="full")
+
+    wiki_dir = proj / ".context" / "wiki"
+    wiki_dir.mkdir(parents=True, exist_ok=True)
+    (wiki_dir / ".refresh.lock").write_text(
+        _json.dumps({"pid": 11111, "started_at": _time.time(), "all_modules": False}),
+        encoding="utf-8",
+    )
+    from libs.copilot import wiki_background
+
+    monkeypatch.setattr(wiki_background, "_pid_alive", lambda _pid: True)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["project", "check", str(proj)])
+    assert result.exit_code == 0, result.stdout
+    assert "bg_refresh=True" in result.stdout

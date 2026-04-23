@@ -76,3 +76,58 @@ def test_refresh_project_then_wiki_noop_on_clean_index(
     assert report.wiki_refreshed is True
     # A fresh scan marks every module dirty; at least one should have been updated.
     assert report.wiki_modules_updated >= 1
+
+
+def test_refresh_project_wiki_background_spawns_subprocess_and_returns_fast(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``wiki_background=True`` must not invoke the synchronous wiki path."""
+    _seed_project(tmp_path)
+
+    def _boom_wiki(*_a: Any, **_kw: Any) -> None:  # pragma: no cover — defensive
+        raise AssertionError("in-process wiki must not run when wiki_background=True")
+
+    monkeypatch.setattr("libs.copilot.orchestrator._run_wiki_update_in_process", _boom_wiki)
+
+    # Stub the subprocess so no real fork happens.
+    from libs.copilot import wiki_background
+
+    class _StubPopen:
+        def __init__(self, args: list[str], **_kw: Any) -> None:
+            self.args = args
+            self.pid = 77771
+
+    monkeypatch.setattr(wiki_background, "_pid_alive", lambda _pid: True)
+    monkeypatch.setattr("libs.copilot.wiki_background.subprocess.Popen", _StubPopen)
+
+    report = refresh_project(tmp_path, full=False, refresh_wiki_after=True, wiki_background=True)
+    assert report.scanned is True
+    assert report.wiki_refreshed is False
+    assert report.wiki_refresh_background_started is True
+    assert any("background refresh started" in m for m in report.messages)
+
+
+def test_refresh_wiki_background_flag_sets_bg_started(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``refresh_wiki(root, background=True)`` returns ``bg_started=True`` and spawns."""
+    _seed_project(tmp_path)
+    # A scan is required for refresh_wiki to do anything beyond the skip-branch.
+    from libs.scanning.scanner import scan_project
+
+    scan_project(tmp_path, mode="full")
+
+    from libs.copilot import wiki_background
+
+    class _StubPopen:
+        def __init__(self, args: list[str], **_kw: Any) -> None:
+            self.args = args
+            self.pid = 66661
+
+    monkeypatch.setattr(wiki_background, "_pid_alive", lambda _pid: True)
+    monkeypatch.setattr("libs.copilot.wiki_background.subprocess.Popen", _StubPopen)
+
+    report = refresh_wiki(tmp_path, background=True)
+    assert report.scanned is True
+    assert report.wiki_refreshed is False
+    assert report.wiki_refresh_background_started is True

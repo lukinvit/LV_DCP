@@ -124,3 +124,28 @@ def test_check_reports_wiki_stale(
     assert DegradedMode.WIKI_STALE in report.degraded_modes
     # WIKI_STALE and WIKI_MISSING are mutually exclusive (elif branch).
     assert DegradedMode.WIKI_MISSING not in report.degraded_modes
+
+
+def test_check_surfaces_wiki_refresh_in_progress(
+    tmp_path: Path, qdrant_off_config: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A live ``.refresh.lock`` must surface as ``wiki_refresh_in_progress=True``."""
+    import json as _json
+    import time as _time
+
+    _make_project(tmp_path)
+    scan_project(tmp_path, mode="full")
+
+    wiki_dir = tmp_path / ".context" / "wiki"
+    wiki_dir.mkdir(parents=True, exist_ok=True)
+    (wiki_dir / ".refresh.lock").write_text(
+        _json.dumps({"pid": 12345, "started_at": _time.time(), "all_modules": False}),
+        encoding="utf-8",
+    )
+
+    from libs.copilot import wiki_background
+
+    monkeypatch.setattr(wiki_background, "_pid_alive", lambda _pid: True)
+
+    report = check_project(tmp_path)
+    assert report.wiki_refresh_in_progress is True

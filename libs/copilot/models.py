@@ -12,7 +12,7 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 
-class DegradedMode(str, Enum):  # noqa: UP042 — str-mixin needed for pydantic JSON serialization
+class DegradedMode(str, Enum):  # noqa: UP042  # StrEnum changes __str__ semantics
     """One canonical failure mode the copilot can detect and explain.
 
     These are the answer to "why is the retrieval result not great?"
@@ -50,6 +50,13 @@ class CopilotCheckReport(BaseModel):
     wiki_dirty_modules: int = Field(
         default=0, description="Number of modules with status='dirty' in wiki_state"
     )
+    wiki_refresh_in_progress: bool = Field(
+        default=False,
+        description=(
+            "True when ``.context/wiki/.refresh.lock`` is present and owned by a live PID "
+            "— i.e. a background wiki refresh spawned via ``--wiki-background`` is running."
+        ),
+    )
     qdrant_enabled: bool = Field(
         description="cfg.qdrant.enabled — vector retrieval availability flag"
     )
@@ -69,6 +76,13 @@ class CopilotRefreshReport(BaseModel):
     scan_reparsed: int = Field(default=0, description="Files reparsed (cache miss)")
     scan_elapsed_seconds: float = Field(default=0.0)
     wiki_refreshed: bool = Field(description="True when wiki update ran")
+    wiki_refresh_background_started: bool = Field(
+        default=False,
+        description=(
+            "True when a background wiki refresh was spawned (detached subprocess). "
+            "Mutually exclusive with ``wiki_refreshed=True``."
+        ),
+    )
     wiki_modules_updated: int = Field(
         default=0, description="Modules touched by the wiki update step"
     )
