@@ -24,6 +24,7 @@ from libs.copilot.orchestrator import (
     check_project,
     refresh_project,
     refresh_wiki,
+    watch_check_project,
 )
 from libs.copilot.wiki_background import (
     BackgroundRefreshStatus,
@@ -47,4 +48,5 @@ __all__ = [
     "refresh_project",
     "refresh_wiki",
     "start_background_refresh",
+    "watch_check_project",
 ]

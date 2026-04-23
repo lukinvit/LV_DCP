@@ -9,7 +9,8 @@ introduced — the copilot is strictly a composition layer.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+import time
+from collections.abc import Callable, Iterator
 from dataclasses import replace as dataclass_replace
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -160,6 +161,66 @@ def check_project(
         qdrant_enabled=qdrant_enabled,
         degraded_modes=degraded,
     )
+
+
+# ---- watch -----------------------------------------------------------------
+
+
+#: Minimum allowed poll interval, seconds. Anything lower and we risk
+#: hammering the filesystem for negligible UX gain.
+_WATCH_MIN_INTERVAL_S = 0.2
+
+#: Default maximum watch duration, seconds (15 min). A wall-clock safety
+#: net so a wedged runner can't keep a `check --watch` process alive forever.
+_WATCH_DEFAULT_MAX_DURATION_S = 15 * 60
+
+
+def watch_check_project(  # noqa: PLR0913 — each kw-only knob is a distinct tuning dial or test seam
+    root: Path,
+    *,
+    interval_seconds: float = 2.0,
+    max_duration_seconds: float = _WATCH_DEFAULT_MAX_DURATION_S,
+    config_path: Path | None = None,
+    sleep: Callable[[float], None] | None = None,
+    clock: Callable[[], float] | None = None,
+) -> Iterator[CopilotCheckReport]:
+    """Yield :class:`CopilotCheckReport` snapshots until the refresh settles.
+
+    Semantics:
+
+    - Emit one snapshot immediately.
+    - If ``wiki_refresh_in_progress`` is already ``False`` on the first
+      snapshot, stop — there is nothing to watch.
+    - Otherwise sleep ``interval_seconds`` and emit another snapshot;
+      repeat until either the refresh transitions to
+      ``in_progress=False`` (final snapshot is yielded too) or the
+      wall-clock budget ``max_duration_seconds`` is exhausted.
+
+    ``sleep`` and ``clock`` default to :func:`time.sleep` and
+    :func:`time.monotonic` — resolved *at call time* so tests can
+    monkeypatch :mod:`time` at the orchestrator module level.
+    """
+    if interval_seconds < _WATCH_MIN_INTERVAL_S:
+        raise ValueError(
+            f"interval_seconds must be ≥ {_WATCH_MIN_INTERVAL_S} (got {interval_seconds})"
+        )
+    sleep_fn = sleep if sleep is not None else time.sleep
+    clock_fn = clock if clock is not None else time.monotonic
+
+    started = clock_fn()
+    deadline = started + max_duration_seconds
+
+    report = check_project(root, config_path=config_path)
+    yield report
+    if not report.wiki_refresh_in_progress:
+        return
+
+    while clock_fn() < deadline:
+        sleep_fn(interval_seconds)
+        report = check_project(root, config_path=config_path)
+        yield report
+        if not report.wiki_refresh_in_progress:
+            return
 
 
 # ---- refresh ---------------------------------------------------------------
