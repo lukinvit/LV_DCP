@@ -21,6 +21,10 @@ from libs.copilot.models import (
     CopilotRefreshReport,
     DegradedMode,
 )
+from libs.copilot.wiki_background import (
+    is_refresh_in_progress,
+    start_background_refresh,
+)
 from libs.core.projects_config import load_config
 from libs.project_index.index import ProjectIndex, ProjectNotIndexedError
 from libs.scanning.scanner import scan_project
@@ -120,6 +124,7 @@ def check_project(
 
     wiki_present = _wiki_is_present(root)
     wiki_dirty = _count_dirty_wiki_modules(root)
+    wiki_bg_running = is_refresh_in_progress(root)
     cfg = _load_config_safe(config_path)
     qdrant_enabled = bool(cfg and cfg.qdrant.enabled)
 
@@ -146,6 +151,7 @@ def check_project(
         relations=card.relations,
         wiki_present=wiki_present,
         wiki_dirty_modules=wiki_dirty,
+        wiki_refresh_in_progress=wiki_bg_running,
         qdrant_enabled=qdrant_enabled,
         degraded_modes=degraded,
     )
@@ -159,11 +165,15 @@ def refresh_project(
     *,
     full: bool = False,
     refresh_wiki_after: bool = True,
+    wiki_background: bool = False,
 ) -> CopilotRefreshReport:
     """Run a scan and, by default, a wiki update. One call, one report.
 
     - ``full=True`` forces a mode-``full`` scan; default is incremental.
     - ``refresh_wiki_after=False`` skips the wiki update (scan-only).
+    - ``wiki_background=True`` spawns the wiki refresh as a detached
+      subprocess and returns immediately. Ignored when
+      ``refresh_wiki_after=False``.
     """
     root = root.resolve()
     scan_res = scan_project(root, mode="full" if full else "incremental")
@@ -176,11 +186,22 @@ def refresh_project(
 
     wiki_updated = 0
     wiki_refreshed = False
+    wiki_bg_started = False
     if refresh_wiki_after:
-        wiki_report = refresh_wiki(root, all_modules=False)
-        wiki_updated = wiki_report.wiki_modules_updated
-        wiki_refreshed = wiki_report.wiki_refreshed
-        messages.extend(wiki_report.messages)
+        if wiki_background:
+            status = start_background_refresh(root, all_modules=False)
+            wiki_bg_started = status.in_progress
+            messages.append(
+                "wiki: background refresh started "
+                f"(pid={status.pid}, log=.context/wiki/.refresh.log)"
+                if wiki_bg_started
+                else "wiki: background refresh skipped — a refresh is already running"
+            )
+        else:
+            wiki_report = refresh_wiki(root, all_modules=False)
+            wiki_updated = wiki_report.wiki_modules_updated
+            wiki_refreshed = wiki_report.wiki_refreshed
+            messages.extend(wiki_report.messages)
 
     return CopilotRefreshReport(
         project_root=str(root),
@@ -190,6 +211,7 @@ def refresh_project(
         scan_reparsed=scan_res.files_reparsed,
         scan_elapsed_seconds=scan_res.elapsed_seconds,
         wiki_refreshed=wiki_refreshed,
+        wiki_refresh_background_started=wiki_bg_started,
         wiki_modules_updated=wiki_updated,
         messages=messages,
     )
@@ -199,8 +221,14 @@ def refresh_wiki(
     root: Path,
     *,
     all_modules: bool = False,
+    background: bool = False,
 ) -> CopilotRefreshReport:
     """Wiki-only refresh. Skips gracefully when the project is not scanned.
+
+    - ``background=False`` (default): run synchronously in-process.
+    - ``background=True``: spawn a detached subprocess via
+      :func:`libs.copilot.wiki_background.start_background_refresh` and
+      return immediately with ``wiki_refresh_background_started=True``.
 
     This function intentionally does *not* re-implement
     ``ctx wiki update`` — it shells out through
@@ -219,6 +247,24 @@ def refresh_wiki(
             wiki_refreshed=False,
             wiki_modules_updated=0,
             messages=["wiki: skipped — project is not scanned"],
+        )
+
+    if background:
+        status = start_background_refresh(root, all_modules=all_modules)
+        started = status.in_progress
+        msg = (
+            f"wiki: background refresh started (pid={status.pid}, log=.context/wiki/.refresh.log)"
+            if started
+            else "wiki: background refresh skipped — a refresh is already running"
+        )
+        return CopilotRefreshReport(
+            project_root=str(root),
+            project_name=_project_name(root),
+            scanned=True,
+            wiki_refreshed=False,
+            wiki_refresh_background_started=started,
+            wiki_modules_updated=0,
+            messages=[msg],
         )
 
     updated, messages = _run_wiki_update_in_process(root, all_modules=all_modules)

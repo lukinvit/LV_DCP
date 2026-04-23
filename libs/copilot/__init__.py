@@ -25,14 +25,24 @@ from libs.copilot.orchestrator import (
     refresh_project,
     refresh_wiki,
 )
+from libs.copilot.wiki_background import (
+    BackgroundRefreshStatus,
+    is_refresh_in_progress,
+    read_status,
+    start_background_refresh,
+)
 
 __all__ = [
+    "BackgroundRefreshStatus",
     "CopilotAskReport",
     "CopilotCheckReport",
     "CopilotRefreshReport",
     "DegradedMode",
     "ask_project",
     "check_project",
+    "is_refresh_in_progress",
+    "read_status",
     "refresh_project",
     "refresh_wiki",
+    "start_background_refresh",
 ]
