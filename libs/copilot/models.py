@@ -57,6 +57,39 @@ class CopilotCheckReport(BaseModel):
             "— i.e. a background wiki refresh spawned via ``--wiki-background`` is running."
         ),
     )
+    wiki_refresh_phase: str | None = Field(
+        default=None,
+        description=(
+            "Current phase of an in-progress background refresh: "
+            "``starting`` | ``loading`` | ``generating`` | ``finalizing``. "
+            "None when no refresh is running."
+        ),
+    )
+    wiki_refresh_modules_total: int | None = Field(
+        default=None,
+        description=(
+            "Total modules the background refresh plans to update. None until the "
+            "runner has enumerated dirty modules."
+        ),
+    )
+    wiki_refresh_modules_done: int = Field(
+        default=0,
+        description="Modules already processed in the current background refresh.",
+    )
+    wiki_refresh_current_module: str | None = Field(
+        default=None,
+        description=(
+            "Module path currently being (re)generated. None between modules or "
+            "when no refresh is running."
+        ),
+    )
+    wiki_refresh_pid: int | None = Field(
+        default=None,
+        description=(
+            "PID of the running wiki-refresh subprocess (so `ctx project wiki --stop` "
+            "can target it). None when no refresh is running."
+        ),
+    )
     qdrant_enabled: bool = Field(
         description="cfg.qdrant.enabled — vector retrieval availability flag"
     )

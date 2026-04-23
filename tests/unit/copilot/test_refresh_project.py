@@ -131,3 +131,76 @@ def test_refresh_wiki_background_flag_sets_bg_started(
     assert report.scanned is True
     assert report.wiki_refreshed is False
     assert report.wiki_refresh_background_started is True
+
+
+def test_run_wiki_update_fires_on_progress_at_every_module_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """_run_wiki_update_in_process must call on_progress before + after each module.
+
+    Sequence for N modules should be:
+      (0, N, "pkg"), (1, N, "pkg2"?), …, (N, N, None)
+    """
+    from libs.copilot.orchestrator import _run_wiki_update_in_process
+    from libs.scanning.scanner import scan_project
+
+    _seed_project(tmp_path)
+    scan_project(tmp_path, mode="full")
+
+    def _stub_article(**kw: Any) -> str:
+        return f"# {kw['module_path']}\n\nstubbed.\n"
+
+    monkeypatch.setattr("libs.wiki.generator.generate_wiki_article", _stub_article)
+
+    events: list[tuple[int, int, str | None]] = []
+
+    def _on_progress(*, done: int, total: int, current: str | None, **_kw: Any) -> None:
+        events.append((done, total, current))
+
+    updated, _messages = _run_wiki_update_in_process(
+        tmp_path, all_modules=True, on_progress=_on_progress
+    )
+    assert updated >= 1
+    assert events, "on_progress must fire at least once"
+    total = events[0][1]
+    assert total >= 1
+    # Sequence discipline: `done` is monotonic; final event resets `current=None`.
+    dones = [e[0] for e in events]
+    assert dones == sorted(dones)
+    assert events[-1] == (total, total, None)
+    # No event should report done > total.
+    assert all(d <= total for d in dones)
+
+
+def test_run_wiki_update_on_progress_noop_when_no_modules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Short-circuit path (no dirty modules) must still emit one "0/0" event.
+
+    Gives the UI a way to render "done" even when there was nothing to do.
+    """
+    from libs.copilot.orchestrator import _run_wiki_update_in_process
+    from libs.scanning.scanner import scan_project
+    from libs.storage.sqlite_cache import SqliteCache
+    from libs.wiki.state import ensure_wiki_table, mark_current
+
+    _seed_project(tmp_path)
+    scan_project(tmp_path, mode="full")
+    # Mark every dirty module as current so the second call sees 0 dirty modules.
+    db = tmp_path / ".context" / "cache.db"
+    with SqliteCache(db) as cache:
+        conn = cache._connect()
+        ensure_wiki_table(conn)
+        from libs.wiki.state import get_dirty_modules
+
+        for mod in get_dirty_modules(conn):
+            mark_current(conn, mod["module_path"], "fake.md", mod["source_hash"])
+        conn.commit()
+
+    events: list[tuple[int, int, str | None]] = []
+    _run_wiki_update_in_process(
+        tmp_path,
+        all_modules=False,
+        on_progress=lambda **kw: events.append((kw["done"], kw["total"], kw["current"])),
+    )
+    assert events == [(0, 0, None)]

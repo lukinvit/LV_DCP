@@ -27,6 +27,7 @@ from libs.copilot.orchestrator import (
 )
 from libs.copilot.wiki_background import (
     BackgroundRefreshStatus,
+    cancel_background_refresh,
     is_refresh_in_progress,
     read_status,
     start_background_refresh,
@@ -39,6 +40,7 @@ __all__ = [
     "CopilotRefreshReport",
     "DegradedMode",
     "ask_project",
+    "cancel_background_refresh",
     "check_project",
     "is_refresh_in_progress",
     "read_status",

@@ -155,3 +155,130 @@ def test_is_refresh_in_progress_is_thin_wrapper(
     monkeypatch.setattr(wiki_background, "_pid_alive", lambda _pid: True)
     wiki_background.start_background_refresh(tmp_path, _popen=_StubPopen)  # type: ignore[arg-type]
     assert wiki_background.is_refresh_in_progress(tmp_path) is True
+
+
+def test_start_writes_initial_phase_and_surfaces_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fresh spawn → phase='starting', 0 modules done, no current module."""
+    _make_project(tmp_path)
+    monkeypatch.setattr(wiki_background, "_pid_alive", lambda _pid: True)
+    wiki_background.start_background_refresh(tmp_path, _popen=_StubPopen)  # type: ignore[arg-type]
+
+    status = wiki_background.read_status(tmp_path)
+    assert status.in_progress is True
+    assert status.phase == wiki_background.PHASE_STARTING
+    assert status.modules_total is None
+    assert status.modules_done == 0
+    assert status.current_module is None
+
+
+def test_write_progress_merges_into_existing_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """write_progress must preserve pid/started_at and update progress fields."""
+    _make_project(tmp_path)
+    monkeypatch.setattr(wiki_background, "_pid_alive", lambda _pid: True)
+    wiki_background.start_background_refresh(tmp_path, _popen=_StubPopen)  # type: ignore[arg-type]
+
+    wiki_background.write_progress(
+        tmp_path,
+        phase=wiki_background.PHASE_GENERATING,
+        modules_total=12,
+        modules_done=3,
+        current_module="libs/foo",
+    )
+    status = wiki_background.read_status(tmp_path)
+    assert status.pid == 99991  # preserved
+    assert status.phase == wiki_background.PHASE_GENERATING
+    assert status.modules_total == 12
+    assert status.modules_done == 3
+    assert status.current_module == "libs/foo"
+
+
+def test_write_progress_allows_resetting_current_module(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Passing current_module=None (e.g. between modules) must clear the field."""
+    _make_project(tmp_path)
+    monkeypatch.setattr(wiki_background, "_pid_alive", lambda _pid: True)
+    wiki_background.start_background_refresh(tmp_path, _popen=_StubPopen)  # type: ignore[arg-type]
+    wiki_background.write_progress(
+        tmp_path,
+        phase=wiki_background.PHASE_GENERATING,
+        modules_total=5,
+        modules_done=2,
+        current_module="libs/foo",
+    )
+    wiki_background.write_progress(
+        tmp_path,
+        phase=wiki_background.PHASE_GENERATING,
+        modules_total=5,
+        modules_done=3,
+        current_module=None,
+    )
+    status = wiki_background.read_status(tmp_path)
+    assert status.modules_done == 3
+    assert status.current_module is None
+
+
+def test_write_progress_uses_atomic_write(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Confirm write_progress never leaves a torn lock on disk."""
+    _make_project(tmp_path)
+    monkeypatch.setattr(wiki_background, "_pid_alive", lambda _pid: True)
+    wiki_background.start_background_refresh(tmp_path, _popen=_StubPopen)  # type: ignore[arg-type]
+    lock = tmp_path / ".context" / "wiki" / ".refresh.lock"
+    tmp_marker = lock.with_suffix(lock.suffix + ".tmp")
+
+    wiki_background.write_progress(
+        tmp_path,
+        phase=wiki_background.PHASE_GENERATING,
+        modules_total=3,
+        modules_done=1,
+        current_module="libs/foo",
+    )
+    # After a successful rename, no orphaned .tmp must remain.
+    assert lock.exists()
+    assert not tmp_marker.exists()
+
+
+def test_cancel_sends_sigterm_to_live_pid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """cancel_background_refresh issues SIGTERM to the lock's PID."""
+    import signal
+
+    _make_project(tmp_path)
+    monkeypatch.setattr(wiki_background, "_pid_alive", lambda _pid: True)
+    wiki_background.start_background_refresh(tmp_path, _popen=_StubPopen)  # type: ignore[arg-type]
+
+    kills: list[tuple[int, int]] = []
+
+    def _fake_kill(pid: int, sig: int) -> None:
+        kills.append((pid, sig))
+
+    monkeypatch.setattr("libs.copilot.wiki_background.os.kill", _fake_kill)
+    status = wiki_background.cancel_background_refresh(tmp_path)
+    assert status.pid == 99991
+    # The signal-0 liveness probe fires first (from read_status), then SIGTERM.
+    assert (99991, signal.SIGTERM) in kills
+
+
+def test_cancel_is_noop_when_no_refresh_running(tmp_path: Path) -> None:
+    _make_project(tmp_path)
+    status = wiki_background.cancel_background_refresh(tmp_path)
+    assert status.in_progress is False
+    assert status.pid is None
+
+
+def test_cancel_clears_stale_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A stale lock (dead PID) left behind gets cleaned up by cancel()."""
+    _make_project(tmp_path)
+    lock = tmp_path / ".context" / "wiki" / ".refresh.lock"
+    lock.write_text(
+        json.dumps({"pid": 99991, "started_at": time.time(), "all_modules": False}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(wiki_background, "_pid_alive", lambda _pid: False)
+
+    status = wiki_background.cancel_background_refresh(tmp_path)
+    assert status.stale is True
+    assert not lock.exists()
