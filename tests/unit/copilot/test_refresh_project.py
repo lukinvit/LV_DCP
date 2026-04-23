@@ -63,12 +63,9 @@ def test_refresh_project_then_wiki_noop_on_clean_index(
     def _stub_article(**kw: Any) -> str:
         return f"# {kw['module_path']}\n\nstubbed wiki body.\n"
 
-    monkeypatch.setattr(
-        "libs.copilot.orchestrator.generate_wiki_article",
-        _stub_article,
-        raising=False,
-    )
-    # The actual import lives inline in _run_wiki_update_in_process; patch it there too.
+    # `generate_wiki_article` is imported lazily inside
+    # `_run_wiki_update_in_process`, so the only patch target that actually
+    # takes effect is the source module.
     monkeypatch.setattr(
         "libs.wiki.generator.generate_wiki_article",
         _stub_article,

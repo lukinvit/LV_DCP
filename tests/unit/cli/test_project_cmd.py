@@ -85,6 +85,39 @@ def test_wiki_subcommand_read_only_without_refresh(tmp_path: Path) -> None:
     assert "wiki present:" in result.stdout
 
 
+def test_wiki_subcommand_json_shape_is_check_report(tmp_path: Path) -> None:
+    """Pin the read-only ``ctx project wiki --json`` contract.
+
+    The read-only path emits a full :class:`CopilotCheckReport`; scripts
+    that want a stable schema should call ``ctx project check --json``.
+    This test documents the current contract so a future change must
+    update it deliberately.
+    """
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    _seed_project(proj)
+    scan_project(proj, mode="full")
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["project", "wiki", str(proj), "--json"])
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    # Shape is CopilotCheckReport — must carry these keys.
+    for key in (
+        "project_root",
+        "project_name",
+        "scanned",
+        "wiki_present",
+        "wiki_dirty_modules",
+        "qdrant_enabled",
+        "degraded_modes",
+    ):
+        assert key in payload, f"missing check-report key: {key}"
+    # And must NOT carry refresh-only keys.
+    assert "wiki_refreshed" not in payload
+    assert "scan_files" not in payload
+
+
 def test_ask_rejects_invalid_mode(tmp_path: Path) -> None:
     proj = tmp_path / "proj"
     proj.mkdir()

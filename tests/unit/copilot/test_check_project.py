@@ -68,3 +68,59 @@ def test_check_returns_absolute_paths(tmp_path: Path, qdrant_off_config: Path) -
     report = check_project(tmp_path)
     assert Path(report.project_root).is_absolute()
     assert report.project_name == tmp_path.name
+
+
+def test_check_reports_stale_scan(
+    tmp_path: Path, qdrant_off_config: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``card.stale == True`` must surface ``DegradedMode.STALE_SCAN``.
+
+    Rather than time-traveling sqlite timestamps we monkeypatch
+    ``build_health_card`` at the orchestrator import site and return a
+    stale card.
+    """
+    _make_project(tmp_path)
+    scan_project(tmp_path, mode="full")
+
+    from libs.copilot import orchestrator as orch
+    from libs.status.health import build_health_card as real_build_health_card
+
+    def _stale_card(root: Path, *, config_path: Path | None = None) -> object:
+        resolved_path = config_path if config_path is not None else qdrant_off_config
+        card = real_build_health_card(root, config_path=resolved_path)
+        return card.model_copy(update={"stale": True})
+
+    monkeypatch.setattr(orch, "build_health_card", _stale_card)
+
+    report = check_project(tmp_path)
+    assert report.scanned is True
+    assert report.stale is True
+    assert DegradedMode.STALE_SCAN in report.degraded_modes
+    # STALE_SCAN and NOT_SCANNED are mutually exclusive (elif branch).
+    assert DegradedMode.NOT_SCANNED not in report.degraded_modes
+
+
+def test_check_reports_wiki_stale(
+    tmp_path: Path, qdrant_off_config: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Wiki present + dirty modules > 0 must surface ``DegradedMode.WIKI_STALE``."""
+    _make_project(tmp_path)
+    scan_project(tmp_path, mode="full")
+
+    # Fake a present wiki by writing the INDEX marker file.
+    wiki_dir = tmp_path / ".context" / "wiki"
+    wiki_dir.mkdir(parents=True, exist_ok=True)
+    (wiki_dir / "INDEX.md").write_text("# wiki\n", encoding="utf-8")
+
+    # Force the dirty-module count to be non-zero without generating wiki
+    # rows: monkeypatch the helper at the orchestrator module level.
+    from libs.copilot import orchestrator as orch
+
+    monkeypatch.setattr(orch, "_count_dirty_wiki_modules", lambda _root: 3)
+
+    report = check_project(tmp_path)
+    assert report.wiki_present is True
+    assert report.wiki_dirty_modules == 3
+    assert DegradedMode.WIKI_STALE in report.degraded_modes
+    # WIKI_STALE and WIKI_MISSING are mutually exclusive (elif branch).
+    assert DegradedMode.WIKI_MISSING not in report.degraded_modes

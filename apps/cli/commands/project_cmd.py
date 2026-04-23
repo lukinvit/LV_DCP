@@ -153,9 +153,25 @@ def wiki_cmd(
     all_modules: bool = typer.Option(
         False, "--all", help="With --refresh, regenerate ALL modules, not just dirty ones."
     ),
-    as_json: bool = typer.Option(False, "--json", help="JSON output."),
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help=(
+            "JSON output. Shape: CopilotRefreshReport with --refresh, "
+            "CopilotCheckReport in read-only mode."
+        ),
+    ),
 ) -> None:
-    """Inspect or refresh the wiki for a project."""
+    """Inspect or refresh the wiki for a project.
+
+    The ``--json`` shape depends on the mode:
+
+    * ``--refresh`` → :class:`libs.copilot.CopilotRefreshReport`
+    * read-only (default) → :class:`libs.copilot.CopilotCheckReport`
+
+    Scripts that need a single stable shape should call
+    ``ctx project check --json`` instead.
+    """
     if do_refresh:
         report = refresh_wiki(path, all_modules=all_modules)
         typer.echo(_render_refresh(report, as_json=as_json))
