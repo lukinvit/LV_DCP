@@ -47,6 +47,11 @@ async def test_mcp_stdio_handshake_lists_tools(tmp_path: Path) -> None:
             "lvdcp_history",
             "lvdcp_memory_propose",
             "lvdcp_memory_list",
+            # Added in spec-010 (v0.7.0) — symbol timeline index.
+            "lvdcp_when",
+            "lvdcp_removed_since",
+            "lvdcp_diff",
+            "lvdcp_regressions",
         }, f"unexpected tool names: {tool_names}"
 
         result = await session.call_tool(

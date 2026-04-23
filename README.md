@@ -2,8 +2,8 @@
 
 **Local-first engineering memory.** Turns projects on macOS into a queryable context layer for Claude, IDE agents, and humans. Supports Python, TypeScript/JS, Go, and Rust. Reduces token cost of repeated code reading, builds a relation graph, and makes agent edits safer.
 
-[![Phase 6 Complete](https://img.shields.io/badge/phase-6%20complete-green)](docs/superpowers/specs/2026-04-13-phase-6-design.md)
-[![Version 0.6.1](https://img.shields.io/badge/version-0.6.1-blue)](pyproject.toml)
+[![Phase 8 Complete](https://img.shields.io/badge/phase-8%20complete-green)](docs/release/2026-04-23-v0.7.0-symbol-timeline.md)
+[![Version 0.7.0](https://img.shields.io/badge/version-0.7.0-blue)](pyproject.toml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue)](pyproject.toml)
 
@@ -53,6 +53,8 @@ $ ctx pack . "refresh token rotation" --mode edit
 
 ## Status
 
+**Phase 8 complete (2026-04-23, v0.7.0)** — Symbol Timeline Index (spec-010): append-only event store answering "when was X implemented?", "what disappeared after release Y?", "what regressed between v1 and v2?" with indexed lookups instead of git-log walks. Four new MCP tools (`lvdcp_when`, `lvdcp_removed_since`, `lvdcp_diff`, `lvdcp_regressions`), new `ctx timeline` CLI, Claude Code hooks for auto-reconciliation after rebase/amend, release snapshots tied to git tags, context-pack enrichment with `## Timeline facts` section (≤ 3 KB, EN + RU marker detection). **SC-001** empirical: 31×–88× token-footprint savings vs `git log -p --follow`, well beyond the 15× target. **SC-003** perf-gated: scan overhead ≤ 10 %.
+
 **Phase 7c complete (2026-04-21)** — PageRank centrality boost (Aider parity), adaptive vector/FTS fusion, disambiguation suggestions on ambiguous packs, Go `tests_for` inference, directory-aware ancestor path boost, recency-aware centrality, reusable `libs/eval` wheel package, Claude Code skill, ByteRover-style reviewable engineering memory (proposed → accepted lifecycle). Five new MCP tools (`lvdcp_neighbors`, `lvdcp_history`, `lvdcp_cross_project_patterns`, `lvdcp_memory_propose`, `lvdcp_memory_list`) + two new CLI commands (`ctx eval`, `ctx memory`).
 
 **Phase 7b complete (2026-04-16)** — TypeScript/JS graph enrichment: `tests_for` relations, tighter path-filter rejecting unresolved module specifiers and npm subpaths. Verified on a 926-file Next.js codebase.
@@ -61,7 +63,9 @@ $ ctx pack . "refresh token rotation" --mode edit
 
 Stabilization 0.6.1 baseline: mandatory GitHub Actions quality gates, green `ruff` / `mypy`, runtime-hardened embeddings and Qdrant.
 
-Release note: [docs/release/2026-04-13-v0.6.1-stabilization.md](docs/release/2026-04-13-v0.6.1-stabilization.md)
+Release notes:
+- [docs/release/2026-04-23-v0.7.0-symbol-timeline.md](docs/release/2026-04-23-v0.7.0-symbol-timeline.md) (v0.7.0 — Symbol Timeline Index)
+- [docs/release/2026-04-13-v0.6.1-stabilization.md](docs/release/2026-04-13-v0.6.1-stabilization.md) (v0.6.1 — Stabilization)
 
 ### Retrieval quality (LV_DCP synthetic, 32 queries)
 
@@ -99,10 +103,11 @@ Release note: [docs/release/2026-04-13-v0.6.1-stabilization.md](docs/release/202
 | 7a | — | **Done** | Identifier-aware path retrieval, wiki post-scan hook, real-project eval harness, precision@3 0.568→0.693 |
 | 7b | — | **Done** | TS/JS `tests_for` + `inherits` relations, DDD/FSD alias resolution, path-filter tightening (reject `./`, `../`, `@/`, npm subpaths). Verified on three real projects: Next.js app (82 tests_for, 29 inherits), large TS monorepo (440 tests_for, 26 inherits), DDD frontend (131 tests_for) |
 | 7c | — | **Done** | PageRank centrality boost (Aider parity), adaptive vector/FTS fusion weight, Go `tests_for` inference, `lvdcp_neighbors` graph follow-up tool, disambiguation suggestions on ambiguous packs, directory-aware ancestor path boost, `lvdcp_history` git-history MCP tool, recency-aware centrality, `ctx eval` CLI + reusable `libs/eval`, Claude Code skill. Round-4: `lvdcp_memory_propose` + `lvdcp_memory_list` MCP tools, `ctx memory` CLI, ByteRover-style reviewable engineering memory |
+| 8 | **0.7.0** | **Done** | **Symbol Timeline Index (spec-010)**: append-only event store, 4 new MCP tools (`lvdcp_when` / `lvdcp_removed_since` / `lvdcp_diff` / `lvdcp_regressions`), `ctx timeline` CLI, Claude Code hooks, release snapshots, pack enrichment (3 KB `## Timeline facts` section), Prometheus metrics, doctor check. SC-001 empirical 31×–88× savings vs git-log walk. SC-003 scan overhead ≤ 10 %. 1049 tests |
 
 ### Test suite
 
-798 tests in suite, 0 failures. Current green baseline: 798 collected (1 deselected). Eval harness: 32 synthetic queries; multi-project eval currently covers 9 advisory queries across 4 registered projects.
+1050 tests passing, 0 failures. Eval harness: 32 synthetic queries; multi-project eval currently covers 9 advisory queries across 4 registered projects.
 
 For advisory real-project eval setup and report commands, see [docs/eval/real-project-eval.md](docs/eval/real-project-eval.md).
 
@@ -404,7 +409,8 @@ The daemon uses `watchdog.observers.Observer` which auto-selects `FSEventsObserv
 - **Phase 7a** (done) — Identifier-aware path retrieval (path aliases in FTS index, camelCase/snake_case tokenization), wiki post-scan hook with ThreadPoolExecutor, Cyrillic tokenization in pack enrichment, real-project eval harness, precision@3 improved 0.568→0.693.
 - **Phase 7b** (done) — TypeScript/JavaScript graph enrichment: `tests_for` and `inherits` relations ported from Python parser. TS module resolution supports `./`, `../`, `@/` alias, FSD-style `@shared/` / `@entities/` / `@widgets/` / `@features/` / `@app/` / `@pages/` / `@processes/` aliases, rooted paths, and DDD-style roots (`domains`, `services`, `backend`, `frontend`). Test-path heuristic extended for `.test.ts` / `.spec.tsx` / `__tests__/` conventions. Graph-expansion filter tightened to reject unresolved import specifiers and npm package subpaths (`./flow-engine`, `@/lib/foo`, `next-auth/jwt`, `@playwright/test`). Verified on three real projects: Next.js app (82 tests_for, 29 inherits), large TS monorepo (440 tests_for, 26 inherits), DDD frontend (131 tests_for via DDD heuristic).
 - **Phase 7c** (done) — PageRank centrality boost, adaptive vector/FTS fusion, `lvdcp_neighbors` tool for agentic graph follow-ups, disambiguation suggestions on ambiguous packs, Go `tests_for` inference, directory-aware ancestor path boost, `lvdcp_history` git-history MCP tool, recency-aware centrality, `ctx eval` CLI + reusable `libs/eval` wheel package, Claude Code skill. Round-4: `lvdcp_memory_propose` + `lvdcp_memory_list` MCP tools, `ctx memory` CLI, ByteRover-style reviewable engineering memory (proposed → accepted lifecycle).
-- **Phase 8** (next) — Native onboarding flow, Java/Kotlin/Swift parsers, LLM-based rerank, VS Code marketplace, Obsidian nightly sync.
+- **Phase 8** (done, v0.7.0) — Symbol Timeline Index (spec-010): append-only event store, 4 new MCP tools (`lvdcp_when` / `lvdcp_removed_since` / `lvdcp_diff` / `lvdcp_regressions`), `ctx timeline` CLI, Claude Code hooks, release snapshots, pack enrichment, Prometheus metrics, doctor check. SC-001: 31×–88× token savings vs git-log walk.
+- **Phase 9** (next) — Native onboarding flow, Java/Kotlin/Swift parsers, LLM-based rerank, VS Code marketplace, Obsidian nightly sync.
 
 ## Contributing
 

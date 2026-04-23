@@ -8,7 +8,7 @@ import typer
 
 from apps.cli.commands import eval_cmd as eval_module
 from apps.cli.commands import inspect as inspect_module
-from apps.cli.commands import mcp_cmd, memory_cmd, obsidian_cmd, watch_cmd, wiki_cmd
+from apps.cli.commands import mcp_cmd, memory_cmd, obsidian_cmd, timeline_cmd, watch_cmd, wiki_cmd
 from apps.cli.commands import pack as pack_module
 from apps.cli.commands import scan as scan_module
 from apps.cli.commands import setup as setup_module
@@ -73,3 +73,4 @@ app.add_typer(watch_cmd.app, name="watch")
 app.add_typer(obsidian_cmd.app, name="obsidian")
 app.add_typer(wiki_cmd.app, name="wiki")
 app.add_typer(memory_cmd.app, name="memory")
+app.add_typer(timeline_cmd.app, name="timeline")

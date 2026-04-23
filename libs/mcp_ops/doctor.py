@@ -38,6 +38,10 @@ from libs.mcp_ops.claude_cli import (
 from libs.status.budget import compute_budget_status
 
 HANDSHAKE_TIMEOUT_SECONDS = 3.0
+# Spec-010 FR-008: a timeline store is considered "stale" when its
+# most-recent scan is older than this window. Operator-facing signal —
+# when we go stale, `ctx timeline reconcile` probably hasn't run recently.
+TIMELINE_STALE_DAYS = 7
 
 
 class CheckStatus(StrEnum):
@@ -336,6 +340,100 @@ def check_llm_provider(config: DaemonConfig) -> CheckResult:
         )
 
 
+def check_timeline_store(config: DaemonConfig) -> CheckResult:  # noqa: PLR0911 - seven outcomes
+    """Spec-010 T041: verify timeline store is reachable and fresh.
+
+    Emits three outcomes:
+
+    * PASS — store file exists, opens cleanly, and every registered
+      project's ``last_scan_ts`` is within ``TIMELINE_STALE_DAYS``.
+    * WARN — store exists but one or more projects are stale, OR the
+      store is completely empty (fresh install — not a failure, but worth
+      flagging so operators know they haven't scanned yet).
+    * FAIL — file unreachable, file unreadable as SQLite, or the required
+      table is missing. The timeline tools will not function.
+
+    Honours ``timeline.enabled`` — returns PASS/skip when the feature is
+    disabled so legacy installs pass doctor without touching the store.
+    """
+    import sqlite3  # noqa: PLC0415 — stdlib, lazy-load for test isolation
+    import time as _time  # noqa: PLC0415
+
+    from libs.symbol_timeline.store import resolve_default_store_path  # noqa: PLC0415
+
+    if not config.timeline.enabled:
+        return CheckResult(
+            name="timeline store",
+            status=CheckStatus.PASS,
+            detail="disabled (timeline.enabled: false)",
+        )
+
+    store_path = resolve_default_store_path()
+    if not store_path.exists():
+        return CheckResult(
+            name="timeline store",
+            status=CheckStatus.WARN,
+            detail=f"not created yet: {store_path}",
+            hint="run `ctx scan <path>` to initialize",
+        )
+
+    try:
+        conn = sqlite3.connect(str(store_path))
+    except sqlite3.Error as exc:
+        return CheckResult(
+            name="timeline store",
+            status=CheckStatus.FAIL,
+            detail=f"cannot open: {exc}",
+            hint="check file permissions or remove and re-scan",
+        )
+    try:
+        rows = conn.execute(
+            "SELECT project_root, last_scan_ts FROM symbol_timeline_scan_state"
+        ).fetchall()
+    except sqlite3.Error as exc:
+        conn.close()
+        return CheckResult(
+            name="timeline store",
+            status=CheckStatus.FAIL,
+            detail=f"schema invalid: {exc}",
+            hint="delete the store to let the scanner recreate it",
+        )
+    conn.close()
+
+    if not rows:
+        return CheckResult(
+            name="timeline store",
+            status=CheckStatus.WARN,
+            detail="empty — no projects scanned yet",
+            hint="run `ctx scan <path>` to populate",
+        )
+
+    now = _time.time()
+    stale_window = TIMELINE_STALE_DAYS * 86_400
+    stale: list[str] = []
+    fresh_count = 0
+    for project_root, last_scan_ts in rows:
+        if last_scan_ts is None or (now - last_scan_ts) > stale_window:
+            stale.append(str(project_root))
+        else:
+            fresh_count += 1
+
+    if stale:
+        return CheckResult(
+            name="timeline store",
+            status=CheckStatus.WARN,
+            detail=f"{fresh_count}/{len(rows)} projects fresh (< {TIMELINE_STALE_DAYS}d)",
+            hint=f"stale: {', '.join(stale[:3])}"
+            + (f" + {len(stale) - 3} more" if len(stale) > 3 else "")
+            + " — run `ctx scan` or `ctx timeline reconcile`",
+        )
+    return CheckResult(
+        name="timeline store",
+        status=CheckStatus.PASS,
+        detail=f"{fresh_count} project(s) fresh (< {TIMELINE_STALE_DAYS}d)",
+    )
+
+
 def check_llm_budget(config: DaemonConfig) -> CheckResult:
     if not config.llm.enabled:
         return CheckResult(
@@ -387,6 +485,7 @@ def run_doctor(
         check_legacy_pollution(settings_legacy_path),
         check_llm_provider(daemon_cfg),
         check_llm_budget(daemon_cfg),
+        check_timeline_store(daemon_cfg),
     ]
     return DoctorReport(checks=checks)
 

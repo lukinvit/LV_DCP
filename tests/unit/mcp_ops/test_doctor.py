@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from libs.core.projects_config import DaemonConfig, LLMConfig
+from libs.core.projects_config import DaemonConfig, LLMConfig, TimelineConfig
 from libs.mcp_ops.doctor import (
     CheckStatus,
     DoctorReport,
@@ -18,6 +18,7 @@ from libs.mcp_ops.doctor import (
     check_llm_provider,
     check_mcp_list_contains_lvdcp,
     check_project_caches,
+    check_timeline_store,
     render_json,
     render_table,
     run_doctor,
@@ -154,10 +155,11 @@ def _fresh_paths(tmp_path: Path) -> tuple[Path, Path, Path]:
     return tmp_path / "config.yaml", tmp_path / "CLAUDE.md", tmp_path / "settings.json"
 
 
-def test_run_doctor_returns_report_with_9_checks(
+def test_run_doctor_returns_report_with_10_checks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("LVDCP_SUMMARIES_DB", str(tmp_path / "summaries.db"))
+    monkeypatch.setenv("LVDCP_TIMELINE_DB", str(tmp_path / "timeline.db"))
     config, claudemd, settings = _fresh_paths(tmp_path)
     with (
         patch("libs.mcp_ops.doctor.has_claude_cli", return_value=True),
@@ -171,7 +173,9 @@ def test_run_doctor_returns_report_with_9_checks(
             expected_version="0.0.0",
         )
     assert isinstance(report, DoctorReport)
-    assert len(report.checks) == 9
+    # 9 prior checks + timeline store (spec-010 T041)
+    assert len(report.checks) == 10
+    assert any(c.name == "timeline store" for c in report.checks)
 
 
 def test_report_exit_code_zero_when_all_pass(tmp_path: Path) -> None:
@@ -241,6 +245,7 @@ def test_render_table_contains_status(tmp_path: Path) -> None:
 
 def test_render_json_parses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LVDCP_SUMMARIES_DB", str(tmp_path / "summaries.db"))
+    monkeypatch.setenv("LVDCP_TIMELINE_DB", str(tmp_path / "timeline.db"))
     config, claudemd, settings = _fresh_paths(tmp_path)
     with (
         patch("libs.mcp_ops.doctor.has_claude_cli", return_value=True),
@@ -256,7 +261,7 @@ def test_render_json_parses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     rendered = render_json(report)
     parsed = json.loads(rendered)
     assert parsed["exit_code"] == report.exit_code
-    assert len(parsed["checks"]) == 9
+    assert len(parsed["checks"]) == 10
 
 
 # ---------- LLM provider check tests ----------
@@ -316,4 +321,106 @@ def test_check_llm_budget_fails_at_100_percent(
 
     config = DaemonConfig(llm=LLMConfig(enabled=True, monthly_budget_usd=25.0))
     check = check_llm_budget(config)
+    assert check.status == CheckStatus.FAIL
+
+
+# ---------- Timeline store check tests (spec-010 T041) ----------
+
+
+def _seed_timeline_store(db_path: Path, last_scan_ts: float | None) -> None:
+    """Create a spec-010 symbol_timeline.db with one scan_state row."""
+    from libs.symbol_timeline.store import SymbolTimelineStore
+
+    store = SymbolTimelineStore(db_path)
+    store.migrate()
+    if last_scan_ts is not None:
+        conn = store._connect()
+        conn.execute(
+            "INSERT INTO symbol_timeline_scan_state (project_root, last_scan_commit_sha, last_scan_ts) "
+            "VALUES (?, ?, ?)",
+            ("/tmp/p", "abc123", last_scan_ts),
+        )
+        conn.commit()
+    store.close()
+
+
+def test_check_timeline_store_disabled_passes() -> None:
+    config = DaemonConfig(timeline=TimelineConfig(enabled=False))
+    check = check_timeline_store(config)
+    assert check.status == CheckStatus.PASS
+    assert "disabled" in check.detail
+
+
+def test_check_timeline_store_missing_file_warns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LVDCP_TIMELINE_DB", str(tmp_path / "does-not-exist.db"))
+    config = DaemonConfig(timeline=TimelineConfig(enabled=True))
+    check = check_timeline_store(config)
+    assert check.status == CheckStatus.WARN
+    assert "not created yet" in check.detail
+    assert "ctx scan" in check.hint
+
+
+def test_check_timeline_store_empty_warns(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db_path = tmp_path / "timeline.db"
+    monkeypatch.setenv("LVDCP_TIMELINE_DB", str(db_path))
+    _seed_timeline_store(db_path, last_scan_ts=None)
+    config = DaemonConfig(timeline=TimelineConfig(enabled=True))
+    check = check_timeline_store(config)
+    assert check.status == CheckStatus.WARN
+    assert "empty" in check.detail
+
+
+def test_check_timeline_store_fresh_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db_path = tmp_path / "timeline.db"
+    monkeypatch.setenv("LVDCP_TIMELINE_DB", str(db_path))
+    _seed_timeline_store(db_path, last_scan_ts=time.time() - 3600)  # 1h ago
+    config = DaemonConfig(timeline=TimelineConfig(enabled=True))
+    check = check_timeline_store(config)
+    assert check.status == CheckStatus.PASS
+    assert "fresh" in check.detail
+
+
+def test_check_timeline_store_stale_warns(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db_path = tmp_path / "timeline.db"
+    monkeypatch.setenv("LVDCP_TIMELINE_DB", str(db_path))
+    # 14 days ago — outside the 7-day freshness window.
+    _seed_timeline_store(db_path, last_scan_ts=time.time() - 14 * 86_400)
+    config = DaemonConfig(timeline=TimelineConfig(enabled=True))
+    check = check_timeline_store(config)
+    assert check.status == CheckStatus.WARN
+    assert "stale" in check.hint
+    assert "reconcile" in check.hint or "scan" in check.hint
+
+
+def test_check_timeline_store_corrupt_schema_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A SQLite file that lacks the timeline schema must FAIL cleanly."""
+    import sqlite3
+
+    db_path = tmp_path / "timeline.db"
+    monkeypatch.setenv("LVDCP_TIMELINE_DB", str(db_path))
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE something_else (x INTEGER)")
+    conn.commit()
+    conn.close()
+
+    config = DaemonConfig(timeline=TimelineConfig(enabled=True))
+    check = check_timeline_store(config)
+    assert check.status == CheckStatus.FAIL
+    assert "schema invalid" in check.detail
+
+
+def test_check_timeline_store_unopenable_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A path pointing at a directory must FAIL on sqlite3.connect."""
+    bad = tmp_path / "adir"
+    bad.mkdir()
+    # File exists() (it's a directory) so the "missing file" path is skipped.
+    monkeypatch.setenv("LVDCP_TIMELINE_DB", str(bad))
+    config = DaemonConfig(timeline=TimelineConfig(enabled=True))
+    check = check_timeline_store(config)
     assert check.status == CheckStatus.FAIL

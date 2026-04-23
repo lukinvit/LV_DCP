@@ -147,6 +147,228 @@ class NeighborsResult(BaseModel):
     truncated: bool = Field(description="True if neighbor lists were cut to the requested limit")
 
 
+class RemovedSymbolModel(BaseModel):
+    """One symbol that disappeared after the queried ref (spec US1)."""
+
+    symbol_id: str = Field(description="Stable 32-hex identifier from symbol_timeline")
+    qualified_name: str | None = Field(
+        default=None,
+        description="Fully qualified dotted name when the parser recorded one",
+    )
+    file_path: str = Field(description="Repo-relative path the symbol used to live in")
+    removed_at_iso: str = Field(
+        description="UTC ISO-8601 timestamp of the 'removed' event (seconds precision)"
+    )
+    commit_sha: str | None = Field(
+        default=None,
+        description="Commit sha at which the removal was observed (None if no git context)",
+    )
+    author: str | None = Field(
+        default=None,
+        description="Commit author email if the scan attributed the removal",
+    )
+    importance: float | None = Field(
+        default=None,
+        description="PageRank centrality lookup result in [0, 1]; None if unavailable",
+    )
+
+
+class RenamePairModel(BaseModel):
+    """One rename edge observed after the queried ref (spec US1 output)."""
+
+    old_symbol_id: str
+    new_symbol_id: str
+    old_qualified_name: str | None
+    new_qualified_name: str | None
+    confidence: float = Field(description="Similarity score in [0, 1] driving the edge")
+    is_candidate: bool = Field(
+        description="True when confidence < threshold and a human should confirm"
+    )
+    renamed_at_iso: str = Field(description="UTC ISO-8601 timestamp of the rename event")
+    commit_sha: str | None = None
+
+
+class RemovedSinceResponse(BaseModel):
+    """MCP response for ``lvdcp_removed_since``."""
+
+    ref: str = Field(description="The ref the caller asked about, verbatim")
+    ref_resolved_sha: str | None = Field(
+        default=None,
+        description="40-hex commit sha the ref resolved to (None if ref_not_found)",
+    )
+    ref_resolved_at_iso: str | None = Field(
+        default=None,
+        description="UTC ISO-8601 timestamp of the ref's commit (None if ref_not_found)",
+    )
+    ref_not_found: bool = Field(
+        description=(
+            "True when the ref could not be resolved (unknown tag / not a git repo). "
+            "All other lists are empty in that case."
+        )
+    )
+    removed: list[RemovedSymbolModel] = Field(description="Ranked list of removed symbols")
+    renamed: list[RenamePairModel] = Field(
+        description="Rename edges observed after the ref, always returned for context"
+    )
+    total_before_limit: int = Field(description="Full hit count before `limit` truncation")
+    truncated: bool = Field(description="True when `removed` was capped by `limit`")
+
+
+class DiffEntryModel(BaseModel):
+    """One symbol changed between two refs (spec US3)."""
+
+    symbol_id: str = Field(description="Stable 32-hex identifier from symbol_timeline")
+    qualified_name: str | None = Field(
+        default=None,
+        description="Fully qualified dotted name when the parser recorded one",
+    )
+    file_path: str = Field(description="Repo-relative path recorded with the event")
+    event_type: str = Field(description="Net effect: added | removed | modified")
+    at_iso: str = Field(
+        description="UTC ISO-8601 timestamp of the latest event driving this net-effect"
+    )
+    commit_sha: str | None = Field(
+        default=None,
+        description="Commit sha that produced the event (None if no git context)",
+    )
+    author: str | None = Field(
+        default=None,
+        description="Commit author email if attribution is available",
+    )
+    importance: float | None = Field(
+        default=None,
+        description="PageRank centrality lookup result in [0, 1]; None if unavailable",
+    )
+
+
+class DiffResponse(BaseModel):
+    """MCP response for ``lvdcp_diff`` — structural diff between two refs."""
+
+    from_ref: str
+    to_ref: str
+    from_resolved_sha: str | None = None
+    to_resolved_sha: str | None = None
+    from_resolved_at_iso: str | None = None
+    to_resolved_at_iso: str | None = None
+    ref_not_found: bool = Field(
+        description=(
+            "True when either ref failed to resolve. In that case all lists "
+            "are empty and the caller should surface the verbatim refs back "
+            "to the user."
+        )
+    )
+    added: list[DiffEntryModel] = Field(description="Symbols new to `to_ref`")
+    removed: list[DiffEntryModel] = Field(
+        description="Symbols that existed at `from_ref` and are gone by `to_ref`"
+    )
+    modified: list[DiffEntryModel] = Field(
+        description="Symbols whose content_hash changed between the refs"
+    )
+    renamed: list[RenamePairModel] = Field(
+        description="Rename edges observed in the window; always returned for context"
+    )
+    total_added: int = Field(description="Full added count before `limit_per_bucket`")
+    total_removed: int = Field(description="Full removed count before `limit_per_bucket`")
+    total_modified: int = Field(description="Full modified count before `limit_per_bucket`")
+    truncated: bool = Field(description="True when any bucket was capped by `limit_per_bucket`")
+
+
+class RegressionResponse(BaseModel):
+    """MCP response for ``lvdcp_regressions`` — removed symbols between two refs."""
+
+    from_ref: str
+    to_ref: str
+    from_resolved_sha: str | None = None
+    to_resolved_sha: str | None = None
+    ref_not_found: bool = Field(
+        description="True when either ref failed to resolve; `removed` is empty"
+    )
+    removed: list[DiffEntryModel] = Field(
+        description=(
+            "Subset of the diff's `removed` bucket that likely caused regressions. "
+            "Ranked by importance + recency, DESC."
+        )
+    )
+    total_removed: int = Field(description="Full removed count before `limit` truncation")
+    truncated: bool = Field(description="True when `removed` was capped by `limit`")
+
+
+class TimelineEventModel(BaseModel):
+    """One event in the life of a symbol (spec US2 output)."""
+
+    symbol_id: str = Field(description="Stable 32-hex identifier from symbol_timeline")
+    event_type: str = Field(
+        description="One of: added, modified, removed, renamed, moved",
+    )
+    timestamp_iso: str = Field(
+        description="UTC ISO-8601 timestamp of the event (seconds precision)"
+    )
+    commit_sha: str | None = Field(
+        default=None,
+        description="Commit sha at which the event was observed (None if no git context)",
+    )
+    author: str | None = Field(
+        default=None, description="Commit author email if attribution is available"
+    )
+    file_path: str = Field(description="Repo-relative path recorded with the event")
+    qualified_name: str | None = Field(
+        default=None, description="Fully qualified dotted name when the parser recorded one"
+    )
+
+
+class SymbolCandidateModel(BaseModel):
+    """One fuzzy-match candidate returned when the queried symbol is ambiguous."""
+
+    symbol_id: str
+    qualified_name: str | None
+    file_path: str
+    latest_event_type: str
+    latest_event_iso: str
+
+
+class WhenResponse(BaseModel):
+    """MCP response for ``lvdcp_when`` — the full biography of one symbol."""
+
+    symbol_id: str = Field(
+        description=(
+            "Resolved 32-hex identifier. Echoes the caller's input when it was "
+            "already a hex id; otherwise the unique fuzzy match."
+        )
+    )
+    qualified_name: str | None = Field(
+        default=None,
+        description="Most recent qualified_name observed for the symbol (None if not_found)",
+    )
+    file_path: str | None = Field(
+        default=None,
+        description="Most recent file path observed for the symbol (None if not_found)",
+    )
+    events: list[TimelineEventModel] = Field(
+        description="All events for this symbol, oldest first",
+    )
+    rename_predecessors: list[RenamePairModel] = Field(
+        description=(
+            "Rename edges where THIS symbol is the new side — i.e. what it was called before"
+        )
+    )
+    rename_successors: list[RenamePairModel] = Field(
+        description=("Rename edges where THIS symbol is the old side — i.e. what it became")
+    )
+    not_found: bool = Field(
+        description=(
+            "True when the symbol could not be resolved (unknown id or ambiguous "
+            "fuzzy match). In that case `events` is empty; `candidates` may be "
+            "populated so the caller can disambiguate."
+        )
+    )
+    candidates: list[SymbolCandidateModel] = Field(
+        description=(
+            "Top-N fuzzy matches offered when the query was ambiguous. Empty when "
+            "`not_found=False`."
+        )
+    )
+
+
 def lvdcp_scan(path: str, full: bool = False) -> ScanResultResponse:
     """Scan a Python project and refresh its index.
 
@@ -552,6 +774,396 @@ def lvdcp_history(
             for c in commits
         ],
         truncated=len(commits) >= limit,
+    )
+
+
+def lvdcp_removed_since(
+    path: str,
+    ref: str,
+    include_renamed: bool = False,
+    limit: int = 50,
+) -> RemovedSinceResponse:
+    """List symbols that disappeared from the project after a given ref.
+
+    CALL THIS WHEN:
+    - You need "what did we delete since v0.5.0" before writing release notes
+    - You're explaining a regression that looks like "API X is gone now"
+    - You want to confirm a refactor actually removed the old entry points
+
+    DO NOT CALL FOR:
+    - File-level change history (use lvdcp_history instead)
+    - The full biography of one symbol (use lvdcp_when once it ships)
+
+    The ref is resolved via ``git rev-parse`` inside the project. Every
+    ``removed`` event with ``timestamp > ref_commit_timestamp`` is returned,
+    ranked by PageRank importance + recency (DESC). Symbols that the rename
+    detector paired with a new name are hidden by default (``include_renamed
+    =False``); the matched rename edges are always echoed in ``renamed`` so
+    you can tell "renamed" from "deleted" at a glance.
+
+    Returns ``ref_not_found=True`` (and empty lists) when the ref can't be
+    resolved — e.g. the project isn't a git repo, or the tag was typo'd.
+    """
+    from datetime import UTC, datetime  # noqa: PLC0415
+
+    from libs.project_index.index import ProjectIndex, ProjectNotIndexedError  # noqa: PLC0415
+    from libs.symbol_timeline.query import find_removed_since  # noqa: PLC0415
+    from libs.symbol_timeline.store import (  # noqa: PLC0415
+        SymbolTimelineStore,
+        resolve_default_store_path,
+    )
+
+    root = Path(path).resolve()
+
+    def _iso(ts: float) -> str:
+        return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Best-effort importance lookup: PageRank centrality for the still-indexed
+    # side of the graph. Removed symbols mostly won't be present, so the
+    # ranking degrades gracefully to pure recency — still deterministic.
+    importance_lookup: object = None
+    idx_ctx: ProjectIndex | None
+    try:
+        idx_ctx = ProjectIndex.open(root)
+    except ProjectNotIndexedError:
+        idx_ctx = None
+    if idx_ctx is not None:
+        _bound_idx = idx_ctx
+
+        def _lookup(name: str) -> float | None:
+            try:
+                return _bound_idx.graph_centrality(name)
+            except Exception:
+                return None
+
+        importance_lookup = _lookup
+
+    store = SymbolTimelineStore(resolve_default_store_path())
+    store.migrate()
+    try:
+        result = find_removed_since(
+            store,
+            project_root=str(root),
+            ref=ref,
+            include_renamed=include_renamed,
+            limit=limit,
+            git_root=root,
+            importance_lookup=importance_lookup,  # type: ignore[arg-type]
+        )
+    finally:
+        store.close()
+        if idx_ctx is not None:
+            idx_ctx.close()
+
+    return RemovedSinceResponse(
+        ref=result.ref,
+        ref_resolved_sha=result.ref_resolved_sha,
+        ref_resolved_at_iso=(
+            _iso(result.ref_resolved_timestamp)
+            if result.ref_resolved_timestamp is not None
+            else None
+        ),
+        ref_not_found=result.ref_not_found,
+        removed=[
+            RemovedSymbolModel(
+                symbol_id=r.symbol_id,
+                qualified_name=r.qualified_name,
+                file_path=r.file_path,
+                removed_at_iso=_iso(r.removed_at),
+                commit_sha=r.commit_sha,
+                author=r.author,
+                importance=r.importance,
+            )
+            for r in result.removed
+        ],
+        renamed=[
+            RenamePairModel(
+                old_symbol_id=p.old_symbol_id,
+                new_symbol_id=p.new_symbol_id,
+                old_qualified_name=p.old_qualified_name,
+                new_qualified_name=p.new_qualified_name,
+                confidence=p.confidence,
+                is_candidate=p.is_candidate,
+                renamed_at_iso=_iso(p.renamed_at),
+                commit_sha=p.commit_sha,
+            )
+            for p in result.renamed
+        ],
+        total_before_limit=result.total_before_limit,
+        truncated=result.truncated,
+    )
+
+
+def lvdcp_when(
+    path: str,
+    symbol: str,
+    include_orphaned: bool = False,
+    candidate_limit: int = 5,
+) -> WhenResponse:
+    """Return the full event history of one symbol — "when was X implemented?".
+
+    CALL THIS WHEN:
+    - A user asks "когда был добавлен/изменён/переименован X"
+    - You need to show a symbol's full life: added → modified → renamed
+    - You're citing the exact commit sha that introduced a function / class
+    - You want to distinguish a *rename* from a *new implementation*
+
+    DO NOT CALL FOR:
+    - "What disappeared since v0.5.0" — use lvdcp_removed_since
+    - File-level change history — use lvdcp_history
+    - Bulk diffs between releases — use lvdcp_diff once it ships
+
+    ``symbol`` accepts either a 32-hex ``symbol_id`` (exact lookup) or a
+    qualified name / substring (e.g. ``pkg.auth.login`` or ``login``).
+    Unique substring matches are auto-resolved; ambiguous matches return
+    ``not_found=True`` plus a ``candidates`` list of the top-N hits so you
+    can re-call with the disambiguated name.
+
+    Events are returned chronologically (oldest first). Rename edges touching
+    the symbol are split into ``rename_predecessors`` (what it *used to be*)
+    and ``rename_successors`` (what it *became*) so the caller can stitch a
+    multi-name story without duplicating events.
+    """
+    from datetime import UTC, datetime  # noqa: PLC0415
+
+    from libs.symbol_timeline.query import symbol_timeline  # noqa: PLC0415
+    from libs.symbol_timeline.store import (  # noqa: PLC0415
+        SymbolTimelineStore,
+        resolve_default_store_path,
+    )
+
+    root = Path(path).resolve()
+
+    def _iso(ts: float) -> str:
+        return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    store = SymbolTimelineStore(resolve_default_store_path())
+    store.migrate()
+    try:
+        result = symbol_timeline(
+            store,
+            project_root=str(root),
+            symbol=symbol,
+            include_orphaned=include_orphaned,
+            candidate_limit=candidate_limit,
+        )
+    finally:
+        store.close()
+
+    return WhenResponse(
+        symbol_id=result.symbol_id,
+        qualified_name=result.qualified_name,
+        file_path=result.file_path,
+        events=[
+            TimelineEventModel(
+                symbol_id=e.symbol_id,
+                event_type=e.event_type,
+                timestamp_iso=_iso(e.timestamp),
+                commit_sha=e.commit_sha,
+                author=e.author,
+                file_path=e.file_path,
+                qualified_name=e.qualified_name,
+            )
+            for e in result.events
+        ],
+        rename_predecessors=[
+            RenamePairModel(
+                old_symbol_id=p.old_symbol_id,
+                new_symbol_id=p.new_symbol_id,
+                old_qualified_name=p.old_qualified_name,
+                new_qualified_name=p.new_qualified_name,
+                confidence=p.confidence,
+                is_candidate=p.is_candidate,
+                renamed_at_iso=_iso(p.renamed_at),
+                commit_sha=p.commit_sha,
+            )
+            for p in result.rename_predecessors
+        ],
+        rename_successors=[
+            RenamePairModel(
+                old_symbol_id=p.old_symbol_id,
+                new_symbol_id=p.new_symbol_id,
+                old_qualified_name=p.old_qualified_name,
+                new_qualified_name=p.new_qualified_name,
+                confidence=p.confidence,
+                is_candidate=p.is_candidate,
+                renamed_at_iso=_iso(p.renamed_at),
+                commit_sha=p.commit_sha,
+            )
+            for p in result.rename_successors
+        ],
+        not_found=result.not_found,
+        candidates=[
+            SymbolCandidateModel(
+                symbol_id=c.symbol_id,
+                qualified_name=c.qualified_name,
+                file_path=c.file_path,
+                latest_event_type=c.latest_event_type,
+                latest_event_iso=_iso(c.latest_event_ts),
+            )
+            for c in result.candidates
+        ],
+    )
+
+
+def lvdcp_diff(
+    path: str,
+    from_ref: str,
+    to_ref: str = "HEAD",
+    limit_per_bucket: int = 20,
+) -> DiffResponse:
+    """Structural diff between two refs — "what changed between ``v0.5.0`` and ``v0.7.0``?".
+
+    CALL THIS WHEN:
+    - You're drafting release notes and need added / removed / modified / renamed
+      at the symbol level
+    - You want to audit a sprint's worth of structural change (``lvdcp_diff(sha_a, sha_b)``)
+    - The user asks "что поменялось между" / "what's new in"
+
+    DO NOT CALL FOR:
+    - Single-symbol history — use lvdcp_when
+    - Only removed symbols — use lvdcp_regressions (narrower contract, tighter budget)
+    - File-level change history — use lvdcp_history
+
+    Ranking is ``importance + recency`` DESC (same as lvdcp_removed_since).
+    Rename edges are always returned in ``renamed``; the paired add/remove
+    events are hidden from ``added``/``removed`` when the rename is
+    *confirmed* (``is_candidate=False``) so the caller doesn't double-count
+    a rename as one add + one remove.
+
+    Returns ``ref_not_found=True`` (and empty lists) when either ref can't
+    be resolved — e.g. the project isn't a git repo, or the tag was typo'd.
+    """
+    from datetime import UTC, datetime  # noqa: PLC0415
+
+    from libs.project_index.index import ProjectIndex, ProjectNotIndexedError  # noqa: PLC0415
+    from libs.symbol_timeline.query import diff as _diff  # noqa: PLC0415
+    from libs.symbol_timeline.store import (  # noqa: PLC0415
+        SymbolTimelineStore,
+        resolve_default_store_path,
+    )
+
+    root = Path(path).resolve()
+
+    def _iso(ts: float) -> str:
+        return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    importance_lookup: object = None
+    idx_ctx: ProjectIndex | None
+    try:
+        idx_ctx = ProjectIndex.open(root)
+    except ProjectNotIndexedError:
+        idx_ctx = None
+    if idx_ctx is not None:
+        _bound_idx = idx_ctx
+
+        def _lookup(name: str) -> float | None:
+            try:
+                return _bound_idx.graph_centrality(name)
+            except Exception:
+                return None
+
+        importance_lookup = _lookup
+
+    store = SymbolTimelineStore(resolve_default_store_path())
+    store.migrate()
+    try:
+        result = _diff(
+            store,
+            project_root=str(root),
+            from_ref=from_ref,
+            to_ref=to_ref,
+            limit_per_bucket=limit_per_bucket,
+            git_root=root,
+            importance_lookup=importance_lookup,  # type: ignore[arg-type]
+        )
+    finally:
+        store.close()
+        if idx_ctx is not None:
+            idx_ctx.close()
+
+    def _to_entry_model(e: object) -> DiffEntryModel:
+        # e is a DiffEntry dataclass
+        return DiffEntryModel(
+            symbol_id=e.symbol_id,  # type: ignore[attr-defined]
+            qualified_name=e.qualified_name,  # type: ignore[attr-defined]
+            file_path=e.file_path,  # type: ignore[attr-defined]
+            event_type=e.event_type,  # type: ignore[attr-defined]
+            at_iso=_iso(e.at_timestamp),  # type: ignore[attr-defined]
+            commit_sha=e.commit_sha,  # type: ignore[attr-defined]
+            author=e.author,  # type: ignore[attr-defined]
+            importance=e.importance,  # type: ignore[attr-defined]
+        )
+
+    return DiffResponse(
+        from_ref=result.from_ref,
+        to_ref=result.to_ref,
+        from_resolved_sha=result.from_resolved_sha,
+        to_resolved_sha=result.to_resolved_sha,
+        from_resolved_at_iso=(
+            _iso(result.from_resolved_timestamp)
+            if result.from_resolved_timestamp is not None
+            else None
+        ),
+        to_resolved_at_iso=(
+            _iso(result.to_resolved_timestamp) if result.to_resolved_timestamp is not None else None
+        ),
+        ref_not_found=result.ref_not_found,
+        added=[_to_entry_model(e) for e in result.added],
+        removed=[_to_entry_model(e) for e in result.removed],
+        modified=[_to_entry_model(e) for e in result.modified],
+        renamed=[
+            RenamePairModel(
+                old_symbol_id=p.old_symbol_id,
+                new_symbol_id=p.new_symbol_id,
+                old_qualified_name=p.old_qualified_name,
+                new_qualified_name=p.new_qualified_name,
+                confidence=p.confidence,
+                is_candidate=p.is_candidate,
+                renamed_at_iso=_iso(p.renamed_at),
+                commit_sha=p.commit_sha,
+            )
+            for p in result.renamed
+        ],
+        total_added=result.total_added,
+        total_removed=result.total_removed,
+        total_modified=result.total_modified,
+        truncated=result.truncated,
+    )
+
+
+def lvdcp_regressions(
+    path: str,
+    from_ref: str,
+    to_ref: str = "HEAD",
+    limit: int = 20,
+) -> RegressionResponse:
+    """Narrow version of ``lvdcp_diff`` returning only *removed* symbols between two refs.
+
+    CALL THIS WHEN:
+    - A regression landed between two releases and you want the removal shortlist
+    - You need "what did we lose between v0.5.0 and v0.7.0" but don't care about adds
+    - You're building a blame/ownership report after a failed release
+
+    DO NOT CALL FOR:
+    - Full structural diff — use lvdcp_diff
+    - Single-symbol history — use lvdcp_when
+    - Removals since a single ref (vs HEAD) — use lvdcp_removed_since
+
+    Returns the same ``removed`` shape as ``lvdcp_diff``, ranked by
+    importance + recency. Rename-paired removals are hidden (they're
+    renames, not regressions).
+    """
+    full = lvdcp_diff(path=path, from_ref=from_ref, to_ref=to_ref, limit_per_bucket=limit)
+    return RegressionResponse(
+        from_ref=full.from_ref,
+        to_ref=full.to_ref,
+        from_resolved_sha=full.from_resolved_sha,
+        to_resolved_sha=full.to_resolved_sha,
+        ref_not_found=full.ref_not_found,
+        removed=full.removed,
+        total_removed=full.total_removed,
+        truncated=full.total_removed > limit,
     )
 
 
