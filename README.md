@@ -107,7 +107,7 @@ Release notes:
 
 ### Test suite
 
-1049 tests passing, 0 spec-010 failures. Eval harness: 32 synthetic queries; multi-project eval currently covers 9 advisory queries across 4 registered projects.
+1050 tests passing, 0 failures. Eval harness: 32 synthetic queries; multi-project eval currently covers 9 advisory queries across 4 registered projects.
 
 For advisory real-project eval setup and report commands, see [docs/eval/real-project-eval.md](docs/eval/real-project-eval.md).
 
