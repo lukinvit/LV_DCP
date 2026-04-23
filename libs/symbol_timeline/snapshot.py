@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING
 
 from libs.symbol_timeline.snapshot_builder import PREV_SNAPSHOT_RELPATH, load_snapshot
 from libs.symbol_timeline.store import SnapshotRow, SymbolTimelineStore, insert_snapshot
+from libs.telemetry.timeline_metrics import observe_snapshot_build
 
 if TYPE_CHECKING:
     from libs.gitintel.tag_watcher import TagEvent
@@ -75,28 +76,29 @@ def build_release_snapshot(  # noqa: PLR0913 - keyword-only snapshot API
     detect drift can compare the returned ``checksum`` against the stored
     row.
     """
-    if symbol_ids is None:
-        if sidecar_root is None:
-            sidecar_root = Path(project_root)
-        snap: AstSnapshot | None = load_snapshot(sidecar_root / PREV_SNAPSHOT_RELPATH)
-        symbol_ids = list(snap.symbols.keys()) if snap is not None else []
+    with observe_snapshot_build():
+        if symbol_ids is None:
+            if sidecar_root is None:
+                sidecar_root = Path(project_root)
+            snap: AstSnapshot | None = load_snapshot(sidecar_root / PREV_SNAPSHOT_RELPATH)
+            symbol_ids = list(snap.symbols.keys()) if snap is not None else []
 
-    snapshot_id = compute_snapshot_id(project_root, tag, head_sha)
-    checksum = compute_snapshot_checksum(symbol_ids)
-    ts = now if now is not None else time.time()
+        snapshot_id = compute_snapshot_id(project_root, tag, head_sha)
+        checksum = compute_snapshot_checksum(symbol_ids)
+        ts = now if now is not None else time.time()
 
-    row = SnapshotRow(
-        project_root=project_root,
-        snapshot_id=snapshot_id,
-        tag=tag,
-        head_sha=head_sha,
-        timestamp=ts,
-        symbol_count=len(symbol_ids),
-        checksum=checksum,
-        tag_invalidated=False,
-        ref_kind="git_tag",
-    )
-    insert_snapshot(store, snapshot=row)
+        row = SnapshotRow(
+            project_root=project_root,
+            snapshot_id=snapshot_id,
+            tag=tag,
+            head_sha=head_sha,
+            timestamp=ts,
+            symbol_count=len(symbol_ids),
+            checksum=checksum,
+            tag_invalidated=False,
+            ref_kind="git_tag",
+        )
+        insert_snapshot(store, snapshot=row)
     return row
 
 

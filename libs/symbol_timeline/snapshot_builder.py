@@ -48,9 +48,7 @@ def compute_symbol_id(*, project_root: str, file_path: str, fq_name: str, symbol
     return hashlib.sha256(payload).hexdigest()[:32]
 
 
-def compute_symbol_content_hash(
-    symbol: Symbol, *, body_bytes: bytes | None = None
-) -> str:
+def compute_symbol_content_hash(symbol: Symbol, *, body_bytes: bytes | None = None) -> str:
     """Return the per-symbol content_hash used for modified/moved detection.
 
     When ``body_bytes`` is provided, it is hashed alongside ``fq_name`` so

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from libs.symbol_timeline.rename_detect import RenameEdge
 from libs.symbol_timeline.sinks import (
     MemoryTimelineSink,
@@ -173,6 +174,67 @@ class TestSqliteSink:
             "SELECT symbol_id FROM symbol_timeline_events ORDER BY symbol_id"
         ).fetchall()
         assert [r[0] for r in rows] == ["fresh"]
+
+
+class TestSqliteSinkMetricsInstrumentation:
+    """T038 — SqliteTimelineSink must bump events_total + sink_errors_total."""
+
+    def test_on_added_bumps_events_total(self, tmp_path: Path) -> None:
+        from libs.telemetry import timeline_metrics as tm
+
+        store = SymbolTimelineStore(tmp_path / "t.db")
+        store.migrate()
+        sink = SqliteTimelineSink(store=store)
+
+        before = tm.events_total.labels(event_type="added", project="/abs/p").value()
+        sink.on_added(_ev("added", "m1"))
+        after = tm.events_total.labels(event_type="added", project="/abs/p").value()
+        assert after - before == 1
+
+    def test_each_event_method_uses_its_own_label(self, tmp_path: Path) -> None:
+        from libs.telemetry import timeline_metrics as tm
+
+        store = SymbolTimelineStore(tmp_path / "t.db")
+        store.migrate()
+        sink = SqliteTimelineSink(store=store)
+
+        snaps_before = {
+            kind: tm.events_total.labels(event_type=kind, project="/abs/p").value()
+            for kind in ("added", "modified", "removed", "moved")
+        }
+        sink.on_added(_ev("added", "a"))
+        sink.on_modified(_ev("modified", "a"))
+        sink.on_removed(_ev("removed", "a"))
+        sink.on_moved(_ev("moved", "a"))
+        for kind in ("added", "modified", "removed", "moved"):
+            delta = (
+                tm.events_total.labels(event_type=kind, project="/abs/p").value()
+                - snaps_before[kind]
+            )
+            assert delta == 1, f"{kind} was not incremented exactly once"
+
+    def test_append_failure_bumps_sink_errors_total(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """If ``append_event`` raises, the metric must tick up and the error re-raises."""
+        from libs.symbol_timeline import sinks as _sinks
+        from libs.telemetry import timeline_metrics as tm
+
+        store = SymbolTimelineStore(tmp_path / "t.db")
+        store.migrate()
+        sink = SqliteTimelineSink(store=store)
+
+        def boom(*_args: object, **_kwargs: object) -> None:
+            msg = "simulated disk-full"
+            raise OSError(msg)
+
+        monkeypatch.setattr(_sinks, "append_event", boom)
+
+        before = tm.sink_errors_total.labels(sink="sqlite", stage="on_added").value()
+        with pytest.raises(OSError, match="simulated disk-full"):
+            sink.on_added(_ev("added", "err"))
+        after = tm.sink_errors_total.labels(sink="sqlite", stage="on_added").value()
+        assert after - before == 1
 
 
 class TestFixtureWiring:

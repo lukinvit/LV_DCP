@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Protocol
 
 import pytest
 from apps.mcp.tools import (
@@ -30,6 +32,10 @@ from apps.mcp.tools import (
 from libs.scanning.scanner import scan_project
 from libs.symbol_timeline.sinks import SqliteTimelineSink
 from libs.symbol_timeline.store import SymbolTimelineStore
+
+
+class _HasQualifiedName(Protocol):
+    qualified_name: str | None
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -87,7 +93,7 @@ def tagged_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return repo
 
 
-def _names(entries: list) -> set[str]:
+def _names(entries: Sequence[_HasQualifiedName]) -> set[str]:
     return {e.qualified_name for e in entries if e.qualified_name}
 
 

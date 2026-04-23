@@ -72,15 +72,19 @@ def test_build_release_snapshot_from_explicit_symbol_ids(
 
 def test_build_release_snapshot_is_idempotent(store: SymbolTimelineStore) -> None:
     """Same (project, tag, head_sha) twice → one row (INSERT OR IGNORE)."""
-    kwargs = {
-        "project_root": PROJECT,
-        "tag": "v1",
-        "head_sha": "headsha",
-        "symbol_ids": ["a" * 32],
-        "now": 1000.0,
-    }
-    build_release_snapshot(store, **kwargs)
-    build_release_snapshot(store, **kwargs)
+
+    def _call() -> None:
+        build_release_snapshot(
+            store,
+            project_root=PROJECT,
+            tag="v1",
+            head_sha="headsha",
+            symbol_ids=["a" * 32],
+            now=1000.0,
+        )
+
+    _call()
+    _call()
     rows = (
         store._connect()
         .execute(
@@ -100,7 +104,9 @@ def test_build_release_snapshot_reads_sidecar_when_symbol_ids_omitted(
     project_dir.mkdir()
     ids = ["x" * 32, "y" * 32]
     snap = AstSnapshot(
-        symbols={sid: SymbolSnapshot(symbol_id=sid, file_path="f.py", content_hash="h") for sid in ids},
+        symbols={
+            sid: SymbolSnapshot(symbol_id=sid, file_path="f.py", content_hash="h") for sid in ids
+        },
         commit_sha="headsha",
     )
     save_snapshot(snap, path=project_dir / PREV_SNAPSHOT_RELPATH)
@@ -223,9 +229,7 @@ def test_handle_tag_event_moved_invalidates_prior_and_inserts_new(
     new_row = handle_tag_event(
         store,
         project_root=PROJECT,
-        event=TagEvent(
-            tag="v1", head_sha="new-sha", kind="moved", previous_sha="old-sha"
-        ),
+        event=TagEvent(tag="v1", head_sha="new-sha", kind="moved", previous_sha="old-sha"),
         symbol_ids=["a" * 32],
         now=2000.0,
     )

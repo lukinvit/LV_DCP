@@ -11,12 +11,14 @@ from libs.gitintel.tag_watcher import TagEvent, list_git_tags, poll_tags
 def _fake_runner(output: str):  # type: ignore[no-untyped-def]
     def run(_args: list[str]) -> str:
         return output
+
     return run
 
 
 def _raising_runner(exc: Exception):  # type: ignore[no-untyped-def]
     def run(_args: list[str]) -> str:
         raise exc
+
     return run
 
 
@@ -40,9 +42,7 @@ def test_list_tags_parses_annotated_and_lightweight() -> None:
 def test_list_tags_returns_empty_on_git_failure() -> None:
     tags = list_git_tags(
         Path("/tmp"),
-        git_runner=_raising_runner(
-            subprocess.CalledProcessError(1, ["git", "for-each-ref"])
-        ),
+        git_runner=_raising_runner(subprocess.CalledProcessError(1, ["git", "for-each-ref"])),
     )
     assert tags == {}
 
@@ -57,9 +57,7 @@ def test_list_tags_returns_empty_when_git_missing() -> None:
 
 def test_poll_tags_emits_created_for_new_tag() -> None:
     output = "v1\tsha1\t\n"
-    current, events = poll_tags(
-        Path("/tmp"), known={}, git_runner=_fake_runner(output)
-    )
+    current, events = poll_tags(Path("/tmp"), known={}, git_runner=_fake_runner(output))
     assert current == {"v1": "sha1"}
     assert events == [TagEvent(tag="v1", head_sha="sha1", kind="created")]
 
@@ -67,21 +65,15 @@ def test_poll_tags_emits_created_for_new_tag() -> None:
 def test_poll_tags_emits_moved_when_tag_changes_sha() -> None:
     output = "v1\tnewsha\t\n"
     known = {"v1": "oldsha"}
-    current, events = poll_tags(
-        Path("/tmp"), known=known, git_runner=_fake_runner(output)
-    )
+    current, events = poll_tags(Path("/tmp"), known=known, git_runner=_fake_runner(output))
     assert current == {"v1": "newsha"}
-    assert events == [
-        TagEvent(tag="v1", head_sha="newsha", kind="moved", previous_sha="oldsha")
-    ]
+    assert events == [TagEvent(tag="v1", head_sha="newsha", kind="moved", previous_sha="oldsha")]
 
 
 def test_poll_tags_silent_on_unchanged_tags() -> None:
     output = "v1\tsha1\t\nv2\tsha2\t\n"
     known = {"v1": "sha1", "v2": "sha2"}
-    _, events = poll_tags(
-        Path("/tmp"), known=known, git_runner=_fake_runner(output)
-    )
+    _, events = poll_tags(Path("/tmp"), known=known, git_runner=_fake_runner(output))
     assert events == []
 
 
@@ -89,9 +81,7 @@ def test_poll_tags_does_not_emit_for_deletions() -> None:
     """Tag that vanished from git is NOT reported — reconcile handles that."""
     output = "v2\tsha2\t\n"  # v1 gone
     known = {"v1": "sha1", "v2": "sha2"}
-    current, events = poll_tags(
-        Path("/tmp"), known=known, git_runner=_fake_runner(output)
-    )
+    current, events = poll_tags(Path("/tmp"), known=known, git_runner=_fake_runner(output))
     assert "v1" not in current
     assert events == []
 
@@ -99,9 +89,7 @@ def test_poll_tags_does_not_emit_for_deletions() -> None:
 def test_poll_tags_mixed_new_and_moved() -> None:
     output = "v1\tnewsha\t\nv2\tsha2\t\nv3\tsha3\t\n"
     known = {"v1": "oldsha", "v2": "sha2"}
-    _, events = poll_tags(
-        Path("/tmp"), known=known, git_runner=_fake_runner(output)
-    )
+    _, events = poll_tags(Path("/tmp"), known=known, git_runner=_fake_runner(output))
     event_map = {(e.tag, e.kind) for e in events}
     assert event_map == {("v1", "moved"), ("v3", "created")}
 
@@ -111,15 +99,11 @@ def test_real_git_repo_end_to_end(tmp_path: Path) -> None:
     repo = tmp_path / "r"
     repo.mkdir()
     subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
-    subprocess.run(
-        ["git", "-C", str(repo), "config", "user.email", "t@t"], check=True
-    )
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "t@t"], check=True)
     subprocess.run(["git", "-C", str(repo), "config", "user.name", "t"], check=True)
     (repo / "a.txt").write_text("x")
     subprocess.run(["git", "-C", str(repo), "add", "a.txt"], check=True)
-    subprocess.run(
-        ["git", "-C", str(repo), "commit", "-q", "-m", "c1"], check=True
-    )
+    subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "c1"], check=True)
     subprocess.run(["git", "-C", str(repo), "tag", "v1"], check=True)
 
     tags = list_git_tags(repo)

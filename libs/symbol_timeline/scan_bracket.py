@@ -10,12 +10,20 @@ expected to wrap the whole bracket in ``try/except`` (see
 ``libs.scanning.scanner``). This module re-raises everything so tests
 can assert correctness; the scanner provides the safety net.
 
+Observability (spec plan.md §Logging): every bracket emits one
+``timeline.scan_bracket`` structlog line with ``project_root``,
+``commit_sha``, the full ``stats`` dict, and ``duration_ms`` so an
+operator can grep one entry per scan instead of re-deriving it from
+per-event counters.
+
 Spec: specs/010-feature-timeline-index/plan.md §Hook Matrix / Layer 1.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+
+import structlog
 
 from libs.symbol_timeline.differ import diff_ast_snapshots
 from libs.symbol_timeline.rename_detect import pair_renames
@@ -24,6 +32,8 @@ if TYPE_CHECKING:
     from libs.symbol_timeline.differ import AstSnapshot
     from libs.symbol_timeline.sinks import TimelineSink
     from libs.symbol_timeline.store import TimelineEvent
+
+log = structlog.get_logger(__name__)
 
 
 def emit_timeline(  # noqa: PLR0913 - keyword-only lifecycle contract
@@ -104,7 +114,19 @@ def emit_timeline(  # noqa: PLR0913 - keyword-only lifecycle contract
         commit_sha=commit_sha,
         stats=dict(stats),  # defensive copy; sinks may retain the ref
     )
-    _ = finished_at  # reserved for Phase 7+ checksum use
+    duration_ms = (finished_at - started_at) * 1000.0
+    log.info(
+        "timeline.scan_bracket",
+        project_root=project_root,
+        commit_sha=commit_sha,
+        duration_ms=round(duration_ms, 2),
+        added=stats["added"],
+        modified=stats["modified"],
+        removed=stats["removed"],
+        moved=stats["moved"],
+        renamed=stats["renamed"],
+        renamed_candidate=stats["renamed_candidate"],
+    )
     return stats
 
 

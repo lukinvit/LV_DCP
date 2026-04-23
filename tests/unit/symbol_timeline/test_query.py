@@ -97,9 +97,7 @@ def test_only_events_after_ref_are_returned(store: SymbolTimelineStore, stub_ref
     assert result.ref_resolved_timestamp == 100.0
 
 
-def test_ranking_uses_importance_then_recency(
-    store: SymbolTimelineStore, stub_ref: None
-) -> None:
+def test_ranking_uses_importance_then_recency(store: SymbolTimelineStore, stub_ref: None) -> None:
     """Importance dominates; timestamp breaks ties; DESC."""
     del stub_ref
     append_event(
@@ -302,15 +300,11 @@ def test_resolve_git_ref_against_real_repo(tmp_path: Path) -> None:
     repo = tmp_path / "r"
     repo.mkdir()
     subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
-    subprocess.run(
-        ["git", "-C", str(repo), "config", "user.email", "t@t"], check=True
-    )
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "t@t"], check=True)
     subprocess.run(["git", "-C", str(repo), "config", "user.name", "t"], check=True)
     (repo / "a.txt").write_text("x")
     subprocess.run(["git", "-C", str(repo), "add", "a.txt"], check=True)
-    subprocess.run(
-        ["git", "-C", str(repo), "commit", "-q", "-m", "c1"], check=True
-    )
+    subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "c1"], check=True)
 
     resolved = resolve_git_ref(repo, "HEAD")
     assert resolved is not None

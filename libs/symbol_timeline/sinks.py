@@ -25,6 +25,7 @@ from libs.symbol_timeline.store import (
     append_event,
     append_rename_edge,
 )
+from libs.telemetry.timeline_metrics import record_event, record_sink_error
 
 
 @runtime_checkable
@@ -136,10 +137,17 @@ class SqliteTimelineSink:
 
     Call ``migrate()`` once (or let the caller do it) before first use.
     Retention pruning is delegated to ``append_event`` via ``retention_days``.
+
+    Every ``on_*`` callback increments
+    ``symbol_timeline_events_total{event_type,project}`` on success and
+    ``symbol_timeline_sink_errors_total{sink="sqlite",stage=...}`` on
+    failure. Exceptions are re-raised so the scanner can decide whether to
+    continue or abort the run.
     """
 
     store: SymbolTimelineStore
     retention_days: int | None = None
+    _sink_name: str = "sqlite"
 
     def on_scan_begin(
         self,
@@ -161,28 +169,40 @@ class SqliteTimelineSink:
         # No-op today. Phase 7 adds a scan-end marker for reconcile replay.
         _ = (project_root, commit_sha, stats)
 
+    def _append(self, event: TimelineEvent, *, stage: str) -> None:
+        try:
+            append_event(self.store, event=event, retention_days=self.retention_days)
+        except Exception:
+            record_sink_error(self._sink_name, stage)
+            raise
+        record_event(event.event_type, event.project_root)
+
     def on_added(self, event: TimelineEvent) -> None:
-        append_event(self.store, event=event, retention_days=self.retention_days)
+        self._append(event, stage="on_added")
 
     def on_modified(self, event: TimelineEvent) -> None:
-        append_event(self.store, event=event, retention_days=self.retention_days)
+        self._append(event, stage="on_modified")
 
     def on_removed(self, event: TimelineEvent) -> None:
-        append_event(self.store, event=event, retention_days=self.retention_days)
+        self._append(event, stage="on_removed")
 
     def on_moved(self, event: TimelineEvent) -> None:
-        append_event(self.store, event=event, retention_days=self.retention_days)
+        self._append(event, stage="on_moved")
 
     def on_renamed(self, edge: RenameEdge, *, project_root: str) -> None:
-        append_rename_edge(
-            self.store,
-            edge=RenameEdgeRow(
-                project_root=project_root,
-                old_symbol_id=edge.old_symbol_id,
-                new_symbol_id=edge.new_symbol_id,
-                commit_sha=edge.commit_sha,
-                timestamp=edge.timestamp,
-                confidence=edge.confidence,
-                is_candidate=edge.is_candidate,
-            ),
-        )
+        try:
+            append_rename_edge(
+                self.store,
+                edge=RenameEdgeRow(
+                    project_root=project_root,
+                    old_symbol_id=edge.old_symbol_id,
+                    new_symbol_id=edge.new_symbol_id,
+                    commit_sha=edge.commit_sha,
+                    timestamp=edge.timestamp,
+                    confidence=edge.confidence,
+                    is_candidate=edge.is_candidate,
+                ),
+            )
+        except Exception:
+            record_sink_error(self._sink_name, "on_renamed")
+            raise

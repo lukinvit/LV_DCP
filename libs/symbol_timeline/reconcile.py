@@ -29,14 +29,20 @@ Spec: specs/010-feature-timeline-index/spec.md §FR-009, §Edge Cases.
 from __future__ import annotations
 
 import subprocess
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import structlog
 
 from libs.symbol_timeline.store import (
     SymbolTimelineStore,
     reconcile_orphaned_events,
 )
+from libs.telemetry.timeline_metrics import record_reconcile_orphans
+
+log = structlog.get_logger(__name__)
 
 GitRunner = Callable[[list[str]], str]
 """Pluggable git runner: ``args -> stdout``. Raises on non-zero exit."""
@@ -107,12 +113,16 @@ def _count_orphans_by_event_type(
     store: SymbolTimelineStore, *, project_root: str
 ) -> dict[str, int]:
     """Return ``{event_type: orphaned_count}`` for the project."""
-    rows = store._connect().execute(
-        "SELECT event_type, COUNT(*) FROM symbol_timeline_events "
-        "WHERE project_root = ? AND orphaned = 1 "
-        "GROUP BY event_type",
-        (project_root,),
-    ).fetchall()
+    rows = (
+        store._connect()
+        .execute(
+            "SELECT event_type, COUNT(*) FROM symbol_timeline_events "
+            "WHERE project_root = ? AND orphaned = 1 "
+            "GROUP BY event_type",
+            (project_root,),
+        )
+        .fetchall()
+    )
     return {r[0]: r[1] for r in rows}
 
 
@@ -135,16 +145,20 @@ def reconcile(
     (``orphaned_newly_flagged=0``).
     """
     root = git_root or Path(project_root)
+    start = time.perf_counter()
     reachable = list_reachable_commits(root, git_runner=git_runner)
     if reachable is None:
+        log.warning(
+            "timeline.reconcile.git_unavailable",
+            project_root=project_root,
+            duration_ms=round((time.perf_counter() - start) * 1000.0, 2),
+        )
         return ReconcileReport(
             project_root=project_root,
             git_available=False,
             reachable_commit_count=0,
             orphaned_newly_flagged=0,
-            orphaned_by_event_type=_count_orphans_by_event_type(
-                store, project_root=project_root
-            ),
+            orphaned_by_event_type=_count_orphans_by_event_type(store, project_root=project_root),
         )
 
     flagged = reconcile_orphaned_events(
@@ -152,14 +166,22 @@ def reconcile(
         project_root=project_root,
         known_commit_shas=reachable,
     )
+    record_reconcile_orphans(project_root, flagged)
+    orphaned_by_type = _count_orphans_by_event_type(store, project_root=project_root)
+    log.info(
+        "timeline.reconcile.done",
+        project_root=project_root,
+        reachable_commit_count=len(reachable),
+        orphaned_newly_flagged=flagged,
+        orphaned_total=sum(orphaned_by_type.values()),
+        duration_ms=round((time.perf_counter() - start) * 1000.0, 2),
+    )
     return ReconcileReport(
         project_root=project_root,
         git_available=True,
         reachable_commit_count=len(reachable),
         orphaned_newly_flagged=flagged,
-        orphaned_by_event_type=_count_orphans_by_event_type(
-            store, project_root=project_root
-        ),
+        orphaned_by_event_type=orphaned_by_type,
     )
 
 
@@ -180,10 +202,7 @@ def prune_events(
     Returns the number of rows actually deleted.
     """
     conn = store._connect()
-    query = (
-        "DELETE FROM symbol_timeline_events "
-        "WHERE project_root = ? AND timestamp < ?"
-    )
+    query = "DELETE FROM symbol_timeline_events WHERE project_root = ? AND timestamp < ?"
     params: list[object] = [project_root, older_than_ts]
     if only_orphaned:
         query += " AND orphaned = 1"

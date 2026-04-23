@@ -33,16 +33,12 @@ def test_hook_file_exists_and_is_executable(hook_name: str) -> None:
 def test_hook_bash_syntax_is_valid(hook_name: str) -> None:
     path = HOOKS_DIR / hook_name
     # `bash -n` exits 0 if syntax is valid, non-zero with an error otherwise.
-    res = subprocess.run(
-        ["bash", "-n", str(path)], capture_output=True, text=True, check=False
-    )
+    res = subprocess.run(["bash", "-n", str(path)], capture_output=True, text=True, check=False)
     assert res.returncode == 0, f"syntax error in {hook_name}: {res.stderr}"
 
 
 @pytest.mark.parametrize("hook_name", HOOK_NAMES)
-def test_hook_exits_zero_without_ctx_on_path(
-    hook_name: str, tmp_path: Path
-) -> None:
+def test_hook_exits_zero_without_ctx_on_path(hook_name: str, tmp_path: Path) -> None:
     """Hook must not break a commit when `ctx` is missing from PATH."""
     path = HOOKS_DIR / hook_name
     # Fake repo so `git rev-parse --show-toplevel` works.
@@ -63,8 +59,7 @@ def test_hook_exits_zero_without_ctx_on_path(
         timeout=10,
     )
     assert res.returncode == 0, (
-        f"{hook_name} exited {res.returncode} when ctx was missing; "
-        f"stderr: {res.stderr}"
+        f"{hook_name} exited {res.returncode} when ctx was missing; stderr: {res.stderr}"
     )
 
 

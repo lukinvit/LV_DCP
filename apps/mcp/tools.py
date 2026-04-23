@@ -270,9 +270,7 @@ class DiffResponse(BaseModel):
     total_added: int = Field(description="Full added count before `limit_per_bucket`")
     total_removed: int = Field(description="Full removed count before `limit_per_bucket`")
     total_modified: int = Field(description="Full modified count before `limit_per_bucket`")
-    truncated: bool = Field(
-        description="True when any bucket was capped by `limit_per_bucket`"
-    )
+    truncated: bool = Field(description="True when any bucket was capped by `limit_per_bucket`")
 
 
 class RegressionResponse(BaseModel):
@@ -291,9 +289,7 @@ class RegressionResponse(BaseModel):
             "Ranked by importance + recency, DESC."
         )
     )
-    total_removed: int = Field(
-        description="Full removed count before `limit` truncation"
-    )
+    total_removed: int = Field(description="Full removed count before `limit` truncation")
     truncated: bool = Field(description="True when `removed` was capped by `limit`")
 
 
@@ -352,14 +348,11 @@ class WhenResponse(BaseModel):
     )
     rename_predecessors: list[RenamePairModel] = Field(
         description=(
-            "Rename edges where THIS symbol is the new side — i.e. what it was "
-            "called before"
+            "Rename edges where THIS symbol is the new side — i.e. what it was called before"
         )
     )
     rename_successors: list[RenamePairModel] = Field(
-        description=(
-            "Rename edges where THIS symbol is the old side — i.e. what it became"
-        )
+        description=("Rename edges where THIS symbol is the old side — i.e. what it became")
     )
     not_found: bool = Field(
         description=(
@@ -1113,9 +1106,7 @@ def lvdcp_diff(
             else None
         ),
         to_resolved_at_iso=(
-            _iso(result.to_resolved_timestamp)
-            if result.to_resolved_timestamp is not None
-            else None
+            _iso(result.to_resolved_timestamp) if result.to_resolved_timestamp is not None else None
         ),
         ref_not_found=result.ref_not_found,
         added=[_to_entry_model(e) for e in result.added],

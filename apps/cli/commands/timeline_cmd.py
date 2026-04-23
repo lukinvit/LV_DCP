@@ -62,23 +62,28 @@ def _write_flag(project_root: Path, *, enabled: bool) -> None:
     f.write_text("on\n" if enabled else "off\n")
 
 
-def _event_counts(
-    store: SymbolTimelineStore, *, project_root: str
-) -> dict[str, int]:
-    rows = store._connect().execute(
-        "SELECT event_type, COUNT(*) FROM symbol_timeline_events "
-        "WHERE project_root = ? GROUP BY event_type",
-        (project_root,),
-    ).fetchall()
+def _event_counts(store: SymbolTimelineStore, *, project_root: str) -> dict[str, int]:
+    rows = (
+        store._connect()
+        .execute(
+            "SELECT event_type, COUNT(*) FROM symbol_timeline_events "
+            "WHERE project_root = ? GROUP BY event_type",
+            (project_root,),
+        )
+        .fetchall()
+    )
     return {r[0]: r[1] for r in rows}
 
 
 def _orphaned_count(store: SymbolTimelineStore, *, project_root: str) -> int:
-    row = store._connect().execute(
-        "SELECT COUNT(*) FROM symbol_timeline_events "
-        "WHERE project_root = ? AND orphaned = 1",
-        (project_root,),
-    ).fetchone()
+    row = (
+        store._connect()
+        .execute(
+            "SELECT COUNT(*) FROM symbol_timeline_events WHERE project_root = ? AND orphaned = 1",
+            (project_root,),
+        )
+        .fetchone()
+    )
     return int(row[0]) if row else 0
 
 

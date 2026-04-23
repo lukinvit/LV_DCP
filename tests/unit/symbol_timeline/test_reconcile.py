@@ -105,9 +105,7 @@ def test_reconcile_flags_stale_events_and_groups_by_event_type(tmp_path: Path) -
             return ""
         raise AssertionError
 
-    report = reconcile(
-        store, project_root=PROJECT, git_root=tmp_path, git_runner=runner
-    )
+    report = reconcile(store, project_root=PROJECT, git_root=tmp_path, git_runner=runner)
     assert report.git_available is True
     assert report.reachable_commit_count == 1
     assert report.orphaned_newly_flagged == 3  # s2, s3, s4
@@ -130,12 +128,8 @@ def test_reconcile_is_idempotent_on_second_call(tmp_path: Path) -> None:
             return ""
         raise AssertionError
 
-    first = reconcile(
-        store, project_root=PROJECT, git_root=tmp_path, git_runner=runner
-    )
-    second = reconcile(
-        store, project_root=PROJECT, git_root=tmp_path, git_runner=runner
-    )
+    first = reconcile(store, project_root=PROJECT, git_root=tmp_path, git_runner=runner)
+    second = reconcile(store, project_root=PROJECT, git_root=tmp_path, git_runner=runner)
     assert first.orphaned_newly_flagged == 1
     assert second.orphaned_newly_flagged == 0
     assert second.orphaned_by_event_type == first.orphaned_by_event_type
@@ -148,9 +142,7 @@ def test_reconcile_git_unavailable_returns_empty_report(tmp_path: Path) -> None:
     def runner(_args: list[str]) -> str:
         raise OSError("git: no")
 
-    report = reconcile(
-        store, project_root=PROJECT, git_root=tmp_path, git_runner=runner
-    )
+    report = reconcile(store, project_root=PROJECT, git_root=tmp_path, git_runner=runner)
     assert report.git_available is False
     assert report.orphaned_newly_flagged == 0
     # Still reports existing orphans so status output stays useful.
@@ -166,11 +158,15 @@ def test_prune_events_only_deletes_orphaned_by_default(tmp_path: Path) -> None:
     deleted = prune_events(store, project_root=PROJECT, older_than_ts=150.0)
     assert deleted == 1  # s1 only — s2 is alive, s3 is newer than cutoff
 
-    rows = store._connect().execute(
-        "SELECT symbol_id FROM symbol_timeline_events WHERE project_root = ? "
-        "ORDER BY symbol_id",
-        (PROJECT,),
-    ).fetchall()
+    rows = (
+        store._connect()
+        .execute(
+            "SELECT symbol_id FROM symbol_timeline_events WHERE project_root = ? "
+            "ORDER BY symbol_id",
+            (PROJECT,),
+        )
+        .fetchall()
+    )
     assert [r[0] for r in rows] == ["s2", "s3"]
 
 
@@ -222,16 +218,18 @@ def test_reconcile_isolated_per_project(tmp_path: Path) -> None:
             return ""  # nothing reachable in proj-a
         return ""
 
-    report_a = reconcile(
-        store, project_root="/proj-a", git_root=tmp_path, git_runner=runner_a
-    )
+    report_a = reconcile(store, project_root="/proj-a", git_root=tmp_path, git_runner=runner_a)
     assert report_a.orphaned_newly_flagged == 1
 
     # proj-b is untouched — still alive.
-    rows = store._connect().execute(
-        "SELECT orphaned FROM symbol_timeline_events WHERE project_root = ?",
-        ("/proj-b",),
-    ).fetchall()
+    rows = (
+        store._connect()
+        .execute(
+            "SELECT orphaned FROM symbol_timeline_events WHERE project_root = ?",
+            ("/proj-b",),
+        )
+        .fetchall()
+    )
     assert rows == [(0,)]
 
 
@@ -242,9 +240,7 @@ def real_git_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
-    subprocess.run(
-        ["git", "-C", str(repo), "config", "user.email", "t@t"], check=True
-    )
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "t@t"], check=True)
     subprocess.run(["git", "-C", str(repo), "config", "user.name", "t"], check=True)
     (repo / "a.txt").write_text("hello\n")
     subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)

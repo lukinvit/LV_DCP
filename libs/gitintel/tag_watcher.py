@@ -110,9 +110,7 @@ def poll_tags(
         if prev is None:
             events.append(TagEvent(tag=tag, head_sha=sha, kind="created"))
         elif prev != sha:
-            events.append(
-                TagEvent(tag=tag, head_sha=sha, kind="moved", previous_sha=prev)
-            )
+            events.append(TagEvent(tag=tag, head_sha=sha, kind="moved", previous_sha=prev))
     return current, events
 
 

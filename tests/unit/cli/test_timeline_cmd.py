@@ -76,14 +76,10 @@ def test_status_text_output_shows_counts(tmp_path: Path, timeline_db: Path) -> N
     assert "last scan sha:    sha-alive" in out
 
 
-def test_status_json_output_is_machine_readable(
-    tmp_path: Path, timeline_db: Path
-) -> None:
+def test_status_json_output_is_machine_readable(tmp_path: Path, timeline_db: Path) -> None:
     _seed_events(timeline_db, str(tmp_path.resolve()))
     runner = CliRunner()
-    result = runner.invoke(
-        app, ["timeline", "status", "--project", str(tmp_path), "--json"]
-    )
+    result = runner.invoke(app, ["timeline", "status", "--project", str(tmp_path), "--json"])
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     assert payload["total_events"] == 4
@@ -93,14 +89,10 @@ def test_status_json_output_is_machine_readable(
     assert payload["enabled"] is True
 
 
-def test_status_reports_disabled_after_disable(
-    tmp_path: Path, timeline_db: Path
-) -> None:
+def test_status_reports_disabled_after_disable(tmp_path: Path, timeline_db: Path) -> None:
     runner = CliRunner()
     runner.invoke(app, ["timeline", "disable", "--project", str(tmp_path)])
-    result = runner.invoke(
-        app, ["timeline", "status", "--project", str(tmp_path), "--json"]
-    )
+    result = runner.invoke(app, ["timeline", "status", "--project", str(tmp_path), "--json"])
     assert result.exit_code == 0
     assert json.loads(result.stdout)["enabled"] is False
 
@@ -129,9 +121,7 @@ def test_prune_default_removes_only_orphaned(tmp_path: Path, timeline_db: Path) 
     assert "orphaned only" in result.stdout
 
 
-def test_prune_include_live_removes_everything(
-    tmp_path: Path, timeline_db: Path
-) -> None:
+def test_prune_include_live_removes_everything(tmp_path: Path, timeline_db: Path) -> None:
     project_root = str(tmp_path.resolve())
     _seed_events(timeline_db, project_root)
     now = time.time()
@@ -177,9 +167,7 @@ def test_reconcile_reports_git_unavailable(
     # force PATH empty so `git` is not found → git_available=False.
     monkeypatch.setenv("PATH", "/nonexistent")
     runner = CliRunner()
-    result = runner.invoke(
-        app, ["timeline", "reconcile", "--project", str(tmp_path)]
-    )
+    result = runner.invoke(app, ["timeline", "reconcile", "--project", str(tmp_path)])
     assert result.exit_code == 1
     assert "git unavailable" in result.output
 

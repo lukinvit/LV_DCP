@@ -35,9 +35,7 @@ def _commit_all(repo: Path, message: str) -> None:
 
 def _write_mod(repo: Path, funcs: list[str]) -> None:
     """Overwrite ``pkg/mod.py`` with one def per func name."""
-    body = "\n\n".join(
-        f"def {name}() -> int:\n    return {i}\n" for i, name in enumerate(funcs)
-    )
+    body = "\n\n".join(f"def {name}() -> int:\n    return {i}\n" for i, name in enumerate(funcs))
     (repo / "pkg" / "mod.py").write_text(body + "\n")
 
 

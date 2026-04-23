@@ -50,9 +50,7 @@ def _commit_all(repo: Path, message: str) -> None:
 
 
 def _write_mod(repo: Path, funcs: dict[str, int]) -> None:
-    body = "\n\n".join(
-        f"def {name}() -> int:\n    return {v}\n" for name, v in funcs.items()
-    )
+    body = "\n\n".join(f"def {name}() -> int:\n    return {v}\n" for name, v in funcs.items())
     (repo / "pkg" / "mod.py").write_text(body + "\n")
 
 
@@ -198,11 +196,13 @@ def test_post_rebase_scan_captures_new_commits_and_reconcile_leaves_them_alone(
     # The fresh commit_sha is on live rows.
     live_shas = {
         r[0]
-        for r in store._connect().execute(
+        for r in store._connect()
+        .execute(
             "SELECT DISTINCT commit_sha FROM symbol_timeline_events "
             "WHERE project_root = ? AND orphaned = 0 AND commit_sha IS NOT NULL",
             (project_root,),
-        ).fetchall()
+        )
+        .fetchall()
     }
     assert new_head in live_shas
 

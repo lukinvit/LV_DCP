@@ -91,14 +91,18 @@ def repo_with_two_tags(
 
 
 def _snapshot_rows(store: SymbolTimelineStore, project_root: str) -> list[tuple]:  # type: ignore[type-arg]
-    return store._connect().execute(
-        "SELECT snapshot_id, tag, head_sha, symbol_count, checksum, "
-        "tag_invalidated, ref_kind "
-        "FROM symbol_timeline_snapshots "
-        "WHERE project_root = ? "
-        "ORDER BY id ASC",
-        (project_root,),
-    ).fetchall()
+    return (
+        store._connect()
+        .execute(
+            "SELECT snapshot_id, tag, head_sha, symbol_count, checksum, "
+            "tag_invalidated, ref_kind "
+            "FROM symbol_timeline_snapshots "
+            "WHERE project_root = ? "
+            "ORDER BY id ASC",
+            (project_root,),
+        )
+        .fetchall()
+    )
 
 
 def test_poll_tags_emits_created_events_for_fresh_repo(
@@ -122,9 +126,7 @@ def test_handle_tag_event_writes_immutable_snapshot(
 
     _current, events = poll_tags(repo, known={})
     for ev in events:
-        handle_tag_event(
-            store, project_root=project_root, event=ev, sidecar_root=repo
-        )
+        handle_tag_event(store, project_root=project_root, event=ev, sidecar_root=repo)
 
     rows = _snapshot_rows(store, project_root)
     assert len(rows) == 2
@@ -191,9 +193,7 @@ def test_tag_move_emits_moved_and_invalidates_prior_snapshot(
     assert moved.head_sha == new_head
     assert moved.previous_sha == old_v2_sha
 
-    handle_tag_event(
-        store, project_root=project_root, event=moved, sidecar_root=repo
-    )
+    handle_tag_event(store, project_root=project_root, event=moved, sidecar_root=repo)
 
     post_rows = _snapshot_rows(store, project_root)
     v2_rows = [r for r in post_rows if r[1] == "v2"]
@@ -223,12 +223,8 @@ def test_handle_tag_event_is_idempotent(
     v1_sha = _git_out(repo, "rev-parse", "v1^{commit}")
 
     ev = TagEvent(tag="v1", head_sha=v1_sha, kind="created")
-    first = handle_tag_event(
-        store, project_root=project_root, event=ev, sidecar_root=repo
-    )
-    second = handle_tag_event(
-        store, project_root=project_root, event=ev, sidecar_root=repo
-    )
+    first = handle_tag_event(store, project_root=project_root, event=ev, sidecar_root=repo)
+    second = handle_tag_event(store, project_root=project_root, event=ev, sidecar_root=repo)
 
     assert first.snapshot_id == second.snapshot_id
     rows = [r for r in _snapshot_rows(store, project_root) if r[1] == "v1"]

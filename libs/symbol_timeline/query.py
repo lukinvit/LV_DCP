@@ -15,15 +15,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import structlog
+
 from libs.symbol_timeline.store import (
     SymbolTimelineStore,
     TimelineEvent,
     events_between,
     events_for_symbol,
 )
+from libs.telemetry.timeline_metrics import observe_query_latency
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+log = structlog.get_logger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,9 +97,7 @@ class RemovedSinceResult:
     truncated: bool
 
 
-def commits_after_ref(
-    root: Path, ref_sha: str, *, timeout: float = 5.0
-) -> set[str] | None:
+def commits_after_ref(root: Path, ref_sha: str, *, timeout: float = 5.0) -> set[str] | None:
     """Return the 40-hex shas reachable from ``HEAD`` but not from ``ref_sha``.
 
     Uses ``git rev-list <ref_sha>..HEAD`` so the set is inclusive of ``HEAD``
@@ -176,6 +179,43 @@ def find_removed_since(  # noqa: PLR0913 - keyword-only query API
     git_root: Path | None = None,
     importance_lookup: Callable[[str], float | None] | None = None,
 ) -> RemovedSinceResult:
+    start = time.perf_counter()
+    with observe_query_latency("removed_since"):
+        result = _find_removed_since_impl(
+            store,
+            project_root=project_root,
+            ref=ref,
+            include_renamed=include_renamed,
+            limit=limit,
+            now=now,
+            git_root=git_root,
+            importance_lookup=importance_lookup,
+        )
+    log.info(
+        "timeline.query.removed_since",
+        project_root=project_root,
+        ref=ref,
+        ref_resolved_sha=result.ref_resolved_sha,
+        ref_not_found=result.ref_not_found,
+        removed_count=len(result.removed),
+        renamed_count=len(result.renamed),
+        truncated=result.truncated,
+        duration_ms=round((time.perf_counter() - start) * 1000.0, 2),
+    )
+    return result
+
+
+def _find_removed_since_impl(  # noqa: PLR0913 - mirror of find_removed_since
+    store: SymbolTimelineStore,
+    *,
+    project_root: str,
+    ref: str,
+    include_renamed: bool = False,
+    limit: int = 50,
+    now: float | None = None,
+    git_root: Path | None = None,
+    importance_lookup: Callable[[str], float | None] | None = None,
+) -> RemovedSinceResult:
     """Return removed symbols after ``ref`` + rename edges for context.
 
     ``ref`` is resolved to a commit timestamp via ``resolve_git_ref`` in
@@ -245,14 +285,18 @@ def find_removed_since(  # noqa: PLR0913 - keyword-only query API
         if ev.qualified_name and ev.symbol_id not in name_by_sid:
             name_by_sid[ev.symbol_id] = ev.qualified_name
 
-    rename_rows = store._connect().execute(
-        "SELECT old_symbol_id, new_symbol_id, commit_sha, timestamp, "
-        "confidence, is_candidate "
-        "FROM symbol_timeline_rename_edges "
-        "WHERE project_root = ? AND timestamp > ? "
-        "ORDER BY timestamp DESC, id DESC",
-        (project_root, ref_ts),
-    ).fetchall()
+    rename_rows = (
+        store._connect()
+        .execute(
+            "SELECT old_symbol_id, new_symbol_id, commit_sha, timestamp, "
+            "confidence, is_candidate "
+            "FROM symbol_timeline_rename_edges "
+            "WHERE project_root = ? AND timestamp > ? "
+            "ORDER BY timestamp DESC, id DESC",
+            (project_root, ref_ts),
+        )
+        .fetchall()
+    )
     if reachable is not None:
         rename_rows = [r for r in rename_rows if r[2] is not None and r[2] in reachable]
     rename_pairs = [
@@ -400,7 +444,46 @@ def _net_effect(
     return out
 
 
-def diff(  # noqa: PLR0913, PLR0915, PLR0912 - keyword-only query API with bucketed output
+def diff(  # noqa: PLR0913 - keyword-only query API
+    store: SymbolTimelineStore,
+    *,
+    project_root: str,
+    from_ref: str,
+    to_ref: str = "HEAD",
+    limit_per_bucket: int = 20,
+    git_root: Path | None = None,
+    importance_lookup: Callable[[str], float | None] | None = None,
+) -> DiffResult:
+    start = time.perf_counter()
+    with observe_query_latency("diff"):
+        result = _diff_impl(
+            store,
+            project_root=project_root,
+            from_ref=from_ref,
+            to_ref=to_ref,
+            limit_per_bucket=limit_per_bucket,
+            git_root=git_root,
+            importance_lookup=importance_lookup,
+        )
+    log.info(
+        "timeline.query.diff",
+        project_root=project_root,
+        from_ref=from_ref,
+        to_ref=to_ref,
+        from_sha=result.from_resolved_sha,
+        to_sha=result.to_resolved_sha,
+        ref_not_found=result.ref_not_found,
+        total_added=result.total_added,
+        total_removed=result.total_removed,
+        total_modified=result.total_modified,
+        renamed_count=len(result.renamed),
+        truncated=result.truncated,
+        duration_ms=round((time.perf_counter() - start) * 1000.0, 2),
+    )
+    return result
+
+
+def _diff_impl(  # noqa: PLR0913, PLR0915, PLR0912 - bucketed output impl
     store: SymbolTimelineStore,
     *,
     project_root: str,
@@ -502,22 +585,23 @@ def diff(  # noqa: PLR0913, PLR0915, PLR0912 - keyword-only query API with bucke
         if reachable_pair is not None:
             reachable = reachable_pair
     if reachable is not None:
-        events = [
-            e for e in events
-            if e.commit_sha is not None and e.commit_sha in reachable
-        ]
+        events = [e for e in events if e.commit_sha is not None and e.commit_sha in reachable]
 
     # Gather rename edges in the window for later paired-hiding + display.
     # Upper bound uses the same generous cap as the event query above — the
     # ``reachable`` commit_sha set enforces precision.
-    rename_rows = store._connect().execute(
-        "SELECT old_symbol_id, new_symbol_id, commit_sha, timestamp, "
-        "confidence, is_candidate "
-        "FROM symbol_timeline_rename_edges "
-        "WHERE project_root = ? AND timestamp > ? AND timestamp <= ? "
-        "ORDER BY timestamp DESC, id DESC",
-        (project_root, from_ts, upper),
-    ).fetchall()
+    rename_rows = (
+        store._connect()
+        .execute(
+            "SELECT old_symbol_id, new_symbol_id, commit_sha, timestamp, "
+            "confidence, is_candidate "
+            "FROM symbol_timeline_rename_edges "
+            "WHERE project_root = ? AND timestamp > ? AND timestamp <= ? "
+            "ORDER BY timestamp DESC, id DESC",
+            (project_root, from_ts, upper),
+        )
+        .fetchall()
+    )
     if reachable is not None:
         rename_rows = [r for r in rename_rows if r[2] is not None and r[2] in reachable]
 
@@ -689,22 +773,26 @@ def fuzzy_symbol_lookup(
     if not partial_name:
         return []
     # Row per symbol_id with its latest event metadata.
-    rows = store._connect().execute(
-        "SELECT symbol_id, qualified_name, file_path, MAX(timestamp) AS last_ts, "
-        "       ( SELECT event_type FROM symbol_timeline_events e2 "
-        "         WHERE e2.project_root = e.project_root "
-        "           AND e2.symbol_id = e.symbol_id "
-        "         ORDER BY timestamp DESC, id DESC LIMIT 1 ) AS last_type "
-        "FROM symbol_timeline_events e "
-        "WHERE project_root = ? "
-        "  AND qualified_name IS NOT NULL "
-        "  AND LOWER(qualified_name) LIKE ? "
-        "  AND orphaned = 0 "
-        "GROUP BY symbol_id "
-        "ORDER BY last_ts DESC "
-        "LIMIT ?",
-        (project_root, f"%{partial_name.lower()}%", limit),
-    ).fetchall()
+    rows = (
+        store._connect()
+        .execute(
+            "SELECT symbol_id, qualified_name, file_path, MAX(timestamp) AS last_ts, "
+            "       ( SELECT event_type FROM symbol_timeline_events e2 "
+            "         WHERE e2.project_root = e.project_root "
+            "           AND e2.symbol_id = e.symbol_id "
+            "         ORDER BY timestamp DESC, id DESC LIMIT 1 ) AS last_type "
+            "FROM symbol_timeline_events e "
+            "WHERE project_root = ? "
+            "  AND qualified_name IS NOT NULL "
+            "  AND LOWER(qualified_name) LIKE ? "
+            "  AND orphaned = 0 "
+            "GROUP BY symbol_id "
+            "ORDER BY last_ts DESC "
+            "LIMIT ?",
+            (project_root, f"%{partial_name.lower()}%", limit),
+        )
+        .fetchall()
+    )
     return [
         SymbolCandidate(
             symbol_id=r[0],
@@ -730,22 +818,30 @@ def _rename_pairs_for_symbol(
     something was renamed *into* it. ``successors`` = edges where it is the
     *old* side — i.e. it was later renamed to a new name.
     """
-    preds_rows = store._connect().execute(
-        "SELECT old_symbol_id, new_symbol_id, commit_sha, timestamp, "
-        "confidence, is_candidate "
-        "FROM symbol_timeline_rename_edges "
-        "WHERE project_root = ? AND new_symbol_id = ? "
-        "ORDER BY timestamp ASC, id ASC",
-        (project_root, symbol_id),
-    ).fetchall()
-    succs_rows = store._connect().execute(
-        "SELECT old_symbol_id, new_symbol_id, commit_sha, timestamp, "
-        "confidence, is_candidate "
-        "FROM symbol_timeline_rename_edges "
-        "WHERE project_root = ? AND old_symbol_id = ? "
-        "ORDER BY timestamp ASC, id ASC",
-        (project_root, symbol_id),
-    ).fetchall()
+    preds_rows = (
+        store._connect()
+        .execute(
+            "SELECT old_symbol_id, new_symbol_id, commit_sha, timestamp, "
+            "confidence, is_candidate "
+            "FROM symbol_timeline_rename_edges "
+            "WHERE project_root = ? AND new_symbol_id = ? "
+            "ORDER BY timestamp ASC, id ASC",
+            (project_root, symbol_id),
+        )
+        .fetchall()
+    )
+    succs_rows = (
+        store._connect()
+        .execute(
+            "SELECT old_symbol_id, new_symbol_id, commit_sha, timestamp, "
+            "confidence, is_candidate "
+            "FROM symbol_timeline_rename_edges "
+            "WHERE project_root = ? AND old_symbol_id = ? "
+            "ORDER BY timestamp ASC, id ASC",
+            (project_root, symbol_id),
+        )
+        .fetchall()
+    )
 
     def _pair(r: tuple) -> RenamePair:  # type: ignore[type-arg]
         return RenamePair(
@@ -796,6 +892,38 @@ def symbol_timeline(
     Rename edges touching the resolved symbol are returned separately so the
     caller can show "renamed from/to" context without us duplicating events.
     """
+    start = time.perf_counter()
+    with observe_query_latency("symbol_timeline"):
+        result = _symbol_timeline_impl(
+            store,
+            project_root=project_root,
+            symbol=symbol,
+            include_orphaned=include_orphaned,
+            candidate_limit=candidate_limit,
+        )
+    log.info(
+        "timeline.query.symbol_timeline",
+        project_root=project_root,
+        symbol=symbol,
+        symbol_id=result.symbol_id,
+        not_found=result.not_found,
+        event_count=len(result.events),
+        predecessor_count=len(result.rename_predecessors),
+        successor_count=len(result.rename_successors),
+        candidate_count=len(result.candidates),
+        duration_ms=round((time.perf_counter() - start) * 1000.0, 2),
+    )
+    return result
+
+
+def _symbol_timeline_impl(
+    store: SymbolTimelineStore,
+    *,
+    project_root: str,
+    symbol: str,
+    include_orphaned: bool = False,
+    candidate_limit: int = 5,
+) -> SymbolTimelineResult:
     resolved_id: str | None = None
     candidates: list[SymbolCandidate] = []
 
@@ -845,16 +973,24 @@ def symbol_timeline(
     # Build name_by_sid for rename-pair enrichment: the resolved symbol itself
     # plus any sids it's paired with in rename edges.
     name_by_sid: dict[str, str | None] = {resolved_id: qualified_name}
-    pred_rows = store._connect().execute(
-        "SELECT old_symbol_id FROM symbol_timeline_rename_edges "
-        "WHERE project_root = ? AND new_symbol_id = ? ",
-        (project_root, resolved_id),
-    ).fetchall()
-    succ_rows = store._connect().execute(
-        "SELECT new_symbol_id FROM symbol_timeline_rename_edges "
-        "WHERE project_root = ? AND old_symbol_id = ? ",
-        (project_root, resolved_id),
-    ).fetchall()
+    pred_rows = (
+        store._connect()
+        .execute(
+            "SELECT old_symbol_id FROM symbol_timeline_rename_edges "
+            "WHERE project_root = ? AND new_symbol_id = ? ",
+            (project_root, resolved_id),
+        )
+        .fetchall()
+    )
+    succ_rows = (
+        store._connect()
+        .execute(
+            "SELECT new_symbol_id FROM symbol_timeline_rename_edges "
+            "WHERE project_root = ? AND old_symbol_id = ? ",
+            (project_root, resolved_id),
+        )
+        .fetchall()
+    )
     paired_sids = {r[0] for r in pred_rows} | {r[0] for r in succ_rows}
     for sid in paired_sids:
         # Look up each paired symbol's latest qualified_name for display.

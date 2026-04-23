@@ -30,11 +30,7 @@ def _seed_project(root: Path) -> None:
     (root / "pkg").mkdir(exist_ok=True)
     (root / "pkg" / "__init__.py").write_text("")
     (root / "pkg" / "mod.py").write_text(
-        "def alpha() -> int:\n"
-        "    return 1\n"
-        "\n"
-        "def beta() -> int:\n"
-        "    return 2\n"
+        "def alpha() -> int:\n    return 1\n\ndef beta() -> int:\n    return 2\n"
     )
 
 
@@ -65,11 +61,7 @@ def test_second_scan_after_edit_emits_modified_only(tmp_path: Path) -> None:
 
     # Edit alpha's body.
     (project / "pkg" / "mod.py").write_text(
-        "def alpha() -> int:\n"
-        "    return 42  # changed\n"
-        "\n"
-        "def beta() -> int:\n"
-        "    return 2\n"
+        "def alpha() -> int:\n    return 42  # changed\n\ndef beta() -> int:\n    return 2\n"
     )
 
     second_sink = MemoryTimelineSink()

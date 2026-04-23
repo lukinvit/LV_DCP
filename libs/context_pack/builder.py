@@ -9,6 +9,10 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from libs.context_pack.timeline_enrich import (
+    detect_timeline_markers,
+    enrich_pack_with_timeline,
+)
 from libs.core.entities import ContextPack, PackMode
 from libs.core.paths import is_test_path
 from libs.retrieval.disambiguate import format_suggestion_hint, suggest_disambiguators
@@ -60,6 +64,38 @@ def _render_accepted_memories_section(project_root: Path) -> list[str]:
     return lines
 
 
+def _maybe_enrich_with_timeline(
+    md: str,
+    *,
+    project_root: Path | None,
+    query: str,
+    enabled: bool,
+) -> str:
+    """Append ``## Timeline facts`` when the query has timeline intent.
+
+    Best-effort: a broken store, unresolvable ref, or empty result all
+    short-circuit to returning ``md`` unchanged — pack assembly must never
+    fail because timeline data is missing.
+    """
+    if not enabled or project_root is None:
+        return md
+    # Cheap regex scan first — almost all queries miss and skip the rest.
+    markers = detect_timeline_markers(query)
+    if not markers.hit:
+        return md
+    try:
+        return enrich_pack_with_timeline(
+            md,
+            project_root=project_root,
+            query=query,
+            markers=markers,
+            enabled=True,
+        )
+    except Exception:
+        # Timeline is a side-channel; never break a pack build.
+        return md
+
+
 def _git_changed_files(project_root: Path) -> list[str]:
     """Return files with uncommitted changes (staged + unstaged).
 
@@ -88,6 +124,7 @@ def build_navigate_pack(
     query: str,
     result: RetrievalResult,
     project_root: Path | None = None,
+    enable_timeline_enrichment: bool = True,
 ) -> ContextPack:
     lines: list[str] = []
     lines.append("# Context pack — navigate")
@@ -134,6 +171,12 @@ def build_navigate_pack(
     lines.append("")
 
     md = "\n".join(lines)
+    md = _maybe_enrich_with_timeline(
+        md,
+        project_root=project_root,
+        query=query,
+        enabled=enable_timeline_enrichment,
+    )
     return ContextPack(
         project_slug=project_slug,
         query=query,
@@ -154,6 +197,7 @@ def build_edit_pack(  # noqa: PLR0912, PLR0915
     query: str,
     result: RetrievalResult,
     project_root: Path | None = None,
+    enable_timeline_enrichment: bool = True,
 ) -> ContextPack:
     # Detect uncommitted git changes and merge them into retrieval results.
     git_changed: list[str] = []
@@ -259,6 +303,12 @@ def build_edit_pack(  # noqa: PLR0912, PLR0915
     lines.append("4. Summarize the diff when done")
 
     md = "\n".join(lines)
+    md = _maybe_enrich_with_timeline(
+        md,
+        project_root=project_root,
+        query=query,
+        enabled=enable_timeline_enrichment,
+    )
     return ContextPack(
         project_slug=project_slug,
         query=query,
