@@ -2,8 +2,8 @@
 
 **Local-first engineering memory.** Turns projects on macOS into a queryable context layer for Claude, IDE agents, and humans. Supports Python, TypeScript/JS, Go, and Rust. Reduces token cost of repeated code reading, builds a relation graph, and makes agent edits safer.
 
-[![Phase 9 Complete](https://img.shields.io/badge/phase-9%20complete-green)](docs/release/2026-04-24-v0.8.4-last-refresh.md)
-[![Version 0.8.4](https://img.shields.io/badge/version-0.8.4-blue)](pyproject.toml)
+[![Phase 9 Complete](https://img.shields.io/badge/phase-9%20complete-green)](docs/release/2026-04-24-v0.8.5-log-tail.md)
+[![Version 0.8.5](https://img.shields.io/badge/version-0.8.5-blue)](pyproject.toml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue)](pyproject.toml)
 
@@ -53,6 +53,8 @@ $ ctx pack . "refresh token rotation" --mode edit
 
 ## Status
 
+**v0.8.5 (2026-04-24)** — Error log tail. On a non-clean, non-SIGTERM exit the runner seeks past its startup offset in `.refresh.log` and persists the current run's last ~20 lines as `log_tail` in `.refresh.last`. `ctx project check` renders them as an indented `log tail:` block under the `FAILED exit=…` last-run hint, so diagnosing a crashed refresh no longer requires a second `cat .refresh.log` step. Suppressed on clean / SIGTERM exits and while a refresh is in progress. Closes the *"No error-tail surface"* gap from v0.8.4. No new deps.
+
 **v0.8.4 (2026-04-24)** — `.refresh.last` outcome record. After every background wiki refresh finishes (cleanly, via SIGTERM, or crash), the runner's `finally` block writes `.context/wiki/.refresh.last` with `{completed_at, exit_code, modules_updated, elapsed_seconds}`. `ctx project check` then renders `bg_refresh=false (last: ok 12 modules 47s, 3 min ago)` — or `FAILED exit=1 … — see .refresh.log` for crashes. Closes the *"No transition-to-error surface"* gap from v0.8.3: the watcher now tells you *why* the refresh stopped, not just *that* it stopped. No new deps, no new process.
 
 **v0.8.3 (2026-04-24)** — `ctx project check --watch`. Live-tail the background wiki refresh: re-prints the full `check` snapshot every `--interval` seconds (default 2 s) until the refresh transitions to idle, then exits. `--json` mode streams consecutive `CopilotCheckReport` objects separated by blank lines — grep- and `jq -c`-friendly. Closes the *"No live tail"* gap from v0.8.2. No new deps; generator-based polling, not threads.
@@ -74,6 +76,7 @@ $ ctx pack . "refresh token rotation" --mode edit
 Stabilization 0.6.1 baseline: mandatory GitHub Actions quality gates, green `ruff` / `mypy`, runtime-hardened embeddings and Qdrant.
 
 Release notes:
+- [docs/release/2026-04-24-v0.8.5-log-tail.md](docs/release/2026-04-24-v0.8.5-log-tail.md) (v0.8.5 — Error log tail)
 - [docs/release/2026-04-24-v0.8.4-last-refresh.md](docs/release/2026-04-24-v0.8.4-last-refresh.md) (v0.8.4 — `.refresh.last` outcome record)
 - [docs/release/2026-04-24-v0.8.3-check-watch.md](docs/release/2026-04-24-v0.8.3-check-watch.md) (v0.8.3 — `ctx project check --watch`)
 - [docs/release/2026-04-24-v0.8.2-wiki-progress-cancel.md](docs/release/2026-04-24-v0.8.2-wiki-progress-cancel.md) (v0.8.2 — Wiki Background Progress & Cancellation)
@@ -430,6 +433,7 @@ The daemon uses `watchdog.observers.Observer` which auto-selects `FSEventsObserv
 - **v0.8.2** (done) — Wiki background progress + cancellation. Lock payload carries `phase` / `modules_total`/`_done` / `current_module`; `ctx project check` renders `bg_refresh=true (generating 3/12 "libs/foo" pid=1234)`. New `--stop` flag sends SIGTERM and cleans up stale locks. Closes both known gaps from v0.8.1. No new deps.
 - **v0.8.3** (done) — `ctx project check --watch`: generator-based live-tail that polls the lock and re-prints the snapshot until the refresh settles. `--json` mode streams consecutive reports separated by blank lines. Closes the "no live tail" gap from v0.8.2. No threads, no new deps.
 - **v0.8.4** (done) — `.refresh.last` outcome record: the runner writes `{completed_at, exit_code, modules_updated, elapsed_seconds}` in its `finally` block (clean / SIGTERM / crash all covered), and `ctx project check` renders `bg_refresh=false (last: ok 12 modules 47s, 3 min ago)` or `FAILED exit=1 … — see .refresh.log`. Closes the "no transition-to-error surface" gap from v0.8.3. No new deps, no new process.
+- **v0.8.5** (done) — Error log tail: on a non-clean, non-SIGTERM exit the runner captures the current run's last ~20 lines of `.refresh.log` into `.refresh.last.log_tail`, and `ctx project check` renders them as an indented block under the `FAILED exit=…` last-run hint — so diagnosing a crashed refresh no longer needs a second `cat .refresh.log`. Closes the "no error-tail surface" gap from v0.8.4. No new deps.
 - **Phase 10** (next) — Java/Kotlin/Swift parsers, VS Code marketplace, Obsidian nightly sync.
 
 ## Contributing

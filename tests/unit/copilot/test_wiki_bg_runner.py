@@ -106,3 +106,96 @@ def test_runner_writes_last_refresh_on_crash(
     assert record is not None
     assert record.exit_code == 1
     assert record.modules_updated == 0
+
+
+# ---- log_tail capture on crash (v0.8.5) -----------------------------------
+
+
+def test_runner_captures_log_tail_from_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Crash path: ``.refresh.log`` content since run-start is captured.
+
+    Since tests don't redirect stdout to ``.refresh.log`` like the real
+    parent does, we seed the file ourselves between ``_initial_log_offset``
+    and the finally-block capture — that's what a real parent
+    would have written from the crashed runner's stderr.
+    """
+    _make_project(tmp_path)
+    log_path = tmp_path / ".context" / "wiki" / ".refresh.log"
+    # Pre-run content — the runner's offset capture must ignore this.
+    log_path.write_text("old-run boilerplate\n", encoding="utf-8")
+
+    def fake_update(
+        _root: Path,
+        *,
+        all_modules: bool,
+        on_progress: Callable[..., None],
+    ) -> tuple[int, list[str]]:
+        # Simulate crash output arriving in the log file mid-run.
+        with log_path.open("a", encoding="utf-8") as fh:
+            fh.write("2026-04-24 [bg-wiki pid=1] Traceback (most recent call last):\n")
+            fh.write('  File "x.py", line 10, in _run\n    raise RuntimeError("boom")\n')
+            fh.write("RuntimeError: boom\n")
+        raise RuntimeError("boom")
+
+    _install_fake_orchestrator(monkeypatch, fake=fake_update)
+    exit_code = _wiki_bg_runner.main([str(tmp_path)])
+    assert exit_code == 1
+
+    record = wiki_background.read_last_refresh(tmp_path)
+    assert record is not None
+    assert record.log_tail is not None
+    tail = list(record.log_tail)
+    # Pre-run line filtered out (offset).
+    assert "old-run boilerplate" not in tail
+    # Traceback surfaced.
+    assert any("RuntimeError: boom" in line for line in tail)
+
+
+def test_runner_log_tail_is_none_on_clean_exit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Clean runs: no diagnostic tail persisted (keeps the record small)."""
+    _make_project(tmp_path)
+    # Even if .refresh.log has content, clean exit should not capture it.
+    (tmp_path / ".context" / "wiki" / ".refresh.log").write_text("some line\n", encoding="utf-8")
+
+    def fake_update(
+        _root: Path,
+        *,
+        all_modules: bool,
+        on_progress: Callable[..., None],
+    ) -> tuple[int, list[str]]:
+        on_progress(done=1, total=1, current="x")
+        return (1, [])
+
+    _install_fake_orchestrator(monkeypatch, fake=fake_update)
+    exit_code = _wiki_bg_runner.main([str(tmp_path)])
+    assert exit_code == 0
+    record = wiki_background.read_last_refresh(tmp_path)
+    assert record is not None
+    assert record.log_tail is None
+
+
+def test_runner_log_tail_is_none_on_sigterm(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SIGTERM cancellations don't attach a tail — the 'cancelled' label suffices."""
+    _make_project(tmp_path)
+    (tmp_path / ".context" / "wiki" / ".refresh.log").write_text("irrelevant\n", encoding="utf-8")
+
+    def fake_update(
+        _root: Path,
+        *,
+        all_modules: bool,
+        on_progress: Callable[..., None],
+    ) -> tuple[int, list[str]]:
+        raise SystemExit(143)
+
+    _install_fake_orchestrator(monkeypatch, fake=fake_update)
+    exit_code = _wiki_bg_runner.main([str(tmp_path)])
+    assert exit_code == 143
+    record = wiki_background.read_last_refresh(tmp_path)
+    assert record is not None
+    assert record.log_tail is None

@@ -355,3 +355,69 @@ def test_write_last_refresh_is_atomic_via_rename(tmp_path: Path) -> None:
     tmp_siblings = list(wiki_dir.glob(".refresh.last.tmp*"))
     assert tmp_siblings == []
     assert (wiki_dir / ".refresh.last").exists()
+
+
+# ---- log_tail round-trip (v0.8.5) -----------------------------------------
+
+
+def test_last_refresh_log_tail_round_trips(tmp_path: Path) -> None:
+    _make_project(tmp_path)
+    lines = ["2026-04-24 [bg-wiki pid=42] start", "2026-04-24 [bg-wiki pid=42] boom"]
+    wiki_background.write_last_refresh(
+        tmp_path,
+        exit_code=1,
+        modules_updated=0,
+        elapsed_seconds=0.1,
+        log_tail=lines,
+    )
+    rec = wiki_background.read_last_refresh(tmp_path)
+    assert rec is not None
+    assert rec.log_tail == tuple(lines)
+
+
+def test_last_refresh_log_tail_is_truncated_to_cap(tmp_path: Path) -> None:
+    """A caller passing more than _MAX_LOG_TAIL_LINES gets the last N kept."""
+    _make_project(tmp_path)
+    big = [f"line {i}" for i in range(100)]
+    wiki_background.write_last_refresh(
+        tmp_path, exit_code=1, modules_updated=0, elapsed_seconds=0.0, log_tail=big
+    )
+    rec = wiki_background.read_last_refresh(tmp_path)
+    assert rec is not None
+    assert rec.log_tail is not None
+    assert len(rec.log_tail) == wiki_background._MAX_LOG_TAIL_LINES
+    # Tail end preserved, not the head.
+    assert rec.log_tail[-1] == "line 99"
+
+
+def test_last_refresh_log_tail_omitted_when_empty(tmp_path: Path) -> None:
+    """Passing no log_tail leaves the key absent from the JSON payload."""
+    _make_project(tmp_path)
+    wiki_background.write_last_refresh(
+        tmp_path, exit_code=0, modules_updated=2, elapsed_seconds=0.5
+    )
+    raw = json.loads((tmp_path / ".context" / "wiki" / ".refresh.last").read_text(encoding="utf-8"))
+    assert "log_tail" not in raw
+    rec = wiki_background.read_last_refresh(tmp_path)
+    assert rec is not None
+    assert rec.log_tail is None
+
+
+def test_last_refresh_ignores_non_list_log_tail(tmp_path: Path) -> None:
+    """Forward-compat: a malformed log_tail type drops to None, doesn't crash."""
+    _make_project(tmp_path)
+    (tmp_path / ".context" / "wiki" / ".refresh.last").write_text(
+        json.dumps(
+            {
+                "completed_at": 1.0,
+                "exit_code": 1,
+                "modules_updated": 0,
+                "elapsed_seconds": 0.1,
+                "log_tail": "not a list",
+            }
+        ),
+        encoding="utf-8",
+    )
+    rec = wiki_background.read_last_refresh(tmp_path)
+    assert rec is not None
+    assert rec.log_tail is None

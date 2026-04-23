@@ -481,3 +481,83 @@ def test_render_bg_refresh_running_ignores_last_run() -> None:
     rendered = _render_bg_refresh(report)
     assert rendered.startswith("true (generating")
     assert "last:" not in rendered  # live view supersedes the last-run hint
+
+
+# ---- log tail rendering (v0.8.5) ------------------------------------------
+
+
+def test_check_renders_log_tail_on_failed_run(tmp_path: Path) -> None:
+    """A crashed last-run surfaces indented ``log tail:`` lines in ``ctx project check``."""
+    from libs.copilot import write_last_refresh
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    _seed_project(proj)
+    scan_project(proj, mode="full")
+    (proj / ".context" / "wiki").mkdir(parents=True, exist_ok=True)
+    write_last_refresh(
+        proj,
+        exit_code=1,
+        modules_updated=2,
+        elapsed_seconds=1.5,
+        log_tail=[
+            "Traceback (most recent call last):",
+            '  File "x.py", line 10, in _run',
+            "RuntimeError: boom",
+        ],
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["project", "check", str(proj)])
+    assert result.exit_code == 0, result.stdout
+    assert "FAILED exit=1" in result.stdout
+    assert "log tail:" in result.stdout
+    assert "RuntimeError: boom" in result.stdout
+
+
+def test_check_does_not_render_log_tail_on_clean_run(tmp_path: Path) -> None:
+    """Clean last-run → no ``log tail:`` block even if someone persisted one."""
+    from libs.copilot import write_last_refresh
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    _seed_project(proj)
+    scan_project(proj, mode="full")
+    (proj / ".context" / "wiki").mkdir(parents=True, exist_ok=True)
+    write_last_refresh(
+        proj,
+        exit_code=0,
+        modules_updated=3,
+        elapsed_seconds=2.0,
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["project", "check", str(proj)])
+    assert result.exit_code == 0, result.stdout
+    assert "log tail:" not in result.stdout
+
+
+def test_check_does_not_render_log_tail_on_sigterm(tmp_path: Path) -> None:
+    """SIGTERM last-run → no ``log tail:`` block (cancel label suffices)."""
+    from libs.copilot import write_last_refresh
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    _seed_project(proj)
+    scan_project(proj, mode="full")
+    (proj / ".context" / "wiki").mkdir(parents=True, exist_ok=True)
+    # A SIGTERM path shouldn't have persisted a tail, but even if one snuck
+    # through, the renderer suppresses it.
+    write_last_refresh(
+        proj,
+        exit_code=143,
+        modules_updated=1,
+        elapsed_seconds=0.5,
+        log_tail=["something that should not render"],
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["project", "check", str(proj)])
+    assert result.exit_code == 0, result.stdout
+    assert "cancelled" in result.stdout
+    assert "log tail:" not in result.stdout

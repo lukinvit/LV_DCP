@@ -336,3 +336,48 @@ def test_check_last_refresh_fields_none_when_never_run(
     assert report.wiki_last_refresh_exit_code is None
     assert report.wiki_last_refresh_modules_updated is None
     assert report.wiki_last_refresh_elapsed_seconds is None
+    assert report.wiki_last_refresh_log_tail is None
+
+
+# ---- log_tail surfacing on crash (v0.8.5) ---------------------------------
+
+
+def test_check_surfaces_log_tail_on_crash(tmp_path: Path, qdrant_off_config: Path) -> None:
+    """A crashed run's ``log_tail`` flows into the report as a list."""
+    from libs.copilot import write_last_refresh
+
+    _make_project(tmp_path)
+    (tmp_path / ".context" / "wiki").mkdir(parents=True, exist_ok=True)
+    tail = [
+        "Traceback (most recent call last):",
+        '  File "x.py", line 10, in _run',
+        "RuntimeError: boom",
+    ]
+    write_last_refresh(
+        tmp_path,
+        exit_code=1,
+        modules_updated=2,
+        elapsed_seconds=0.5,
+        completed_at=1_700_000_000.0,
+        log_tail=tail,
+    )
+    report = check_project(tmp_path)
+    assert report.wiki_last_refresh_exit_code == 1
+    assert report.wiki_last_refresh_log_tail == tail
+
+
+def test_check_log_tail_none_when_clean_run(tmp_path: Path, qdrant_off_config: Path) -> None:
+    """Clean runs don't persist a tail → report field stays None."""
+    from libs.copilot import write_last_refresh
+
+    _make_project(tmp_path)
+    (tmp_path / ".context" / "wiki").mkdir(parents=True, exist_ok=True)
+    write_last_refresh(
+        tmp_path,
+        exit_code=0,
+        modules_updated=3,
+        elapsed_seconds=2.0,
+        completed_at=1_700_000_000.0,
+    )
+    report = check_project(tmp_path)
+    assert report.wiki_last_refresh_log_tail is None
