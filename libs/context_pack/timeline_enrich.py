@@ -177,13 +177,19 @@ def _render_removed(result: RemovedSinceResult, buf: _SectionBuffer) -> None:
         return
     if result.removed:
         buf.append(f"- removed since `{result.ref}` ({len(result.removed)}):")
+        rendered = 0
         for r in result.removed[:5]:
             name = r.qualified_name or r.symbol_id
             sha = r.commit_sha[:8] if r.commit_sha else "no-sha"
             if not buf.append(f"  - `{name}` ({r.file_path}) @ `{sha}`"):
                 return
-        if result.truncated:
-            buf.append(f"  - _(+{result.total_before_limit - 5} more)_")
+            rendered += 1
+        # "more" hint uses the *actual* rendered count — the byte-budget in
+        # `buf.append` may have stopped us short of 5, and `result.truncated`
+        # only says the query layer capped at its own limit.
+        remaining = result.total_before_limit - rendered
+        if (result.truncated or rendered < len(result.removed)) and remaining > 0:
+            buf.append(f"  - _(+{remaining} more)_")
     if result.renamed:
         buf.append(f"- renamed since `{result.ref}` ({len(result.renamed)}):")
         for rp in result.renamed[:3]:

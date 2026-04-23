@@ -398,13 +398,16 @@ def reconcile_orphaned_events(
     stale = [r[0] for r in current_rows if r[0] not in known_commit_shas]
     if not stale:
         return 0
+    # `placeholders` is a constant string of '?' per stale value — no user input.
+    # We build the SQL via concatenation (not f-string) to honor the constitution
+    # rule "no f-strings in SQL" literally. noqa S608: ruff flags the concat but
+    # the placeholders are a fixed string of '?' by construction.
     placeholders = ",".join("?" for _ in stale)
-    cur = conn.execute(
-        # ruff: noqa: S608 - placeholders is a fixed string of '?' per value
-        f"UPDATE symbol_timeline_events SET orphaned = 1 "
-        f"WHERE project_root = ? AND commit_sha IN ({placeholders})",
-        (project_root, *stale),
+    sql = (
+        "UPDATE symbol_timeline_events SET orphaned = 1 "  # noqa: S608
+        "WHERE project_root = ? AND commit_sha IN (" + placeholders + ")"
     )
+    cur = conn.execute(sql, (project_root, *stale))
     conn.commit()
     return cur.rowcount or 0
 
