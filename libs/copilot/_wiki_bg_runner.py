@@ -30,9 +30,66 @@ import traceback
 from pathlib import Path
 from types import FrameType
 
+#: Maximum number of ``.refresh.log`` lines returned to the writer. The
+#: persistence layer applies its own cap via ``_MAX_LOG_TAIL_LINES``; we
+#: use a generous multiple here so we can discard blank/boilerplate lines
+#: during post-processing without risking truncation of useful context.
+_LOG_TAIL_READ_CAP = 200
+
 
 def _lock_path(root: Path) -> Path:
     return root / ".context" / "wiki" / ".refresh.lock"
+
+
+def _log_path(root: Path) -> Path:
+    return root / ".context" / "wiki" / ".refresh.log"
+
+
+def _initial_log_offset(root: Path) -> int:
+    """Byte offset in ``.refresh.log`` at runner startup.
+
+    The parent redirects stdout/stderr of the runner into this file via
+    ``>>`` semantics (``open("ab")``), so earlier runs' lines are still
+    present. We remember the starting size so a post-mortem tail only
+    surfaces lines from *this* run.
+    """
+    path = _log_path(root)
+    try:
+        return path.stat().st_size
+    except FileNotFoundError:
+        return 0
+
+
+def _capture_log_tail(
+    root: Path, *, start_offset: int, max_lines: int = _LOG_TAIL_READ_CAP
+) -> list[str] | None:
+    """Return the last ``max_lines`` of ``.refresh.log`` since ``start_offset``.
+
+    Returns ``None`` when the log file doesn't exist (e.g. unit-test
+    environments that don't spawn a real subprocess with stdout
+    redirection). Any read error also returns ``None`` — this is a
+    best-effort diagnostic, never a failure mode for the runner.
+    """
+    path = _log_path(root)
+    try:
+        # Flush any pending logging-handler writes before tailing.
+        for stream in (sys.stdout, sys.stderr):
+            with contextlib.suppress(Exception):  # pragma: no cover — best-effort
+                stream.flush()
+        with path.open("rb") as fh:
+            fh.seek(start_offset)
+            raw = fh.read()
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return None
+    if not raw:
+        return None
+    text = raw.decode("utf-8", errors="replace")
+    lines = [line.rstrip("\r") for line in text.split("\n") if line.strip()]
+    if not lines:
+        return None
+    return lines[-max_lines:]
 
 
 def _write_initial_lock(root: Path, *, all_modules: bool) -> None:
@@ -87,6 +144,10 @@ def main(argv: list[str] | None = None) -> int:
 
     _write_initial_lock(root, all_modules=args.all_modules)
     _install_sigterm_handler()
+    # Capture the log file size *before* our first log line so the
+    # post-mortem tail only includes output from this run (``.refresh.log``
+    # is append-only and accumulates across refreshes).
+    log_start_offset = _initial_log_offset(root)
     log.info("start root=%s all_modules=%s", root, args.all_modules)
     exit_code = 0
     # ``modules_updated`` reflects modules actually refreshed before exit.
@@ -146,11 +207,20 @@ def main(argv: list[str] | None = None) -> int:
                 write_last_refresh as _write_last_refresh,
             )
 
+            # Only capture the log tail on crashes. Clean exit (0) and
+            # SIGTERM (143) don't need it — the user gets a successful
+            # summary or an explicit "cancelled" label instead, and an
+            # unused log tail just bloats the record.
+            log_tail: list[str] | None = None
+            if exit_code not in (0, 143):
+                log_tail = _capture_log_tail(root, start_offset=log_start_offset)
+
             _write_last_refresh(
                 root,
                 exit_code=exit_code,
                 modules_updated=modules_updated,
                 elapsed_seconds=max(0.0, time.time() - started_at),
+                log_tail=log_tail,
             )
         except Exception:  # pragma: no cover — best-effort persistence
             log.error("failed to write .refresh.last:\n%s", traceback.format_exc())

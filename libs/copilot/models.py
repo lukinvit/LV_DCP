@@ -116,6 +116,14 @@ class CopilotCheckReport(BaseModel):
         default=None,
         description="Wall-clock duration of the most recent background refresh.",
     )
+    wiki_last_refresh_log_tail: list[str] | None = Field(
+        default=None,
+        description=(
+            "Last ~20 lines of ``.refresh.log`` captured at runner exit, populated "
+            "only when the most recent refresh crashed (non-zero, non-SIGTERM exit). "
+            "None for clean / cancelled runs and when no refresh has ever happened."
+        ),
+    )
     qdrant_enabled: bool = Field(
         description="cfg.qdrant.enabled — vector retrieval availability flag"
     )

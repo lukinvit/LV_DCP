@@ -126,6 +126,18 @@ def _render_check(report: CopilotCheckReport, *, as_json: bool) -> str:
         f"dirty_modules={report.wiki_dirty_modules} "
         f"bg_refresh={bg_label}"
     )
+    # Surface the crash log tail only when a FAILED run has been
+    # recorded AND no new refresh is in progress (we don't want the
+    # old tail competing with the live progress line). Clean runs and
+    # SIGTERM cancellations are self-explanatory from bg_label alone.
+    if (
+        not report.wiki_refresh_in_progress
+        and report.wiki_last_refresh_log_tail
+        and report.wiki_last_refresh_exit_code not in (None, 0, _SIGTERM_EXIT_CODE)
+    ):
+        lines.append("    log tail:")
+        for line in report.wiki_last_refresh_log_tail:
+            lines.append(f"      {line}")
     lines.append(f"  qdrant enabled:  {report.qdrant_enabled}")
     if report.degraded_modes:
         lines.append("  degraded modes:")

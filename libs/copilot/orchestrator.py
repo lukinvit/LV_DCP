@@ -167,6 +167,11 @@ def check_project(
         wiki_last_refresh_elapsed_seconds=(
             last_run.elapsed_seconds if last_run is not None else None
         ),
+        wiki_last_refresh_log_tail=(
+            list(last_run.log_tail)
+            if (last_run is not None and last_run.log_tail is not None)
+            else None
+        ),
         qdrant_enabled=qdrant_enabled,
         degraded_modes=degraded,
     )

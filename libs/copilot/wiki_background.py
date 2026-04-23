@@ -40,6 +40,7 @@ import signal
 import subprocess
 import sys
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,11 @@ LOCK_FILENAME = ".refresh.lock"
 LOG_FILENAME = ".refresh.log"
 LAST_REFRESH_FILENAME = ".refresh.last"
 _STALE_LOCK_AFTER_SECONDS = 60 * 60  # 1h ceiling for a single wiki refresh
+
+#: Maximum number of log lines persisted into ``.refresh.last``. Bounded
+#: to keep the record small (it's read on every ``ctx project check``)
+#: while still carrying enough context to triage a crash.
+_MAX_LOG_TAIL_LINES = 20
 
 # Canonical phase labels emitted by the runner.
 PHASE_STARTING = "starting"
@@ -69,12 +75,18 @@ class LastRefreshRecord:
     non-zero). ``modules_updated`` is the count the runner got through
     before it exited — for crashes this may be less than
     ``modules_total``.
+
+    ``log_tail`` is populated only on crash (non-zero, non-SIGTERM).
+    It carries the last ~20 lines of ``.refresh.log`` as captured at
+    runner exit time — self-contained so the user can diagnose without
+    re-reading the log file (which accumulates across runs).
     """
 
     completed_at: float
     exit_code: int
     modules_updated: int
     elapsed_seconds: float
+    log_tail: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,13 +136,14 @@ def _atomic_write_lock(lock: Path, payload: dict[str, Any]) -> None:
     tmp.replace(lock)
 
 
-def write_last_refresh(
+def write_last_refresh(  # noqa: PLR0913 — kw-only payload fields; constructor-style
     root: Path,
     *,
     exit_code: int,
     modules_updated: int,
     elapsed_seconds: float,
     completed_at: float | None = None,
+    log_tail: Sequence[str] | None = None,
 ) -> None:
     """Persist the outcome of the most recent refresh to ``.refresh.last``.
 
@@ -138,15 +151,22 @@ def write_last_refresh(
     completion, SIGTERM cancellation, and crashes. Uses the same
     write-then-rename pattern as the lock so a concurrent ``ctx project
     check`` never sees a torn file.
+
+    ``log_tail`` is truncated to the last :data:`_MAX_LOG_TAIL_LINES`
+    entries before persistence; callers can pass a larger list and rely
+    on the bound.
     """
     path = _last_refresh_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
+    payload: dict[str, Any] = {
         "completed_at": float(completed_at if completed_at is not None else time.time()),
         "exit_code": int(exit_code),
         "modules_updated": int(modules_updated),
         "elapsed_seconds": float(elapsed_seconds),
     }
+    if log_tail:
+        trimmed = [str(line) for line in list(log_tail)[-_MAX_LOG_TAIL_LINES:]]
+        payload["log_tail"] = trimmed
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload), encoding="utf-8")
     tmp.replace(path)
@@ -168,11 +188,16 @@ def read_last_refresh(root: Path) -> LastRefreshRecord | None:
         log.warning("wiki last-refresh record is corrupt at %s", path, exc_info=True)
         return None
     try:
+        raw_tail = payload.get("log_tail")
+        log_tail: tuple[str, ...] | None = None
+        if isinstance(raw_tail, list) and raw_tail:
+            log_tail = tuple(str(line) for line in raw_tail)
         return LastRefreshRecord(
             completed_at=float(payload["completed_at"]),
             exit_code=int(payload["exit_code"]),
             modules_updated=int(payload["modules_updated"]),
             elapsed_seconds=float(payload["elapsed_seconds"]),
+            log_tail=log_tail,
         )
     except (KeyError, TypeError, ValueError):
         log.warning("wiki last-refresh record is malformed at %s", path, exc_info=True)
