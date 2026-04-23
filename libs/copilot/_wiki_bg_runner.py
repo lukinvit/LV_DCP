@@ -4,8 +4,12 @@ The parent process (``ctx project refresh --wiki-background``) spawns
 this module with ``subprocess.Popen`` and exits immediately. The runner:
 
 1. writes ``.context/wiki/.refresh.lock`` with its own PID;
-2. calls :func:`libs.copilot.orchestrator.refresh_wiki` synchronously;
-3. unlinks the lock on exit (success or failure).
+2. installs a SIGTERM handler so ``ctx project wiki --stop`` can ask it
+   to exit gracefully without leaving a stale lock behind;
+3. calls the reduced wiki-update pipeline synchronously, streaming
+   per-module progress back into the lock file via
+   :func:`libs.copilot.wiki_background.write_progress`;
+4. unlinks the lock on exit (success, failure, or SIGTERM).
 
 All stdout/stderr is redirected by the parent to
 ``.context/wiki/.refresh.log`` so the user can always inspect what
@@ -19,17 +23,19 @@ import contextlib
 import json
 import logging
 import os
+import signal
 import sys
 import time
 import traceback
 from pathlib import Path
+from types import FrameType
 
 
 def _lock_path(root: Path) -> Path:
     return root / ".context" / "wiki" / ".refresh.lock"
 
 
-def _write_lock(root: Path, *, all_modules: bool) -> None:
+def _write_initial_lock(root: Path, *, all_modules: bool) -> None:
     lock = _lock_path(root)
     lock.parent.mkdir(parents=True, exist_ok=True)
     lock.write_text(
@@ -38,6 +44,7 @@ def _write_lock(root: Path, *, all_modules: bool) -> None:
                 "pid": os.getpid(),
                 "started_at": time.time(),
                 "all_modules": all_modules,
+                "phase": "starting",
             }
         ),
         encoding="utf-8",
@@ -47,6 +54,22 @@ def _write_lock(root: Path, *, all_modules: bool) -> None:
 def _clear_lock(root: Path) -> None:
     with contextlib.suppress(FileNotFoundError):
         _lock_path(root).unlink()
+
+
+def _install_sigterm_handler() -> None:
+    """Convert SIGTERM to SystemExit so ``finally`` blocks run.
+
+    The default SIGTERM handler terminates the process immediately
+    without unwinding — meaning ``finally: _clear_lock(root)`` would
+    never execute and the lock would be left behind for the 1-hour
+    stale-timeout to reap. Raising ``SystemExit`` from the handler
+    lets Python unwind normally.
+    """
+
+    def _handle(signum: int, _frame: FrameType | None) -> None:  # pragma: no cover — signal path
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGTERM, _handle)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -62,22 +85,45 @@ def main(argv: list[str] | None = None) -> int:
     )
     log = logging.getLogger("lvdcp.wiki_bg")
 
-    _write_lock(root, all_modules=args.all_modules)
+    _write_initial_lock(root, all_modules=args.all_modules)
+    _install_sigterm_handler()
     log.info("start root=%s all_modules=%s", root, args.all_modules)
     exit_code = 0
     try:
-        # Deferred import: `orchestrator` pulls the full scanning stack.
-        # Importing lazily keeps `python -m libs.copilot._wiki_bg_runner --help`
-        # cheap and side-effect-free.
-        from libs.copilot.orchestrator import refresh_wiki  # noqa: PLC0415
-
-        report = refresh_wiki(root, all_modules=args.all_modules)
-        log.info(
-            "done updated=%s refreshed=%s messages=%s",
-            report.wiki_modules_updated,
-            report.wiki_refreshed,
-            report.messages,
+        # Deferred imports: pulling in `orchestrator` brings the full
+        # scanning stack; keeping them lazy makes
+        # ``python -m libs.copilot._wiki_bg_runner --help`` cheap.
+        from libs.copilot.orchestrator import _run_wiki_update_in_process  # noqa: PLC0415
+        from libs.copilot.wiki_background import (  # noqa: PLC0415
+            PHASE_FINALIZING,
+            PHASE_GENERATING,
+            PHASE_LOADING,
+            write_progress,
         )
+
+        write_progress(root, phase=PHASE_LOADING)
+
+        def _on_progress(
+            *, done: int, total: int, current: str | None, phase: str = PHASE_GENERATING
+        ) -> None:
+            write_progress(
+                root,
+                phase=phase,
+                modules_total=total,
+                modules_done=done,
+                current_module=current,
+            )
+
+        updated, messages = _run_wiki_update_in_process(
+            root,
+            all_modules=args.all_modules,
+            on_progress=_on_progress,
+        )
+        write_progress(root, phase=PHASE_FINALIZING)
+        log.info("done updated=%s messages=%s", updated, messages)
+    except SystemExit as exc:
+        log.info("wiki refresh cancelled via signal (exit=%s)", exc.code)
+        exit_code = int(exc.code) if isinstance(exc.code, int) else 143
     except Exception:  # pragma: no cover — surface full trace in the log file
         log.error("wiki refresh crashed:\n%s", traceback.format_exc())
         exit_code = 1

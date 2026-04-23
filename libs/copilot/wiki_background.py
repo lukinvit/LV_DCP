@@ -12,13 +12,22 @@ Design notes
   CLI process exits, so ``ctx`` would have to stay alive to finish the
   wiki. A detached ``subprocess.Popen`` survives terminal close.
 - **Lock file as the only IPC** — the runner writes ``.context/wiki/.refresh.lock``
-  as JSON ``{"pid", "started_at"}`` before doing work and unlinks it on
-  exit. ``is_refresh_in_progress`` simply checks the lock and validates
-  the PID. No sockets, no tempdirs, no daemon threads.
+  as JSON ``{"pid", "started_at", "all_modules", "phase",
+  "modules_total", "modules_done", "current_module"}`` before doing work
+  and unlinks it on exit. ``is_refresh_in_progress`` simply checks the
+  lock and validates the PID. No sockets, no tempdirs, no daemon threads.
+- **Progress is best-effort** — the runner rewrites the lock on every
+  module boundary. Readers see an eventually-consistent snapshot; a
+  mid-write read may see the previous payload but never a corrupt one
+  (we write-then-rename).
 - **Stale-lock handling** — if the lock exists but the PID is dead, we
   treat the refresh as finished (crashed). A lock older than
   ``_STALE_LOCK_AFTER_SECONDS`` is also ignored so a zombie runner cannot
   wedge the copilot forever.
+- **Cancellation** — :func:`cancel_background_refresh` sends SIGTERM to
+  the runner. The runner installs a handler that raises ``SystemExit``,
+  which lets its ``finally`` block unlink the lock before the process
+  dies.
 """
 
 from __future__ import annotations
@@ -27,11 +36,13 @@ import contextlib
 import json
 import logging
 import os
+import signal
 import subprocess
 import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +50,12 @@ log = logging.getLogger(__name__)
 LOCK_FILENAME = ".refresh.lock"
 LOG_FILENAME = ".refresh.log"
 _STALE_LOCK_AFTER_SECONDS = 60 * 60  # 1h ceiling for a single wiki refresh
+
+# Canonical phase labels emitted by the runner.
+PHASE_STARTING = "starting"
+PHASE_LOADING = "loading"
+PHASE_GENERATING = "generating"
+PHASE_FINALIZING = "finalizing"
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +67,10 @@ class BackgroundRefreshStatus:
     started_at: float | None
     lock_path: Path | None
     stale: bool = False
+    phase: str | None = None
+    modules_total: int | None = None
+    modules_done: int = 0
+    current_module: str | None = None
 
 
 def _lock_path(root: Path) -> Path:
@@ -70,6 +91,13 @@ def _pid_alive(pid: int) -> bool:
         # Another user owns the PID — treat as alive (conservative).
         return True
     return True
+
+
+def _atomic_write_lock(lock: Path, payload: dict[str, Any]) -> None:
+    """Write-then-rename so a concurrent reader never sees a torn file."""
+    tmp = lock.with_suffix(lock.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload), encoding="utf-8")
+    tmp.replace(lock)
 
 
 def read_status(root: Path) -> BackgroundRefreshStatus:
@@ -100,12 +128,21 @@ def read_status(root: Path) -> BackgroundRefreshStatus:
         (pid is not None and not _pid_alive(pid))
         or (started_at is not None and age > _STALE_LOCK_AFTER_SECONDS)
     )
+    phase = payload.get("phase") or None
+    raw_total = payload.get("modules_total")
+    modules_total = int(raw_total) if isinstance(raw_total, int) and raw_total >= 0 else None
+    modules_done = int(payload.get("modules_done", 0) or 0)
+    current_module = payload.get("current_module") or None
     return BackgroundRefreshStatus(
         in_progress=not stale,
         pid=pid,
         started_at=started_at,
         lock_path=lock,
         stale=stale,
+        phase=phase,
+        modules_total=modules_total,
+        modules_done=modules_done,
+        current_module=current_module,
     )
 
 
@@ -168,14 +205,74 @@ def start_background_refresh(
         "pid": pid,
         "started_at": started_at,
         "all_modules": all_modules,
+        "phase": PHASE_STARTING,
     }
-    _lock_path(root).write_text(json.dumps(lock_payload), encoding="utf-8")
+    _atomic_write_lock(_lock_path(root), lock_payload)
     return BackgroundRefreshStatus(
         in_progress=True,
         pid=pid,
         started_at=started_at,
         lock_path=_lock_path(root),
+        phase=PHASE_STARTING,
     )
+
+
+def write_progress(
+    root: Path,
+    *,
+    phase: str,
+    modules_total: int | None = None,
+    modules_done: int | None = None,
+    current_module: str | None = None,
+) -> None:
+    """Merge-update the lock file with fresh progress fields.
+
+    Invoked by the runner at every module boundary. A read-modify-write
+    race is acceptable here: the runner is the only writer for
+    progress fields; the parent only writes the lock once (eagerly) at
+    spawn time. Stale reads remain valid — they just lag by one module.
+    """
+    lock = _lock_path(root)
+    payload: dict[str, Any] = {}
+    if lock.exists():
+        try:
+            payload = json.loads(lock.read_text(encoding="utf-8"))
+        except Exception:  # pragma: no cover — corrupt lock is handled by read_status
+            payload = {}
+    payload["phase"] = phase
+    if modules_total is not None:
+        payload["modules_total"] = modules_total
+    if modules_done is not None:
+        payload["modules_done"] = modules_done
+    # ``current_module=None`` is a legitimate reset (e.g. after the last
+    # module has finished), so we rewrite it unconditionally.
+    payload["current_module"] = current_module
+    _atomic_write_lock(lock, payload)
+
+
+def cancel_background_refresh(root: Path) -> BackgroundRefreshStatus:
+    """Send SIGTERM to the running refresh, if any.
+
+    Returns the status observed just before sending the signal so the
+    caller can render a meaningful "cancelled PID X" message. A
+    non-running or stale refresh is a no-op (the lock is cleared as a
+    side-effect so the next :func:`start_background_refresh` starts
+    clean).
+    """
+    status = read_status(root)
+    if not status.in_progress or status.pid is None:
+        if status.stale and status.lock_path is not None:
+            with contextlib.suppress(FileNotFoundError):
+                status.lock_path.unlink()
+        return status
+    try:
+        os.kill(status.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        # Race: process died between read and kill. Clean up the lock.
+        if status.lock_path is not None:
+            with contextlib.suppress(FileNotFoundError):
+                status.lock_path.unlink()
+    return status
 
 
 def is_refresh_in_progress(root: Path) -> bool:

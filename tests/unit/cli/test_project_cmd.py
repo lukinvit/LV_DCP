@@ -190,7 +190,7 @@ def test_refresh_wiki_background_flag_spawns_subprocess(
 
 
 def test_check_shows_bg_refresh_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """``ctx project check`` surfaces ``bg_refresh=True`` when lock is live."""
+    """``ctx project check`` surfaces ``bg_refresh=true (...)`` when lock is live."""
     import json as _json
     import time as _time
 
@@ -212,4 +212,90 @@ def test_check_shows_bg_refresh_flag(tmp_path: Path, monkeypatch: pytest.MonkeyP
     runner = CliRunner()
     result = runner.invoke(app, ["project", "check", str(proj)])
     assert result.exit_code == 0, result.stdout
-    assert "bg_refresh=True" in result.stdout
+    assert "bg_refresh=true" in result.stdout
+    assert "pid=11111" in result.stdout
+
+
+def test_check_shows_progress_when_runner_emitted_events(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When the runner has already written progress, check surfaces N/M + current module."""
+    import json as _json
+    import time as _time
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    _seed_project(proj)
+    scan_project(proj, mode="full")
+
+    wiki_dir = proj / ".context" / "wiki"
+    wiki_dir.mkdir(parents=True, exist_ok=True)
+    (wiki_dir / ".refresh.lock").write_text(
+        _json.dumps(
+            {
+                "pid": 22222,
+                "started_at": _time.time(),
+                "all_modules": False,
+                "phase": "generating",
+                "modules_total": 12,
+                "modules_done": 3,
+                "current_module": "libs/foo",
+            }
+        ),
+        encoding="utf-8",
+    )
+    from libs.copilot import wiki_background
+
+    monkeypatch.setattr(wiki_background, "_pid_alive", lambda _pid: True)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["project", "check", str(proj)])
+    assert result.exit_code == 0, result.stdout
+    assert "generating 3/12" in result.stdout
+    assert '"libs/foo"' in result.stdout
+    assert "pid=22222" in result.stdout
+
+
+def test_wiki_stop_sends_sigterm(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``ctx project wiki <path> --stop`` sends SIGTERM and reports the PID."""
+    import json as _json
+    import signal
+    import time as _time
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    _seed_project(proj)
+
+    wiki_dir = proj / ".context" / "wiki"
+    wiki_dir.mkdir(parents=True, exist_ok=True)
+    (wiki_dir / ".refresh.lock").write_text(
+        _json.dumps({"pid": 33333, "started_at": _time.time(), "all_modules": False}),
+        encoding="utf-8",
+    )
+
+    from libs.copilot import wiki_background
+
+    monkeypatch.setattr(wiki_background, "_pid_alive", lambda _pid: True)
+    kills: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        "libs.copilot.wiki_background.os.kill",
+        lambda pid, sig: kills.append((pid, sig)),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["project", "wiki", str(proj), "--stop"])
+    assert result.exit_code == 0, result.stdout
+    assert (33333, signal.SIGTERM) in kills
+    assert "SIGTERM sent to pid=33333" in result.stdout
+
+
+def test_wiki_stop_no_refresh_running_is_noop(tmp_path: Path) -> None:
+    """``--stop`` on an idle project must print a clean message, not crash."""
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    _seed_project(proj)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["project", "wiki", str(proj), "--stop"])
+    assert result.exit_code == 0, result.stdout
+    assert "none running" in result.stdout

@@ -18,6 +18,7 @@ from libs.copilot import (
     CopilotCheckReport,
     CopilotRefreshReport,
     ask_project,
+    cancel_background_refresh,
     check_project,
     refresh_project,
     refresh_wiki,
@@ -32,6 +33,26 @@ app = typer.Typer(
 # ---- renderers -------------------------------------------------------------
 
 
+def _render_bg_refresh(report: CopilotCheckReport) -> str:
+    """Compact one-line summary of in-flight background wiki refresh.
+
+    Examples:
+      ``false``                                 — no refresh running
+      ``true (starting, pid=1234)``             — spawned, lock seen
+      ``true (generating 3/12 "foo/bar", pid=1234)`` — mid-run
+    """
+    if not report.wiki_refresh_in_progress:
+        return "false"
+    parts: list[str] = [report.wiki_refresh_phase or "running"]
+    if report.wiki_refresh_modules_total is not None:
+        parts.append(f"{report.wiki_refresh_modules_done}/{report.wiki_refresh_modules_total}")
+    if report.wiki_refresh_current_module:
+        parts.append(f'"{report.wiki_refresh_current_module}"')
+    if report.wiki_refresh_pid is not None:
+        parts.append(f"pid={report.wiki_refresh_pid}")
+    return f"true ({' '.join(parts)})"
+
+
 def _render_check(report: CopilotCheckReport, *, as_json: bool) -> str:
     if as_json:
         return report.model_dump_json(indent=2)
@@ -44,10 +65,11 @@ def _render_check(report: CopilotCheckReport, *, as_json: bool) -> str:
         f"  index:           files={report.files} symbols={report.symbols} "
         f"relations={report.relations}"
     )
+    bg_label = _render_bg_refresh(report)
     lines.append(
         f"  wiki:            present={report.wiki_present} "
         f"dirty_modules={report.wiki_dirty_modules} "
-        f"bg_refresh={report.wiki_refresh_in_progress}"
+        f"bg_refresh={bg_label}"
     )
     lines.append(f"  qdrant enabled:  {report.qdrant_enabled}")
     if report.degraded_modes:
@@ -154,7 +176,7 @@ def refresh_cmd(
 
 
 @app.command("wiki")
-def wiki_cmd(
+def wiki_cmd(  # noqa: PLR0913 — each Typer Option is a legit user-facing knob
     path: Path = typer.Argument(  # noqa: B008
         ...,
         exists=True,
@@ -177,12 +199,20 @@ def wiki_cmd(
             "Progress is logged to `.context/wiki/.refresh.log`."
         ),
     ),
+    stop: bool = typer.Option(
+        False,
+        "--stop",
+        help=(
+            "Cancel an in-flight background refresh (sends SIGTERM). "
+            "No-op if no refresh is running."
+        ),
+    ),
     as_json: bool = typer.Option(
         False,
         "--json",
         help=(
             "JSON output. Shape: CopilotRefreshReport with --refresh, "
-            "CopilotCheckReport in read-only mode."
+            "CopilotCheckReport in read-only or --stop mode."
         ),
     ),
 ) -> None:
@@ -191,11 +221,24 @@ def wiki_cmd(
     The ``--json`` shape depends on the mode:
 
     * ``--refresh`` → :class:`libs.copilot.CopilotRefreshReport`
-    * read-only (default) → :class:`libs.copilot.CopilotCheckReport`
+    * read-only (default) and ``--stop`` → :class:`libs.copilot.CopilotCheckReport`
 
     Scripts that need a single stable shape should call
     ``ctx project check --json`` instead.
     """
+    if stop:
+        status = cancel_background_refresh(path)
+        full_report = check_project(path)
+        if as_json:
+            typer.echo(full_report.model_dump_json(indent=2))
+            return
+        if status.pid is not None and not status.stale:
+            typer.echo(f"bg refresh: SIGTERM sent to pid={status.pid}")
+        elif status.stale:
+            typer.echo("bg refresh: stale lock cleared (no live process)")
+        else:
+            typer.echo("bg refresh: none running")
+        return
     if do_refresh:
         report = refresh_wiki(path, all_modules=all_modules, background=background)
         typer.echo(_render_refresh(report, as_json=as_json))
@@ -208,9 +251,11 @@ def wiki_cmd(
     typer.echo(f"project: {full_report.project_name}  ({full_report.project_root})")
     typer.echo(f"  wiki present:    {full_report.wiki_present}")
     typer.echo(f"  dirty modules:   {full_report.wiki_dirty_modules}")
-    typer.echo(f"  bg refresh:      {full_report.wiki_refresh_in_progress}")
+    typer.echo(f"  bg refresh:      {_render_bg_refresh(full_report)}")
     if full_report.wiki_refresh_in_progress:
-        typer.echo("  hint: a background refresh is running — tail `.context/wiki/.refresh.log`")
+        typer.echo(
+            "  hint: tail `.context/wiki/.refresh.log`, or stop with `ctx project wiki <path> --stop`"
+        )
     elif full_report.wiki_dirty_modules > 0:
         typer.echo("  hint: run `ctx project wiki <path> --refresh`")
 

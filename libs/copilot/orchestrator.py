@@ -22,7 +22,7 @@ from libs.copilot.models import (
     DegradedMode,
 )
 from libs.copilot.wiki_background import (
-    is_refresh_in_progress,
+    read_status,
     start_background_refresh,
 )
 from libs.core.projects_config import load_config
@@ -124,7 +124,7 @@ def check_project(
 
     wiki_present = _wiki_is_present(root)
     wiki_dirty = _count_dirty_wiki_modules(root)
-    wiki_bg_running = is_refresh_in_progress(root)
+    bg_status = read_status(root)
     cfg = _load_config_safe(config_path)
     qdrant_enabled = bool(cfg and cfg.qdrant.enabled)
 
@@ -151,7 +151,12 @@ def check_project(
         relations=card.relations,
         wiki_present=wiki_present,
         wiki_dirty_modules=wiki_dirty,
-        wiki_refresh_in_progress=wiki_bg_running,
+        wiki_refresh_in_progress=bg_status.in_progress,
+        wiki_refresh_phase=bg_status.phase if bg_status.in_progress else None,
+        wiki_refresh_modules_total=(bg_status.modules_total if bg_status.in_progress else None),
+        wiki_refresh_modules_done=(bg_status.modules_done if bg_status.in_progress else 0),
+        wiki_refresh_current_module=(bg_status.current_module if bg_status.in_progress else None),
+        wiki_refresh_pid=bg_status.pid if bg_status.in_progress else None,
         qdrant_enabled=qdrant_enabled,
         degraded_modes=degraded,
     )
@@ -278,10 +283,14 @@ def refresh_wiki(
     )
 
 
-def _run_wiki_update_in_process(
+_WikiProgressCallback = Callable[..., None]
+
+
+def _run_wiki_update_in_process(  # noqa: PLR0915 — progress emission + per-module loop is one cohesive unit
     root: Path,
     *,
     all_modules: bool,
+    on_progress: _WikiProgressCallback | None = None,
 ) -> tuple[int, list[str]]:
     """Reduced port of ``ctx wiki update`` that returns a count + log lines.
 
@@ -289,6 +298,11 @@ def _run_wiki_update_in_process(
     same generator helpers but swallow exceptions per-module so a single
     failure does not abort the batch. The return tuple is
     ``(modules_updated, messages)``.
+
+    ``on_progress`` is an optional keyword-only callback invoked at each
+    module boundary with ``done=<int>, total=<int>, current=<str|None>``.
+    The background runner uses it to stream lock-file progress events;
+    the sync path leaves it ``None``.
     """
     from libs.wiki.generator import generate_wiki_article  # noqa: PLC0415
     from libs.wiki.index_builder import write_index  # noqa: PLC0415
@@ -311,14 +325,19 @@ def _run_wiki_update_in_process(
         modules = get_all_modules(conn) if all_modules else get_dirty_modules(conn)
         if not modules:
             messages.append("wiki: no modules to update")
+            if on_progress is not None:
+                on_progress(done=0, total=0, current=None)
             return 0, messages
 
         files = {f.path: f for f in cache.iter_files()}
         symbols = list(cache.iter_symbols())
         relations = list(cache.iter_relations())
 
-        for mod in modules:
+        total = len(modules)
+        for idx, mod in enumerate(modules):
             module_path = mod["module_path"]
+            if on_progress is not None:
+                on_progress(done=idx, total=total, current=module_path)
             mod_files = [
                 fp for fp in files if fp.startswith(module_path + "/") or fp == module_path
             ]
@@ -359,6 +378,8 @@ def _run_wiki_update_in_process(
 
         write_index(wiki_dir, root.name)
 
+    if on_progress is not None:
+        on_progress(done=len(modules), total=len(modules), current=None)
     messages.append(f"wiki: {updated} module(s) updated")
     return updated, messages
 
