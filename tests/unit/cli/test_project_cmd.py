@@ -299,3 +299,86 @@ def test_wiki_stop_no_refresh_running_is_noop(tmp_path: Path) -> None:
     result = runner.invoke(app, ["project", "wiki", str(proj), "--stop"])
     assert result.exit_code == 0, result.stdout
     assert "none running" in result.stdout
+
+
+def test_check_watch_idle_emits_one_snapshot_and_exits(tmp_path: Path) -> None:
+    """With no refresh running, --watch prints once and returns fast."""
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    _seed_project(proj)
+    scan_project(proj, mode="full")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        ["project", "check", str(proj), "--watch", "--interval", "0.3", "--max-duration", "5"],
+    )
+    assert result.exit_code == 0, result.stdout
+    # Exactly one "project:" header — no repeated snapshot.
+    assert result.stdout.count("project: proj") == 1
+    assert "bg_refresh=false" in result.stdout
+
+
+def test_check_watch_polls_until_lock_disappears(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Live-tail path: lock goes away on the second sleep → 3 snapshots printed."""
+    import json as _json
+    import time as _time
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    _seed_project(proj)
+    scan_project(proj, mode="full")
+
+    lock = proj / ".context" / "wiki" / ".refresh.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text(
+        _json.dumps(
+            {
+                "pid": 81881,
+                "started_at": _time.time(),
+                "all_modules": False,
+                "phase": "generating",
+                "modules_total": 2,
+                "modules_done": 1,
+                "current_module": "libs/foo",
+            }
+        ),
+        encoding="utf-8",
+    )
+    from libs.copilot import wiki_background
+
+    monkeypatch.setattr(wiki_background, "_pid_alive", lambda _pid: True)
+
+    sleep_calls = {"n": 0}
+
+    def _fake_sleep(_sec: float) -> None:
+        sleep_calls["n"] += 1
+        if sleep_calls["n"] == 2:
+            lock.unlink()  # runner "finished"
+
+    # CLI uses orchestrator's time.sleep by default — patch it at the source.
+    monkeypatch.setattr("libs.copilot.orchestrator.time.sleep", _fake_sleep)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "project",
+            "check",
+            str(proj),
+            "--watch",
+            "--interval",
+            "0.2",
+            "--max-duration",
+            "5",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    # Three snapshots: running, running, idle.
+    assert result.stdout.count("project: proj") == 3
+    # First + second render the progress line; the last renders bg_refresh=false.
+    assert 'generating 1/2 "libs/foo"' in result.stdout
+    assert "bg_refresh=false" in result.stdout
+    assert sleep_calls["n"] == 2

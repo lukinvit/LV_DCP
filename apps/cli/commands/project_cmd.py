@@ -22,6 +22,7 @@ from libs.copilot import (
     check_project,
     refresh_project,
     refresh_wiki,
+    watch_check_project,
 )
 
 app = typer.Typer(
@@ -134,10 +135,42 @@ def check_cmd(
     as_json: bool = typer.Option(
         False, "--json", help="Emit the CopilotCheckReport as indented JSON."
     ),
+    watch: bool = typer.Option(
+        False,
+        "--watch",
+        help=(
+            "Re-print the snapshot every --interval seconds until any in-flight "
+            "background wiki refresh finishes (or --max-duration elapses). "
+            "No-op if no refresh is running at start."
+        ),
+    ),
+    interval: float = typer.Option(
+        2.0, "--interval", help="Seconds between snapshots in --watch mode."
+    ),
+    max_duration: float = typer.Option(
+        15 * 60,
+        "--max-duration",
+        help="Safety cap on --watch wall-clock time (seconds). Default 15 min.",
+    ),
 ) -> None:
-    """Print a snapshot of scan / wiki / retrieval readiness for a project."""
-    report = check_project(path)
-    typer.echo(_render_check(report, as_json=as_json))
+    """Print a snapshot of scan / wiki / retrieval readiness for a project.
+
+    With ``--watch``, re-print until the background wiki refresh settles.
+    Snapshots are separated by a blank line so both the raw text mode and
+    the ``--json`` mode remain grep-friendly.
+    """
+    if not watch:
+        report = check_project(path)
+        typer.echo(_render_check(report, as_json=as_json))
+        return
+    first = True
+    for report in watch_check_project(
+        path, interval_seconds=interval, max_duration_seconds=max_duration
+    ):
+        if not first:
+            typer.echo("")  # blank-line separator between consecutive snapshots
+        typer.echo(_render_check(report, as_json=as_json))
+        first = False
 
 
 @app.command("refresh")

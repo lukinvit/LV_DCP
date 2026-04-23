@@ -2,8 +2,8 @@
 
 **Local-first engineering memory.** Turns projects on macOS into a queryable context layer for Claude, IDE agents, and humans. Supports Python, TypeScript/JS, Go, and Rust. Reduces token cost of repeated code reading, builds a relation graph, and makes agent edits safer.
 
-[![Phase 9 Complete](https://img.shields.io/badge/phase-9%20complete-green)](docs/release/2026-04-24-v0.8.2-wiki-progress-cancel.md)
-[![Version 0.8.2](https://img.shields.io/badge/version-0.8.2-blue)](pyproject.toml)
+[![Phase 9 Complete](https://img.shields.io/badge/phase-9%20complete-green)](docs/release/2026-04-24-v0.8.3-check-watch.md)
+[![Version 0.8.3](https://img.shields.io/badge/version-0.8.3-blue)](pyproject.toml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue)](pyproject.toml)
 
@@ -53,6 +53,8 @@ $ ctx pack . "refresh token rotation" --mode edit
 
 ## Status
 
+**v0.8.3 (2026-04-24)** — `ctx project check --watch`. Live-tail the background wiki refresh: re-prints the full `check` snapshot every `--interval` seconds (default 2 s) until the refresh transitions to idle, then exits. `--json` mode streams consecutive `CopilotCheckReport` objects separated by blank lines — grep- and `jq -c`-friendly. Closes the *"No live tail"* gap from v0.8.2. No new deps; generator-based polling, not threads.
+
 **v0.8.2 (2026-04-24)** — Wiki background progress & cancellation. The `.refresh.lock` now carries `phase` + `modules_total`/`modules_done` + `current_module`; `ctx project check` renders it as `bg_refresh=true (generating 3/12 "libs/foo" pid=1234)`. New `ctx project wiki <path> --stop` sends SIGTERM, cleans up stale locks, and reports the PID. Closes both "Known gaps" called out in v0.8.1: binary-only status and no cancellation primitive. No new deps, no daemon — still a single atomic-write lock file.
 
 **v0.8.1 (2026-04-24)** — Async wiki refresh. `ctx project refresh --wiki-background` (and `ctx project wiki --background --refresh`) detaches the wiki LLM pipeline into a subprocess so the CLI returns immediately on large projects. `ctx project check` surfaces `bg_refresh=<bool>`; the lock file is crash-safe (dead-PID and >1h age are auto-cleared). Closes the "sync wiki blocks the terminal for minutes" gap called out in the v0.8.0 release notes. No new deps.
@@ -70,6 +72,7 @@ $ ctx pack . "refresh token rotation" --mode edit
 Stabilization 0.6.1 baseline: mandatory GitHub Actions quality gates, green `ruff` / `mypy`, runtime-hardened embeddings and Qdrant.
 
 Release notes:
+- [docs/release/2026-04-24-v0.8.3-check-watch.md](docs/release/2026-04-24-v0.8.3-check-watch.md) (v0.8.3 — `ctx project check --watch`)
 - [docs/release/2026-04-24-v0.8.2-wiki-progress-cancel.md](docs/release/2026-04-24-v0.8.2-wiki-progress-cancel.md) (v0.8.2 — Wiki Background Progress & Cancellation)
 - [docs/release/2026-04-24-v0.8.1-async-wiki-refresh.md](docs/release/2026-04-24-v0.8.1-async-wiki-refresh.md) (v0.8.1 — Async Wiki Refresh)
 - [docs/release/2026-04-23-v0.8.0-project-copilot-wrapper.md](docs/release/2026-04-23-v0.8.0-project-copilot-wrapper.md) (v0.8.0 — Project Copilot Wrapper)
@@ -422,6 +425,7 @@ The daemon uses `watchdog.observers.Observer` which auto-selects `FSEventsObserv
 - **Phase 9** (done, v0.8.0) — Project Copilot Wrapper (spec-011): new `ctx project` CLI group (`check` / `refresh` / `wiki` / `ask`) that orchestrates existing primitives. Composition layer only — no new storage — so the user has a human-friendly surface above the low-level `lvdcp_*` tools.
 - **v0.8.1** (done) — Async wiki refresh: `--wiki-background` detaches the wiki LLM pipeline into a subprocess so `ctx project refresh` returns immediately on large projects. Crash-safe lock file, `check` surfaces `bg_refresh=<bool>`. No new deps.
 - **v0.8.2** (done) — Wiki background progress + cancellation. Lock payload carries `phase` / `modules_total`/`_done` / `current_module`; `ctx project check` renders `bg_refresh=true (generating 3/12 "libs/foo" pid=1234)`. New `--stop` flag sends SIGTERM and cleans up stale locks. Closes both known gaps from v0.8.1. No new deps.
+- **v0.8.3** (done) — `ctx project check --watch`: generator-based live-tail that polls the lock and re-prints the snapshot until the refresh settles. `--json` mode streams consecutive reports separated by blank lines. Closes the "no live tail" gap from v0.8.2. No threads, no new deps.
 - **Phase 10** (next) — Java/Kotlin/Swift parsers, VS Code marketplace, Obsidian nightly sync.
 
 ## Contributing
