@@ -281,3 +281,58 @@ def test_watch_rejects_too_small_interval(tmp_path: Path, qdrant_off_config: Pat
 
     with pytest.raises(ValueError, match="interval_seconds"):
         list(watch_check_project(tmp_path, interval_seconds=0.0))
+
+
+# ---- last-refresh record surfacing (v0.8.4) -------------------------------
+
+
+def test_check_surfaces_last_refresh_after_clean_run(
+    tmp_path: Path, qdrant_off_config: Path
+) -> None:
+    """When ``.refresh.last`` exists and no lock, last-run fields populate."""
+    from libs.copilot import write_last_refresh
+
+    _make_project(tmp_path)
+    (tmp_path / ".context" / "wiki").mkdir(parents=True, exist_ok=True)
+    write_last_refresh(
+        tmp_path,
+        exit_code=0,
+        modules_updated=5,
+        elapsed_seconds=8.25,
+        completed_at=1_700_000_000.0,
+    )
+    report = check_project(tmp_path)
+    assert report.wiki_refresh_in_progress is False
+    assert report.wiki_last_refresh_completed_at == pytest.approx(1_700_000_000.0)
+    assert report.wiki_last_refresh_exit_code == 0
+    assert report.wiki_last_refresh_modules_updated == 5
+    assert report.wiki_last_refresh_elapsed_seconds == pytest.approx(8.25)
+
+
+def test_check_surfaces_last_refresh_crash(tmp_path: Path, qdrant_off_config: Path) -> None:
+    """A non-zero exit_code makes it to the report unchanged."""
+    from libs.copilot import write_last_refresh
+
+    _make_project(tmp_path)
+    (tmp_path / ".context" / "wiki").mkdir(parents=True, exist_ok=True)
+    write_last_refresh(
+        tmp_path,
+        exit_code=1,
+        modules_updated=2,
+        elapsed_seconds=0.5,
+        completed_at=1_700_000_000.0,
+    )
+    report = check_project(tmp_path)
+    assert report.wiki_last_refresh_exit_code == 1
+    assert report.wiki_last_refresh_modules_updated == 2
+
+
+def test_check_last_refresh_fields_none_when_never_run(
+    tmp_path: Path, qdrant_off_config: Path
+) -> None:
+    _make_project(tmp_path)
+    report = check_project(tmp_path)
+    assert report.wiki_last_refresh_completed_at is None
+    assert report.wiki_last_refresh_exit_code is None
+    assert report.wiki_last_refresh_modules_updated is None
+    assert report.wiki_last_refresh_elapsed_seconds is None

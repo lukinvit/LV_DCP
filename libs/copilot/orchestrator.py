@@ -141,6 +141,7 @@ def check_project(
     if not qdrant_enabled:
         degraded.append(DegradedMode.QDRANT_OFF)
 
+    last_run = bg_status.last_run
     return CopilotCheckReport(
         project_root=str(root),
         project_name=_project_name(root),
@@ -158,6 +159,14 @@ def check_project(
         wiki_refresh_modules_done=(bg_status.modules_done if bg_status.in_progress else 0),
         wiki_refresh_current_module=(bg_status.current_module if bg_status.in_progress else None),
         wiki_refresh_pid=bg_status.pid if bg_status.in_progress else None,
+        wiki_last_refresh_completed_at=(last_run.completed_at if last_run is not None else None),
+        wiki_last_refresh_exit_code=(last_run.exit_code if last_run is not None else None),
+        wiki_last_refresh_modules_updated=(
+            last_run.modules_updated if last_run is not None else None
+        ),
+        wiki_last_refresh_elapsed_seconds=(
+            last_run.elapsed_seconds if last_run is not None else None
+        ),
         qdrant_enabled=qdrant_enabled,
         degraded_modes=degraded,
     )

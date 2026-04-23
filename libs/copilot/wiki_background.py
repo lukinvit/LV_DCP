@@ -49,6 +49,7 @@ log = logging.getLogger(__name__)
 
 LOCK_FILENAME = ".refresh.lock"
 LOG_FILENAME = ".refresh.log"
+LAST_REFRESH_FILENAME = ".refresh.last"
 _STALE_LOCK_AFTER_SECONDS = 60 * 60  # 1h ceiling for a single wiki refresh
 
 # Canonical phase labels emitted by the runner.
@@ -56,6 +57,24 @@ PHASE_STARTING = "starting"
 PHASE_LOADING = "loading"
 PHASE_GENERATING = "generating"
 PHASE_FINALIZING = "finalizing"
+
+
+@dataclass(frozen=True, slots=True)
+class LastRefreshRecord:
+    """Outcome of the most recent background refresh.
+
+    Written by the runner's ``finally`` block so it captures all three
+    exit shapes: clean completion (``exit_code == 0``), SIGTERM
+    cancellation (``exit_code == 143``), and crashes (any other
+    non-zero). ``modules_updated`` is the count the runner got through
+    before it exited — for crashes this may be less than
+    ``modules_total``.
+    """
+
+    completed_at: float
+    exit_code: int
+    modules_updated: int
+    elapsed_seconds: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +90,7 @@ class BackgroundRefreshStatus:
     modules_total: int | None = None
     modules_done: int = 0
     current_module: str | None = None
+    last_run: LastRefreshRecord | None = None
 
 
 def _lock_path(root: Path) -> Path:
@@ -79,6 +99,10 @@ def _lock_path(root: Path) -> Path:
 
 def _log_path(root: Path) -> Path:
     return root / ".context" / "wiki" / LOG_FILENAME
+
+
+def _last_refresh_path(root: Path) -> Path:
+    return root / ".context" / "wiki" / LAST_REFRESH_FILENAME
 
 
 def _pid_alive(pid: int) -> bool:
@@ -100,6 +124,61 @@ def _atomic_write_lock(lock: Path, payload: dict[str, Any]) -> None:
     tmp.replace(lock)
 
 
+def write_last_refresh(
+    root: Path,
+    *,
+    exit_code: int,
+    modules_updated: int,
+    elapsed_seconds: float,
+    completed_at: float | None = None,
+) -> None:
+    """Persist the outcome of the most recent refresh to ``.refresh.last``.
+
+    Called from the runner's ``finally`` block so it captures clean
+    completion, SIGTERM cancellation, and crashes. Uses the same
+    write-then-rename pattern as the lock so a concurrent ``ctx project
+    check`` never sees a torn file.
+    """
+    path = _last_refresh_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "completed_at": float(completed_at if completed_at is not None else time.time()),
+        "exit_code": int(exit_code),
+        "modules_updated": int(modules_updated),
+        "elapsed_seconds": float(elapsed_seconds),
+    }
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload), encoding="utf-8")
+    tmp.replace(path)
+
+
+def read_last_refresh(root: Path) -> LastRefreshRecord | None:
+    """Read ``.refresh.last`` if it exists. Returns ``None`` otherwise.
+
+    A corrupt file is treated the same as a missing one: we simply have
+    no record of the last run. That's a UX degradation, not a bug — the
+    next refresh rewrites the file.
+    """
+    path = _last_refresh_path(root)
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        log.warning("wiki last-refresh record is corrupt at %s", path, exc_info=True)
+        return None
+    try:
+        return LastRefreshRecord(
+            completed_at=float(payload["completed_at"]),
+            exit_code=int(payload["exit_code"]),
+            modules_updated=int(payload["modules_updated"]),
+            elapsed_seconds=float(payload["elapsed_seconds"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        log.warning("wiki last-refresh record is malformed at %s", path, exc_info=True)
+        return None
+
+
 def read_status(root: Path) -> BackgroundRefreshStatus:
     """Inspect ``.context/wiki/.refresh.lock`` without mutating it.
 
@@ -110,15 +189,27 @@ def read_status(root: Path) -> BackgroundRefreshStatus:
     - lock is older than 1h (``stale=True``, zombie).
     """
     lock = _lock_path(root)
+    last_run = read_last_refresh(root)
     if not lock.exists():
-        return BackgroundRefreshStatus(in_progress=False, pid=None, started_at=None, lock_path=None)
+        return BackgroundRefreshStatus(
+            in_progress=False,
+            pid=None,
+            started_at=None,
+            lock_path=None,
+            last_run=last_run,
+        )
     try:
         payload = json.loads(lock.read_text(encoding="utf-8"))
     except Exception:
         # Corrupt lock → treat as stale; caller may choose to unlink.
         log.warning("wiki refresh lock is corrupt at %s", lock, exc_info=True)
         return BackgroundRefreshStatus(
-            in_progress=False, pid=None, started_at=None, lock_path=lock, stale=True
+            in_progress=False,
+            pid=None,
+            started_at=None,
+            lock_path=lock,
+            stale=True,
+            last_run=last_run,
         )
 
     pid = int(payload.get("pid", 0)) or None
@@ -143,6 +234,7 @@ def read_status(root: Path) -> BackgroundRefreshStatus:
         modules_total=modules_total,
         modules_done=modules_done,
         current_module=current_module,
+        last_run=last_run,
     )
 
 

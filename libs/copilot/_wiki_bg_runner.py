@@ -89,6 +89,13 @@ def main(argv: list[str] | None = None) -> int:
     _install_sigterm_handler()
     log.info("start root=%s all_modules=%s", root, args.all_modules)
     exit_code = 0
+    # ``modules_updated`` reflects modules actually refreshed before exit.
+    # For clean runs it equals the return value of
+    # ``_run_wiki_update_in_process``; for SIGTERM/crash it's the count
+    # reported by the last progress callback, so the user sees
+    # "got through 3/12" instead of a silent partial.
+    modules_updated = 0
+    started_at = time.time()
     try:
         # Deferred imports: pulling in `orchestrator` brings the full
         # scanning stack; keeping them lazy makes
@@ -106,6 +113,8 @@ def main(argv: list[str] | None = None) -> int:
         def _on_progress(
             *, done: int, total: int, current: str | None, phase: str = PHASE_GENERATING
         ) -> None:
+            nonlocal modules_updated
+            modules_updated = done
             write_progress(
                 root,
                 phase=phase,
@@ -119,6 +128,7 @@ def main(argv: list[str] | None = None) -> int:
             all_modules=args.all_modules,
             on_progress=_on_progress,
         )
+        modules_updated = max(modules_updated, int(updated))
         write_progress(root, phase=PHASE_FINALIZING)
         log.info("done updated=%s messages=%s", updated, messages)
     except SystemExit as exc:
@@ -128,6 +138,22 @@ def main(argv: list[str] | None = None) -> int:
         log.error("wiki refresh crashed:\n%s", traceback.format_exc())
         exit_code = 1
     finally:
+        # ``write_last_refresh`` must succeed even if the happy-path
+        # imports failed (e.g. syntax error in orchestrator); re-import
+        # defensively here.
+        try:
+            from libs.copilot.wiki_background import (  # noqa: PLC0415
+                write_last_refresh as _write_last_refresh,
+            )
+
+            _write_last_refresh(
+                root,
+                exit_code=exit_code,
+                modules_updated=modules_updated,
+                elapsed_seconds=max(0.0, time.time() - started_at),
+            )
+        except Exception:  # pragma: no cover — best-effort persistence
+            log.error("failed to write .refresh.last:\n%s", traceback.format_exc())
         _clear_lock(root)
     return exit_code
 

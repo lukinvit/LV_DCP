@@ -90,6 +90,32 @@ class CopilotCheckReport(BaseModel):
             "can target it). None when no refresh is running."
         ),
     )
+    wiki_last_refresh_completed_at: float | None = Field(
+        default=None,
+        description=(
+            "Unix timestamp when the most recent background refresh finished, "
+            "regardless of outcome. None until at least one refresh has completed."
+        ),
+    )
+    wiki_last_refresh_exit_code: int | None = Field(
+        default=None,
+        description=(
+            "Exit code of the most recent background refresh. 0 = clean; "
+            "143 = SIGTERM (cancel via `ctx project wiki --stop`); anything else = crash. "
+            "None when no refresh has ever run."
+        ),
+    )
+    wiki_last_refresh_modules_updated: int | None = Field(
+        default=None,
+        description=(
+            "Modules touched by the most recent background refresh. For crashes this "
+            "reflects the last progress checkpoint, not the intended total."
+        ),
+    )
+    wiki_last_refresh_elapsed_seconds: float | None = Field(
+        default=None,
+        description="Wall-clock duration of the most recent background refresh.",
+    )
     qdrant_enabled: bool = Field(
         description="cfg.qdrant.enabled — vector retrieval availability flag"
     )
