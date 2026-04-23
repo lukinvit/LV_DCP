@@ -10,6 +10,7 @@ Spec: ``specs/011-project-copilot-wrapper/spec.md``.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import typer
@@ -34,16 +35,69 @@ app = typer.Typer(
 # ---- renderers -------------------------------------------------------------
 
 
+_SIGTERM_EXIT_CODE = 143
+
+
+def _format_age(seconds: float) -> str:
+    """Human-friendly "N ago" for small durations.
+
+    Chosen to match the compact single-line render; we never show sub-
+    second precision here because filesystem mtimes on macOS are second-
+    granular anyway.
+    """
+    seconds = max(0.0, seconds)
+    if seconds < 60:
+        return f"{int(seconds)}s ago"
+    if seconds < 3600:
+        return f"{int(seconds // 60)} min ago"
+    if seconds < 86400:
+        return f"{int(seconds // 3600)} h ago"
+    return f"{int(seconds // 86400)} d ago"
+
+
+def _format_elapsed(seconds: float) -> str:
+    seconds = max(0.0, seconds)
+    if seconds < 60:
+        return f"{seconds:.0f}s"
+    return f"{int(seconds // 60)}m{int(seconds % 60):02d}s"
+
+
+def _render_last_refresh(report: CopilotCheckReport, *, now: float | None = None) -> str | None:
+    """Human-friendly "last refresh" summary, or ``None`` if never run.
+
+    Format:
+      ok 12 modules 47s, 3 min ago
+      FAILED exit=1 after 8 modules 12s, 3 min ago — see .refresh.log
+      cancelled after 3 modules 5s, 3 min ago
+    """
+    if report.wiki_last_refresh_completed_at is None:
+        return None
+    exit_code = report.wiki_last_refresh_exit_code or 0
+    modules = report.wiki_last_refresh_modules_updated or 0
+    elapsed = _format_elapsed(report.wiki_last_refresh_elapsed_seconds or 0.0)
+    age = _format_age(
+        (now if now is not None else time.time()) - report.wiki_last_refresh_completed_at
+    )
+    if exit_code == 0:
+        return f"ok {modules} modules {elapsed}, {age}"
+    if exit_code == _SIGTERM_EXIT_CODE:
+        return f"cancelled after {modules} modules {elapsed}, {age}"
+    return f"FAILED exit={exit_code} after {modules} modules {elapsed}, {age} — see .refresh.log"
+
+
 def _render_bg_refresh(report: CopilotCheckReport) -> str:
     """Compact one-line summary of in-flight background wiki refresh.
 
     Examples:
-      ``false``                                 — no refresh running
-      ``true (starting, pid=1234)``             — spawned, lock seen
-      ``true (generating 3/12 "foo/bar", pid=1234)`` — mid-run
+      ``false``                                            — no refresh running, no record
+      ``false (last: ok 12 modules 47s, 3 min ago)``       — previous run succeeded
+      ``false (last: FAILED exit=1 …)``                    — previous run crashed
+      ``true (starting, pid=1234)``                        — spawned, lock seen
+      ``true (generating 3/12 "foo/bar", pid=1234)``       — mid-run
     """
     if not report.wiki_refresh_in_progress:
-        return "false"
+        last = _render_last_refresh(report)
+        return "false" if last is None else f"false (last: {last})"
     parts: list[str] = [report.wiki_refresh_phase or "running"]
     if report.wiki_refresh_modules_total is not None:
         parts.append(f"{report.wiki_refresh_modules_done}/{report.wiki_refresh_modules_total}")

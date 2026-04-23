@@ -382,3 +382,102 @@ def test_check_watch_polls_until_lock_disappears(
     assert 'generating 1/2 "libs/foo"' in result.stdout
     assert "bg_refresh=false" in result.stdout
     assert sleep_calls["n"] == 2
+
+
+# ---- _render_bg_refresh last-run formatting (v0.8.4) ----------------------
+
+
+def _minimal_report(**overrides: object):  # type: ignore[no-untyped-def]
+    """Build a minimal ``CopilotCheckReport`` for renderer unit tests.
+
+    Only the fields ``_render_bg_refresh`` consults are worth setting;
+    the rest take Pydantic defaults so the factory stays compact.
+    """
+    from libs.copilot import CopilotCheckReport
+
+    base: dict[str, object] = {
+        "project_root": "/tmp/p",
+        "project_name": "p",
+        "scanned": True,
+        "stale": False,
+        "wiki_present": True,
+        "qdrant_enabled": False,
+    }
+    base.update(overrides)
+    return CopilotCheckReport(**base)  # type: ignore[arg-type]
+
+
+def test_render_bg_refresh_idle_without_last_run_returns_false() -> None:
+    from apps.cli.commands.project_cmd import _render_bg_refresh
+
+    assert _render_bg_refresh(_minimal_report()) == "false"
+
+
+def test_render_bg_refresh_idle_with_clean_last_run() -> None:
+    import time as _time
+
+    from apps.cli.commands.project_cmd import _render_bg_refresh
+
+    now = _time.time()
+    report = _minimal_report(
+        wiki_last_refresh_completed_at=now - 200.0,
+        wiki_last_refresh_exit_code=0,
+        wiki_last_refresh_modules_updated=12,
+        wiki_last_refresh_elapsed_seconds=47.0,
+    )
+    rendered = _render_bg_refresh(report)
+    assert rendered.startswith("false (last: ok 12 modules 47s,")
+    assert "min ago" in rendered  # 200s → "3 min ago"
+
+
+def test_render_bg_refresh_idle_with_crashed_last_run() -> None:
+    import time as _time
+
+    from apps.cli.commands.project_cmd import _render_bg_refresh
+
+    now = _time.time()
+    report = _minimal_report(
+        wiki_last_refresh_completed_at=now - 5.0,
+        wiki_last_refresh_exit_code=1,
+        wiki_last_refresh_modules_updated=3,
+        wiki_last_refresh_elapsed_seconds=12.0,
+    )
+    rendered = _render_bg_refresh(report)
+    assert "FAILED exit=1" in rendered
+    assert "see .refresh.log" in rendered
+
+
+def test_render_bg_refresh_idle_with_sigterm_last_run() -> None:
+    import time as _time
+
+    from apps.cli.commands.project_cmd import _render_bg_refresh
+
+    now = _time.time()
+    report = _minimal_report(
+        wiki_last_refresh_completed_at=now - 5.0,
+        wiki_last_refresh_exit_code=143,
+        wiki_last_refresh_modules_updated=3,
+        wiki_last_refresh_elapsed_seconds=12.0,
+    )
+    rendered = _render_bg_refresh(report)
+    assert "cancelled after 3 modules 12s" in rendered
+
+
+def test_render_bg_refresh_running_ignores_last_run() -> None:
+    """While a refresh is in progress, we only show live progress."""
+    from apps.cli.commands.project_cmd import _render_bg_refresh
+
+    report = _minimal_report(
+        wiki_refresh_in_progress=True,
+        wiki_refresh_phase="generating",
+        wiki_refresh_modules_total=12,
+        wiki_refresh_modules_done=3,
+        wiki_refresh_pid=1234,
+        wiki_last_refresh_completed_at=1_700_000_000.0,
+        wiki_last_refresh_exit_code=1,
+        wiki_last_refresh_modules_updated=4,
+        wiki_last_refresh_elapsed_seconds=7.0,
+    )
+    rendered = _render_bg_refresh(report)
+    assert rendered.startswith("true (generating")
+    assert "last:" not in rendered  # live view supersedes the last-run hint

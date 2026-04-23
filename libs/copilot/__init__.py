@@ -28,10 +28,13 @@ from libs.copilot.orchestrator import (
 )
 from libs.copilot.wiki_background import (
     BackgroundRefreshStatus,
+    LastRefreshRecord,
     cancel_background_refresh,
     is_refresh_in_progress,
+    read_last_refresh,
     read_status,
     start_background_refresh,
+    write_last_refresh,
 )
 
 __all__ = [
@@ -40,13 +43,16 @@ __all__ = [
     "CopilotCheckReport",
     "CopilotRefreshReport",
     "DegradedMode",
+    "LastRefreshRecord",
     "ask_project",
     "cancel_background_refresh",
     "check_project",
     "is_refresh_in_progress",
+    "read_last_refresh",
     "read_status",
     "refresh_project",
     "refresh_wiki",
     "start_background_refresh",
     "watch_check_project",
+    "write_last_refresh",
 ]

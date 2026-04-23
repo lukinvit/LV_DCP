@@ -282,3 +282,76 @@ def test_cancel_clears_stale_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     status = wiki_background.cancel_background_refresh(tmp_path)
     assert status.stale is True
     assert not lock.exists()
+
+
+# ---- last-refresh record (v0.8.4) -----------------------------------------
+
+
+def test_read_last_refresh_returns_none_when_file_absent(tmp_path: Path) -> None:
+    _make_project(tmp_path)
+    assert wiki_background.read_last_refresh(tmp_path) is None
+
+
+def test_write_then_read_last_refresh_round_trips(tmp_path: Path) -> None:
+    _make_project(tmp_path)
+    wiki_background.write_last_refresh(
+        tmp_path,
+        exit_code=0,
+        modules_updated=7,
+        elapsed_seconds=12.5,
+        completed_at=1_700_000_000.0,
+    )
+    record = wiki_background.read_last_refresh(tmp_path)
+    assert record is not None
+    assert record.exit_code == 0
+    assert record.modules_updated == 7
+    assert record.elapsed_seconds == pytest.approx(12.5)
+    assert record.completed_at == pytest.approx(1_700_000_000.0)
+
+
+def test_read_last_refresh_handles_corrupt_file(tmp_path: Path) -> None:
+    _make_project(tmp_path)
+    (tmp_path / ".context" / "wiki" / ".refresh.last").write_text("{not json", encoding="utf-8")
+    assert wiki_background.read_last_refresh(tmp_path) is None
+
+
+def test_read_last_refresh_handles_missing_keys(tmp_path: Path) -> None:
+    """A valid JSON object missing required keys falls back to None.
+
+    Forward compatibility: a future schema version with renamed keys
+    shouldn't crash older readers.
+    """
+    _make_project(tmp_path)
+    (tmp_path / ".context" / "wiki" / ".refresh.last").write_text(
+        json.dumps({"completed_at": 1.0, "exit_code": 0}),  # missing two keys
+        encoding="utf-8",
+    )
+    assert wiki_background.read_last_refresh(tmp_path) is None
+
+
+def test_read_status_surfaces_last_run(tmp_path: Path) -> None:
+    _make_project(tmp_path)
+    wiki_background.write_last_refresh(
+        tmp_path,
+        exit_code=1,
+        modules_updated=4,
+        elapsed_seconds=3.2,
+        completed_at=1_700_000_000.0,
+    )
+    status = wiki_background.read_status(tmp_path)
+    assert status.in_progress is False
+    assert status.last_run is not None
+    assert status.last_run.exit_code == 1
+    assert status.last_run.modules_updated == 4
+
+
+def test_write_last_refresh_is_atomic_via_rename(tmp_path: Path) -> None:
+    """No ``.tmp`` sibling should survive after a successful write."""
+    _make_project(tmp_path)
+    wiki_background.write_last_refresh(
+        tmp_path, exit_code=0, modules_updated=1, elapsed_seconds=0.5
+    )
+    wiki_dir = tmp_path / ".context" / "wiki"
+    tmp_siblings = list(wiki_dir.glob(".refresh.last.tmp*"))
+    assert tmp_siblings == []
+    assert (wiki_dir / ".refresh.last").exists()
