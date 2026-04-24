@@ -27,6 +27,25 @@ class HealthCard(BaseModel):
     last_scan_at_iso: str | None = None
     last_scan_status: str = "pending"
     stale: bool = False
+    obsidian_last_sync_at_iso: str | None = Field(
+        default=None,
+        description=(
+            "ISO 8601 UTC timestamp of the most recent Obsidian sync, derived "
+            "from ``.context/obsidian_last_sync`` (a unix-epoch float written "
+            "by both the after-scan daemon worker and ``ctx obsidian sync-all``). "
+            "``None`` when the marker is missing or unreadable — Obsidian sync "
+            "is disabled or has never run for this project."
+        ),
+    )
+    obsidian_sync_age_hours: float | None = Field(
+        default=None,
+        description=(
+            "Age of the most recent Obsidian sync in hours, relative to now. "
+            "Precomputed so the dashboard template can render ``Xh ago`` "
+            "without doing datetime math in Jinja. ``None`` when the marker "
+            "is missing."
+        ),
+    )
 
 
 class SparklineSeries(BaseModel):
