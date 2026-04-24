@@ -20,7 +20,9 @@
         {% include "partials/scan_coverage.html.j2" %}
     {% endwith %}
 
-    {% include "partials/wiki_refresh.html.j2" %}
+    {% with wr=status.wiki_refresh, slug=status.card.slug %}
+        {% include "partials/wiki_refresh.html.j2" %}
+    {% endwith %}
 
     <section class="section">
         <h2>Dependency graph</h2>

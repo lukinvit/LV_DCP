@@ -9,7 +9,12 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from libs.core.projects_config import load_config
 from libs.obsidian.models import ObsidianFileInfo, ObsidianModuleData, ObsidianSymbolInfo
-from libs.status.aggregator import build_project_status, build_workspace_status, resolve_config_path
+from libs.status.aggregator import (
+    build_project_status,
+    build_wiki_refresh,
+    build_workspace_status,
+    resolve_config_path,
+)
 from libs.status.budget import compute_budget_status
 from libs.status.models import WorkspaceStatus
 from libs.summaries.store import SummaryStore, resolve_default_store_path
@@ -55,6 +60,31 @@ def project_detail(slug: str, request: Request) -> _TemplateResponse:
             "summaries": summaries,
             "obsidian_config": obsidian_config,
         },
+    )
+
+
+@router.get("/api/project/{slug}/wiki-refresh", response_class=HTMLResponse)
+def wiki_refresh_fragment(slug: str, request: Request) -> _TemplateResponse:
+    """HTMX polling endpoint: render just the wiki_refresh partial.
+
+    Called every ~2 s by the partial's outer wrapper while a refresh is
+    in progress (``hx-get`` on ``#wiki-refresh-panel``). Builds only the
+    ``WikiBackgroundRefresh`` snapshot — not the full ``ProjectStatus``
+    — so polling stays cheap even during a live refresh. When the
+    refresh transitions to idle, the response has no ``hx-get`` on the
+    outer wrapper and HTMX stops the timer.
+    """
+    ws = build_workspace_status()
+    root = _find_project_root_by_slug(ws, slug)
+    if root is None:
+        raise HTTPException(status_code=404, detail=f"project not found: {slug}")
+
+    wr = build_wiki_refresh(Path(root))
+    templates = request.app.state.templates
+    return templates.TemplateResponse(  # type: ignore[no-any-return]
+        request=request,
+        name="partials/wiki_refresh.html.j2",
+        context={"wr": wr, "slug": slug},
     )
 
 
