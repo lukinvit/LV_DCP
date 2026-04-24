@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from libs.parsers.base import FileParser
 from libs.parsers.golang import GoParser
+from libs.parsers.java import JavaParser
 from libs.parsers.python import PythonParser
 from libs.parsers.rust import RustParser
 from libs.parsers.text_parsers import JsonParser, MarkdownParser, TomlParser, YamlParser
@@ -25,6 +26,7 @@ EXTENSION_TO_LANGUAGE: dict[str, str] = {
     ".cjs": "javascript",
     ".go": "go",
     ".rs": "rust",
+    ".java": "java",
 }
 
 
@@ -52,6 +54,7 @@ _PARSERS: dict[str, FileParser] = {
     "javascript": _make_js_parser(),
     "go": GoParser(),
     "rust": RustParser(),
+    "java": JavaParser(),
 }
 
 
