@@ -222,3 +222,137 @@ def test_prune_empty_registry_is_graceful(tmp_path: Path) -> None:
     assert result.removed == []
     assert result.applied is False
     assert result.backup_path is None
+
+
+# ---- v0.8.36: --missing (root directory gone from disk) ------------------
+
+
+def test_plan_prune_missing_lists_absent_roots(tmp_path: Path) -> None:
+    """``missing_only=True`` catches entries whose root path is gone.
+
+    Independent of ``kind`` / ``older_than_days`` — a deleted worktree or a
+    moved project root leaves a tombstone entry that the staleness gate
+    doesn't catch for 30 days. This predicate catches it immediately.
+    """
+    now = 1_800_000_000.0
+    # deleted_root is referenced in the registry but never created on disk
+    deleted_root = tmp_path / "LV_DCP" / ".claude" / "worktrees" / "v0.8.20-gone"
+    # live_root exists and should survive
+    live_root = tmp_path / "ActiveProject"
+    live_root.mkdir()
+
+    cfg = tmp_path / "config.yaml"
+    _write_cfg(
+        cfg,
+        [
+            {"root": str(deleted_root), "registered_at_iso": iso_utc(now - 86400)},
+            {"root": str(live_root), "registered_at_iso": iso_utc(now - 86400)},
+        ],
+    )
+
+    candidates = plan_prune(cfg, missing_only=True)
+
+    assert len(candidates) == 1
+    assert candidates[0].root == str(deleted_root)
+
+
+def test_prune_missing_ignores_older_than_gate(tmp_path: Path) -> None:
+    """Freshly-registered worktrees that get deleted same-day must be
+    catchable by ``--missing`` even though they fail the 30-day gate.
+    """
+    now = 1_800_000_000.0
+    deleted_root = tmp_path / "LV_DCP" / ".claude" / "worktrees" / "just-shipped"
+    # Registered a few hours ago, last scan a few hours ago — far from stale.
+    cfg = tmp_path / "config.yaml"
+    _write_cfg(
+        cfg,
+        [
+            {
+                "root": str(deleted_root),
+                "registered_at_iso": iso_utc(now - 3600),
+                "last_scan_at_iso": iso_utc(now - 1800),
+            }
+        ],
+    )
+
+    # The staleness-gated mode should NOT list it (not stale by age).
+    staleness_candidates = plan_prune(cfg, older_than_days=30, kind="all")
+    assert staleness_candidates == []
+
+    # The missing-root mode SHOULD list it.
+    missing_candidates = plan_prune(cfg, missing_only=True)
+    assert len(missing_candidates) == 1
+    assert missing_candidates[0].root == str(deleted_root)
+
+
+def test_prune_missing_ignores_kind_filter(tmp_path: Path) -> None:
+    """A gone-from-disk entry is pruned regardless of classification."""
+    now = 1_800_000_000.0
+    gone_real = tmp_path / "former_project"  # never created
+    gone_transient = tmp_path / "LV_DCP" / ".claude" / "worktrees" / "also-gone"  # never created
+
+    cfg = tmp_path / "config.yaml"
+    _write_cfg(
+        cfg,
+        [
+            {"root": str(gone_real), "registered_at_iso": iso_utc(now - 86400)},
+            {"root": str(gone_transient), "registered_at_iso": iso_utc(now - 86400)},
+        ],
+    )
+
+    # Even with kind='transient' (the default), missing_only overrides and
+    # catches the real-classified entry too.
+    candidates = plan_prune(cfg, kind="transient", missing_only=True)
+    assert {c.root for c in candidates} == {str(gone_real), str(gone_transient)}
+
+
+def test_prune_missing_applies_with_backup(tmp_path: Path) -> None:
+    """``apply=True`` on ``missing_only`` mutates and writes the backup."""
+    now = 1_800_000_000.0
+    alive = tmp_path / "Alive"
+    alive.mkdir()
+    dead = tmp_path / "Dead"  # never created
+
+    cfg = tmp_path / "config.yaml"
+    _write_cfg(
+        cfg,
+        [
+            {"root": str(alive), "registered_at_iso": iso_utc(now - 86400)},
+            {"root": str(dead), "registered_at_iso": iso_utc(now - 86400)},
+        ],
+    )
+    original = cfg.read_bytes()
+
+    result = prune_stale(cfg, missing_only=True, apply=True)
+
+    assert result.applied is True
+    assert result.removed == [str(dead)]
+    assert result.kept == [str(alive)]
+    assert result.backup_path is not None
+    assert result.backup_path.read_bytes() == original
+
+    reloaded = load_config(cfg)
+    assert [str(e.root) for e in reloaded.projects] == [str(alive)]
+
+
+def test_prune_missing_no_candidates_is_graceful(tmp_path: Path) -> None:
+    """When every registered root still exists, missing-mode is a no-op."""
+    now = 1_800_000_000.0
+    a = tmp_path / "A"
+    b = tmp_path / "B"
+    a.mkdir()
+    b.mkdir()
+    cfg = tmp_path / "config.yaml"
+    _write_cfg(
+        cfg,
+        [
+            {"root": str(a), "registered_at_iso": iso_utc(now - 86400)},
+            {"root": str(b), "registered_at_iso": iso_utc(now - 86400)},
+        ],
+    )
+
+    result = prune_stale(cfg, missing_only=True, apply=True)
+    assert result.removed == []
+    assert result.applied is False
+    assert result.backup_path is None
+    assert [str(e.root) for e in load_config(cfg).projects] == [str(a), str(b)]

@@ -185,3 +185,95 @@ def test_registry_prune_real_kind_spares_transient(stale_cfg: Path) -> None:
     result = CliRunner().invoke(app, ["registry", "prune", "--kind", "real"])
     assert result.exit_code == 0
     assert "nothing to do" in result.stdout
+
+
+# ---- --missing (v0.8.36) --------------------------------------------------
+
+
+@pytest.fixture
+def missing_cfg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A registry with one alive project and one whose root was deleted."""
+    alive = tmp_path / "AliveProject"
+    _seed_cache(alive)
+    deleted = tmp_path / "LV_DCP" / ".claude" / "worktrees" / "deleted-today"
+    # deliberately NOT created — simulates `git worktree remove` aftermath
+
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "projects": [
+                    {"root": str(alive), "registered_at_iso": "2026-04-24T00:00:00Z"},
+                    {
+                        "root": str(deleted),
+                        "registered_at_iso": "2026-04-25T00:00:00Z",
+                        "last_scan_at_iso": "2026-04-25T09:00:00Z",  # recent → not stale-by-age
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LVDCP_CONFIG_PATH", str(path))
+    return path
+
+
+def test_registry_prune_missing_dry_run_lists_deleted_root(missing_cfg: Path) -> None:
+    """`ctx registry prune --missing` (no --yes) previews deleted roots
+    and leaves the config untouched.
+    """
+    original = missing_cfg.read_bytes()
+    result = CliRunner().invoke(app, ["registry", "prune", "--missing"])
+    assert result.exit_code == 0, result.stdout
+    assert "missing root" in result.stdout
+    assert "deleted-today" in result.stdout
+    assert "dry-run" in result.stdout
+    # Untouched.
+    assert missing_cfg.read_bytes() == original
+    assert not missing_cfg.with_name(missing_cfg.name + ".bak").exists()
+
+
+def test_registry_prune_missing_yes_removes_and_backs_up(missing_cfg: Path) -> None:
+    """`--missing --yes` removes the tombstone and writes the *.bak sidecar."""
+    original = missing_cfg.read_bytes()
+    result = CliRunner().invoke(app, ["registry", "prune", "--missing", "--yes"])
+    assert result.exit_code == 0, result.stdout
+    assert "REMOVED" in result.stdout
+    assert "backup saved" in result.stdout
+
+    backup = missing_cfg.with_name(missing_cfg.name + ".bak")
+    assert backup.exists()
+    assert backup.read_bytes() == original
+
+    payload = yaml.safe_load(missing_cfg.read_text(encoding="utf-8"))
+    roots = [p["root"] for p in payload["projects"]]
+    assert len(roots) == 1
+    assert "AliveProject" in roots[0]
+
+
+def test_registry_prune_missing_nothing_to_do(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When every root exists on disk, --missing is a graceful no-op."""
+    a = tmp_path / "A"
+    b = tmp_path / "B"
+    a.mkdir()
+    b.mkdir()
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "projects": [
+                    {"root": str(a), "registered_at_iso": "2026-04-25T00:00:00Z"},
+                    {"root": str(b), "registered_at_iso": "2026-04-25T00:00:00Z"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LVDCP_CONFIG_PATH", str(path))
+
+    result = CliRunner().invoke(app, ["registry", "prune", "--missing"])
+    assert result.exit_code == 0, result.stdout
+    assert "nothing to do" in result.stdout
+    assert "missing root" in result.stdout
