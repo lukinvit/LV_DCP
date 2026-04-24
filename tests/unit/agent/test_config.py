@@ -1,6 +1,8 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
+import apps.agent.config as agent_config
+import libs.core.projects_config as core_config
 from apps.agent.config import (
     DaemonConfig,
     ProjectEntry,
@@ -11,6 +13,16 @@ from apps.agent.config import (
     save_config,
     update_last_scan,
 )
+
+
+def test_save_config_is_single_source_of_truth() -> None:
+    """apps.agent.config.save_config must delegate to the atomic libs version.
+
+    Regression guard for v0.8.34 — prevents a future refactor from
+    reintroducing a second, non-atomic `save_config` that would silently
+    skip fsync/rename and corrupt the registry on crash.
+    """
+    assert agent_config.save_config is core_config.save_config
 
 
 def test_config_round_trip(tmp_path: Path) -> None:
