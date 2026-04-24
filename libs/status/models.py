@@ -79,6 +79,80 @@ class HotspotInfo(BaseModel):
     score: float
 
 
+class WikiBackgroundRefresh(BaseModel):
+    """Background wiki refresh observability for MCP consumers.
+
+    Mirrors the ``wiki_refresh_*`` / ``wiki_last_refresh_*`` fields that
+    :class:`libs.copilot.CopilotCheckReport` already surfaces on the CLI
+    side, so an agent calling ``lvdcp_status`` sees the same state a
+    human sees from ``ctx project check``.
+
+    All fields are nullable on purpose: ``in_progress=False`` with every
+    other field ``None`` means "nothing running, never ran"; a running
+    refresh populates the live-progress fields; a finished refresh
+    populates the ``last_*`` fields. The two sets can be populated at
+    the same time — a new refresh that starts right after an old one
+    crashed will have both the live progress *and* the last-run tail.
+    """
+
+    in_progress: bool = Field(
+        default=False,
+        description=(
+            "True when ``.context/wiki/.refresh.lock`` is present and owned "
+            "by a live PID — matches ``CopilotCheckReport.wiki_refresh_in_progress``."
+        ),
+    )
+    phase: str | None = Field(
+        default=None,
+        description=(
+            "Current phase of an in-progress refresh: "
+            "``starting`` | ``loading`` | ``generating`` | ``finalizing``."
+        ),
+    )
+    modules_total: int | None = Field(
+        default=None,
+        description="Total modules the runner plans to update; None until enumerated.",
+    )
+    modules_done: int = Field(
+        default=0, description="Modules already processed in the current refresh."
+    )
+    current_module: str | None = Field(
+        default=None, description="Module currently being (re)generated, if any."
+    )
+    pid: int | None = Field(
+        default=None, description="PID of the running runner, or None when idle."
+    )
+    last_completed_at: float | None = Field(
+        default=None,
+        description="Unix ts when the most recent refresh finished, regardless of outcome.",
+    )
+    last_exit_code: int | None = Field(
+        default=None,
+        description=(
+            "Exit code of the most recent refresh. 0 = clean; 143 = SIGTERM; "
+            "anything else = crash. None when no refresh has ever run."
+        ),
+    )
+    last_modules_updated: int | None = Field(
+        default=None,
+        description=(
+            "Modules touched by the most recent refresh; for crashes this reflects "
+            "the last progress checkpoint, not the intended total."
+        ),
+    )
+    last_elapsed_seconds: float | None = Field(
+        default=None, description="Wall-clock duration of the most recent refresh."
+    )
+    last_log_tail: list[str] | None = Field(
+        default=None,
+        description=(
+            "Last ~20 lines of ``.refresh.log`` captured at runner exit, populated "
+            "only when the most recent refresh crashed (non-zero, non-SIGTERM exit). "
+            "None for clean / cancelled runs and when no refresh has ever happened."
+        ),
+    )
+
+
 class ProjectStatus(BaseModel):
     card: HealthCard
     claude_usage_7d: TokenTotals
@@ -87,6 +161,15 @@ class ProjectStatus(BaseModel):
     graph: GraphDump | None = None
     hotspots: list[HotspotInfo] = Field(default_factory=list)
     scan_coverage: dict[str, object] | None = None
+    wiki_refresh: WikiBackgroundRefresh | None = Field(
+        default=None,
+        description=(
+            "Background wiki-refresh observability block. None on projects that "
+            "predate v0.8.1 or when the status layer couldn't read the lock / "
+            "``.refresh.last`` file; a concrete value means the aggregator checked "
+            "and found either an idle project or live / historical refresh state."
+        ),
+    )
 
 
 class WorkspaceStatus(BaseModel):

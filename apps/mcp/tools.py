@@ -567,6 +567,11 @@ def lvdcp_status(path: str | None = None) -> StatusResponse:
     - Get detailed per-project data including dependency graph
       (`lvdcp_status(path="/abs/project")`)
     - See Claude Code token usage rolling totals per project or workspace-wide
+    - Inspect background wiki-refresh state before deciding whether to
+      trigger a refresh — the per-project response exposes ``wiki_refresh``
+      with live progress (``in_progress``, ``phase``, ``modules_done/total``)
+      and the last run's outcome (``last_exit_code``, ``last_log_tail`` on
+      crash). Mirrors what ``ctx project check`` prints on the CLI.
 
     DO NOT CALL FOR:
     - Replacing `lvdcp_pack` (use pack for code context, status for meta-level state)
