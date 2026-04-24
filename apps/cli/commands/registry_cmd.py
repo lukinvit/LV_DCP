@@ -16,7 +16,7 @@ from dataclasses import asdict
 import typer
 from libs.status.aggregator import resolve_config_path
 from libs.status.registry_audit import ProjectAudit, audit_registry, is_missing, is_stale
-from libs.status.registry_prune import prune_stale
+from libs.status.registry_prune import PruneResult, prune_stale
 
 app = typer.Typer(help="Audit and clean the LV_DCP project registry (~/.lvdcp/config.yaml).")
 
@@ -60,6 +60,22 @@ def _render_text(rows: list[ProjectAudit]) -> str:
             f"{_format_age(r.last_scan_age_hours):>9}  {r.root}"
         )
     return "\n".join(lines)
+
+
+def _prune_result_to_json(result: PruneResult) -> dict[str, object]:
+    """Stringify Path fields so the result is JSON-serializable.
+
+    Schema is intentionally a 1:1 mirror of `PruneResult` (no flag echo,
+    no derived fields) — that gives scripts the smallest stable surface
+    to bind against.
+    """
+    return {
+        "kept": result.kept,
+        "removed": result.removed,
+        "applied": result.applied,
+        "backup_path": str(result.backup_path) if result.backup_path is not None else None,
+        "config_path": str(result.config_path) if result.config_path is not None else None,
+    }
 
 
 def _apply_filters(
@@ -169,6 +185,16 @@ def prune_cmd(
             "is written right before mutation."
         ),
     ),
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help=(
+            "Emit the prune result as a JSON object instead of human-readable "
+            "text. Schema mirrors `PruneResult`: kept, removed, applied, "
+            "backup_path, config_path. Composes with --yes (live-apply JSON) "
+            "and dry-run (preview JSON). Suppresses all hint text — pure data."
+        ),
+    ),
 ) -> None:
     """Remove stale registry entries. Defaults to dry-run — pass --yes to apply.
 
@@ -202,6 +228,12 @@ def prune_cmd(
         missing_only=missing,
         apply=yes,
     )
+
+    if as_json:
+        # Pure data — no hints, no headers. Scripts bind directly to the
+        # PruneResult shape; humans use the text path below.
+        typer.echo(json.dumps(_prune_result_to_json(result), indent=2))
+        return
 
     if not result.removed:
         if missing:
