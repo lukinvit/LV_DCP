@@ -349,3 +349,161 @@ class TestRegistryWiring:
     def test_java_parser_language_attr(self) -> None:
         parser = JavaParser()
         assert parser.language == "java"
+
+
+# ---------------------------------------------------------------------------
+# INHERITS edges (v0.8.23)
+# ---------------------------------------------------------------------------
+
+
+INHERITS_CODE = b"""\
+package com.example;
+
+public class Child extends Parent {}
+
+public class Multi extends Parent implements Alpha, Beta, Gamma {}
+
+public class GenericHeir extends Container<String> implements Iterable<Integer> {}
+
+public class Scoped extends pkg.inner.Deep {}
+
+public class ScopedGeneric extends pkg.Box<Integer> {}
+
+public interface IKind extends IAlpha, IBeta {}
+
+public enum Mode implements Serializable, Cloneable {
+    ON,
+    OFF
+}
+
+public record Coord(int x, int y) implements Comparable<Coord> {}
+
+public class Plain {}
+
+public @interface Marker {}
+
+public class Outer {
+    public class Inner extends InnerBase implements InnerMarker {}
+
+    public static class Static extends StaticBase {}
+}
+"""
+
+
+class TestInheritsEdges:
+    """v0.8.23 — INHERITS edges for extends / implements clauses."""
+
+    @staticmethod
+    def _inherits(code: bytes, path: str = "Types.java") -> list[tuple[str, str]]:
+        result = JavaParser().parse(file_path=path, data=code)
+        return [
+            (r.src_ref, r.dst_ref)
+            for r in result.relations
+            if r.relation_type == RelationType.INHERITS
+        ]
+
+    def test_class_extends_single_base(self) -> None:
+        edges = self._inherits(INHERITS_CODE)
+        assert ("Types.Child", "Parent") in edges
+
+    def test_class_extends_plus_implements_multiple(self) -> None:
+        edges = self._inherits(INHERITS_CODE)
+        assert ("Types.Multi", "Parent") in edges
+        assert ("Types.Multi", "Alpha") in edges
+        assert ("Types.Multi", "Beta") in edges
+        assert ("Types.Multi", "Gamma") in edges
+
+    def test_generic_type_arguments_stripped(self) -> None:
+        """``extends Container<String>`` surfaces as ``Container`` only."""
+        edges = self._inherits(INHERITS_CODE)
+        assert ("Types.GenericHeir", "Container") in edges
+        assert ("Types.GenericHeir", "Iterable") in edges
+        # The type-argument identifiers must never surface as bases.
+        assert not any(base in {"String", "Integer"} for _, base in edges)
+
+    def test_scoped_base_preserves_full_path(self) -> None:
+        """``extends pkg.inner.Deep`` surfaces as the full dotted path."""
+        edges = self._inherits(INHERITS_CODE)
+        assert ("Types.Scoped", "pkg.inner.Deep") in edges
+
+    def test_scoped_generic_strips_arguments(self) -> None:
+        """``extends pkg.Box<Integer>`` surfaces as ``pkg.Box`` only."""
+        edges = self._inherits(INHERITS_CODE)
+        assert ("Types.ScopedGeneric", "pkg.Box") in edges
+        assert not any(base == "Integer" for _, base in edges)
+
+    def test_interface_extends_multiple(self) -> None:
+        """Interface ``extends`` clause produces one edge per parent."""
+        edges = self._inherits(INHERITS_CODE)
+        assert ("Types.IKind", "IAlpha") in edges
+        assert ("Types.IKind", "IBeta") in edges
+
+    def test_enum_implements_multiple(self) -> None:
+        edges = self._inherits(INHERITS_CODE)
+        assert ("Types.Mode", "Serializable") in edges
+        assert ("Types.Mode", "Cloneable") in edges
+
+    def test_record_implements(self) -> None:
+        """``record Coord(int x, int y) implements Comparable<Coord>``."""
+        edges = self._inherits(INHERITS_CODE)
+        assert ("Types.Coord", "Comparable") in edges
+
+    def test_plain_class_emits_no_inherits(self) -> None:
+        """A class with no heritage clauses emits zero INHERITS edges."""
+        edges = self._inherits(INHERITS_CODE)
+        assert not any(src == "Types.Plain" for src, _ in edges)
+
+    def test_annotation_type_never_source(self) -> None:
+        """``@interface`` declarations cannot have heritage; never appear as src."""
+        edges = self._inherits(INHERITS_CODE)
+        assert not any(src == "Types.Marker" for src, _ in edges)
+
+    def test_nested_inner_class_uses_outer_fq(self) -> None:
+        """Inner class INHERITS edge's src_ref matches its symbol fq_name."""
+        edges = self._inherits(INHERITS_CODE)
+        # fq for ``Outer.Inner`` (non-static) — matches the symbol fq
+        # produced by the main walker's scope stack.
+        assert ("Types.Outer.Inner", "InnerBase") in edges
+        assert ("Types.Outer.Inner", "InnerMarker") in edges
+
+    def test_nested_static_class_uses_outer_fq(self) -> None:
+        """Static nested classes share the same fq convention as non-static."""
+        edges = self._inherits(INHERITS_CODE)
+        assert ("Types.Outer.Static", "StaticBase") in edges
+
+    def test_inherits_src_ref_matches_symbol_fq(self) -> None:
+        """Every INHERITS src_ref resolves against a symbol in the same file."""
+        result = JavaParser().parse(file_path="Types.java", data=INHERITS_CODE)
+        fq_names = {s.fq_name for s in result.symbols}
+        for rel in result.relations:
+            if rel.relation_type == RelationType.INHERITS:
+                assert rel.src_ref in fq_names, (
+                    f"INHERITS src_ref {rel.src_ref} does not resolve to a "
+                    f"symbol in the same file (symbols: {sorted(fq_names)})"
+                )
+
+    def test_inherits_relation_shape(self) -> None:
+        """INHERITS edges use ``src_type=symbol``, ``dst_type=symbol``."""
+        result = JavaParser().parse(file_path="Types.java", data=INHERITS_CODE)
+        inherits = [r for r in result.relations if r.relation_type == RelationType.INHERITS]
+        assert inherits, "sanity: the fixture should produce edges"
+        for rel in inherits:
+            assert rel.src_type == "symbol"
+            assert rel.dst_type == "symbol"
+
+    def test_inherits_respects_maven_module_fq(self) -> None:
+        """When a Maven layout is present the module_fq is the Java package path."""
+        edges = self._inherits(
+            b"package com.example;\nclass Foo extends Bar {}\n",
+            path="src/main/java/com/example/Foo.java",
+        )
+        assert ("com.example.Foo.Foo", "Bar") in edges
+
+    def test_inherits_empty_file_emits_nothing(self) -> None:
+        edges = self._inherits(b"")
+        assert edges == []
+
+    def test_inherits_plain_fixture_has_none(self) -> None:
+        """The pre-v0.8.23 JAVA_CODE fixture has no extends/implements clauses."""
+        edges = self._inherits(JAVA_CODE, path="src/main/java/com/example/app/Config.java")
+        assert edges == []
