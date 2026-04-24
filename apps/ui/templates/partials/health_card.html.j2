@@ -16,6 +16,24 @@
         {% endif %}
         &mdash; status: <span class="status-{{ card.last_scan_status }}">{{ card.last_scan_status }}</span>
     </div>
+    {% if card.obsidian_last_sync_at_iso %}
+        <div class="card-obsidian">
+            last Obsidian sync:
+            <time datetime="{{ card.obsidian_last_sync_at_iso }}">
+                {%- if card.obsidian_sync_age_hours is not none -%}
+                    {%- if card.obsidian_sync_age_hours < 1 -%}
+                        &lt;1h ago
+                    {%- elif card.obsidian_sync_age_hours < 48 -%}
+                        {{ '%.0f' % card.obsidian_sync_age_hours }}h ago
+                    {%- else -%}
+                        {{ '%.0f' % (card.obsidian_sync_age_hours / 24) }}d ago
+                    {%- endif -%}
+                {%- else -%}
+                    {{ card.obsidian_last_sync_at_iso }}
+                {%- endif -%}
+            </time>
+        </div>
+    {% endif %}
     {% if card.stale %}
         <div class="stale-banner">stale (&gt;24h)</div>
     {% endif %}
