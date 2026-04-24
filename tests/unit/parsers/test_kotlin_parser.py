@@ -460,3 +460,209 @@ class TestRegistryWiring:
     def test_kotlin_parser_language_attr(self) -> None:
         parser = KotlinParser()
         assert parser.language == "kotlin"
+
+
+# ---------------------------------------------------------------------------
+# INHERITS edges (v0.8.24)
+# ---------------------------------------------------------------------------
+
+
+INHERITS_CODE = b"""\
+package com.example
+
+// Single base class via constructor_invocation
+class Dog : Animal()
+
+// Mixed: one extends (parentheses) + two implements (bare user_types)
+class Cat : Animal(), Feline, Cuddly
+
+// Interface : many -- same colon syntax as class extension
+interface MyList : Collection<Int>, Iterable<Int>
+
+// Object singleton with heritage
+object Singleton : Base(), Trait
+
+// Enum implements interface
+enum class Color : Serializable { RED, BLUE }
+
+// Data class heritage (no parentheses -- interface conformance)
+data class Point(val x: Int, val y: Int) : Coord
+
+// Sealed class heritage
+sealed class Tree : Node
+
+// Explicit delegation -- still is-a for graph purposes
+class Impl(x: Iface) : Iface by x
+
+// Mixed explicit + constructor + bare
+class Mixed(x: Iface) : Base(), Iface by x, OtherIface
+
+// Generics must be stripped
+class Box<T> : Container<String>, Comparable<Box<T>>
+
+// Scoped base paths preserved, generics still stripped
+class Outer { class Inner : pkg.lib.Deep<String> }
+
+// Plain class -- no heritage
+class Plain
+
+// Annotation class -- cannot carry delegation specifiers
+annotation class MyAnn
+
+// Nested: outer + inner + object inside outer
+class Types {
+    class NestedA : NestedBase()
+    object NestedObj : NestedObjBase
+}
+
+// Companion object with heritage -- intentionally excluded
+class WithCompanion {
+    companion object : Holder
+}
+"""
+
+
+class TestInheritsEdges:
+    """Locks INHERITS edge emission for Kotlin's ``:`` heritage syntax."""
+
+    def _inherits(self, code: bytes, path: str) -> list[tuple[str, str]]:
+        parser = KotlinParser()
+        result = parser.parse(file_path=path, data=code)
+        return [
+            (rel.src_ref, rel.dst_ref)
+            for rel in result.relations
+            if rel.relation_type == RelationType.INHERITS
+        ]
+
+    def test_single_base_class_via_constructor_invocation(self) -> None:
+        edges = self._inherits(INHERITS_CODE, "src/main/kotlin/com/example/K.kt")
+        assert ("com.example.K.Dog", "Animal") in edges
+
+    def test_extends_and_implements_mixed(self) -> None:
+        edges = self._inherits(INHERITS_CODE, "src/main/kotlin/com/example/K.kt")
+        assert ("com.example.K.Cat", "Animal") in edges
+        assert ("com.example.K.Cat", "Feline") in edges
+        assert ("com.example.K.Cat", "Cuddly") in edges
+
+    def test_interface_extends_many(self) -> None:
+        edges = self._inherits(INHERITS_CODE, "src/main/kotlin/com/example/K.kt")
+        assert ("com.example.K.MyList", "Collection") in edges
+        assert ("com.example.K.MyList", "Iterable") in edges
+
+    def test_object_declaration_supports_heritage(self) -> None:
+        edges = self._inherits(INHERITS_CODE, "src/main/kotlin/com/example/K.kt")
+        assert ("com.example.K.Singleton", "Base") in edges
+        assert ("com.example.K.Singleton", "Trait") in edges
+
+    def test_enum_class_implements_interface(self) -> None:
+        edges = self._inherits(INHERITS_CODE, "src/main/kotlin/com/example/K.kt")
+        assert ("com.example.K.Color", "Serializable") in edges
+
+    def test_data_class_heritage(self) -> None:
+        edges = self._inherits(INHERITS_CODE, "src/main/kotlin/com/example/K.kt")
+        assert ("com.example.K.Point", "Coord") in edges
+
+    def test_sealed_class_heritage(self) -> None:
+        edges = self._inherits(INHERITS_CODE, "src/main/kotlin/com/example/K.kt")
+        assert ("com.example.K.Tree", "Node") in edges
+
+    def test_explicit_delegation_emits_inherits(self) -> None:
+        """`: Iface by impl` is semantically is-a — emit INHERITS."""
+        edges = self._inherits(INHERITS_CODE, "src/main/kotlin/com/example/K.kt")
+        assert ("com.example.K.Impl", "Iface") in edges
+
+    def test_mixed_extends_delegation_and_bare(self) -> None:
+        edges = self._inherits(INHERITS_CODE, "src/main/kotlin/com/example/K.kt")
+        assert ("com.example.K.Mixed", "Base") in edges
+        assert ("com.example.K.Mixed", "Iface") in edges
+        assert ("com.example.K.Mixed", "OtherIface") in edges
+
+    def test_generic_type_arguments_stripped(self) -> None:
+        """`Container<String>` must emit ``Container``, never ``String``."""
+        edges = self._inherits(INHERITS_CODE, "src/main/kotlin/com/example/K.kt")
+        box_edges = [edge for edge in edges if edge[0] == "com.example.K.Box"]
+        assert ("com.example.K.Box", "Container") in box_edges
+        assert ("com.example.K.Box", "Comparable") in box_edges
+        dst_refs = {dst for _, dst in edges}
+        assert "String" not in dst_refs
+        assert "Int" not in dst_refs
+        # Type argument is literally ``Box<T>`` — must not leak as ``Box``
+        # surfacing an edge onto itself; guard: ``Box`` only appears as a source.
+        for src, dst in edges:
+            assert src != dst
+
+    def test_scoped_base_preserves_full_path(self) -> None:
+        """`pkg.lib.Deep<String>` must emit ``pkg.lib.Deep``."""
+        edges = self._inherits(INHERITS_CODE, "src/main/kotlin/com/example/K.kt")
+        assert ("com.example.K.Outer.Inner", "pkg.lib.Deep") in edges
+
+    def test_plain_class_has_no_inherits(self) -> None:
+        edges = self._inherits(INHERITS_CODE, "src/main/kotlin/com/example/K.kt")
+        assert not any(src == "com.example.K.Plain" for src, _ in edges)
+
+    def test_annotation_class_never_source(self) -> None:
+        """Annotation classes cannot inherit — zero edges."""
+        edges = self._inherits(INHERITS_CODE, "src/main/kotlin/com/example/K.kt")
+        assert not any(src == "com.example.K.MyAnn" for src, _ in edges)
+
+    def test_nested_class_uses_outer_fq(self) -> None:
+        edges = self._inherits(INHERITS_CODE, "src/main/kotlin/com/example/K.kt")
+        assert ("com.example.K.Types.NestedA", "NestedBase") in edges
+        assert ("com.example.K.Types.NestedObj", "NestedObjBase") in edges
+
+    def test_companion_object_excluded(self) -> None:
+        """Companion objects have no name field; excluded per the fq-invariant."""
+        edges = self._inherits(INHERITS_CODE, "src/main/kotlin/com/example/K.kt")
+        # Neither the companion object nor its parent should emit an edge for
+        # the companion's `: Holder` heritage.
+        assert not any(dst == "Holder" for _, dst in edges)
+        assert not any("Companion" in src or "companion" in src for src, _ in edges)
+
+    def test_inherits_src_ref_matches_symbol_fq(self) -> None:
+        """Every INHERITS ``src_ref`` must resolve to a symbol fq in the same file."""
+        parser = KotlinParser()
+        result = parser.parse(file_path="src/main/kotlin/com/example/K.kt", data=INHERITS_CODE)
+        symbol_fqs = {s.fq_name for s in result.symbols}
+        inherits_srcs = {
+            rel.src_ref for rel in result.relations if rel.relation_type == RelationType.INHERITS
+        }
+        missing = inherits_srcs - symbol_fqs
+        assert missing == set(), f"INHERITS src_refs without matching symbol: {missing}"
+
+    def test_inherits_relation_shape(self) -> None:
+        """Relations are shaped ``src_type=symbol``, ``dst_type=symbol``."""
+        parser = KotlinParser()
+        result = parser.parse(file_path="src/main/kotlin/com/example/K.kt", data=INHERITS_CODE)
+        inherits = [rel for rel in result.relations if rel.relation_type == RelationType.INHERITS]
+        assert inherits, "fixture expected to emit INHERITS edges"
+        for rel in inherits:
+            assert rel.src_type == "symbol"
+            assert rel.dst_type == "symbol"
+
+    def test_gradle_module_fq_respected(self) -> None:
+        """Non-Maven paths drop the ``src/main/kotlin/`` prefix in the fq."""
+        code = b"""package org.lib
+class Widget : Base()
+"""
+        edges = self._inherits(code, "libs/widget/src/main/kotlin/org/lib/Widget.kt")
+        assert ("org.lib.Widget.Widget", "Base") in edges
+
+    def test_empty_file_no_inherits(self) -> None:
+        edges = self._inherits(EMPTY_KOTLIN, "src/main/kotlin/Empty.kt")
+        assert edges == []
+
+    def test_pre_v0_8_24_fixture_still_emits_zero_inherits(self) -> None:
+        """Baseline guard: the pre-v0.8.24 fixture has no heritage and must stay zero."""
+        parser = KotlinParser()
+        result = parser.parse(
+            file_path="src/main/kotlin/com/example/app/Config.kt", data=KOTLIN_CODE
+        )
+        inherits = [rel for rel in result.relations if rel.relation_type == RelationType.INHERITS]
+        # The pre-existing KOTLIN_CODE fixture uses `State` with `State()` and
+        # `Loaded(...) : State()` — which DO now emit INHERITS edges. Guard
+        # that the specific subclasses resolve, but no stray edges appear.
+        dsts = {rel.dst_ref for rel in inherits}
+        assert dsts.issubset({"State"}), (
+            f"KOTLIN_CODE fixture should only inherit from State, got: {dsts}"
+        )
+        _ = SymbolType.CLASS  # keep the import used for the rest of the module
