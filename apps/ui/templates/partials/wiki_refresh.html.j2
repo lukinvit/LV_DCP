@@ -63,7 +63,7 @@
   without fast polling depending on whether a refresh is live).
 #}
 <div id="wiki-refresh-panel"
-  {%- if degraded and slug %} hx-get="/api/project/{{ slug }}/wiki-refresh" hx-trigger="every 30s" hx-swap="outerHTML" hx-headers='{"X-LV-DCP-Was-Degraded": "true"}'
+  {%- if degraded and slug %} hx-get="/api/project/{{ slug }}/wiki-refresh" hx-trigger="every 30s" hx-swap="outerHTML" hx-headers='{"X-LV-DCP-Was-Degraded": "true", "X-LV-DCP-Degraded-Since": "{{ degraded_since }}"}'
   {%- elif wr and wr.in_progress and slug %} hx-get="/api/project/{{ slug }}/wiki-refresh" hx-trigger="every 2s" hx-swap="outerHTML"
   {%- endif %}>
 {% if degraded %}
@@ -96,14 +96,22 @@
            emitting structured-log telemetry. The auto-poll wrapper does
            NOT send this header, so the absence of the marker on an
            incoming fetch means trigger=poll. Both paths still render the
-           identical green toast — the distinction lives in logs only. #}
+           identical green toast — the distinction lives in logs only.
+
+           **v0.8.19+:** the button also carries ``X-LV-DCP-Degraded-
+           Since`` so a user-initiated retry that succeeds can surface
+           the outage-duration label on the recovery toast identically
+           to a poll-initiated recovery. Without it the manual-retry
+           path would flash a generic "recovered" banner while the
+           auto-poll path would flash "recovered after Xm Ys" — same
+           event, inconsistent UX. #}
         {% if slug %}
         <button type="button"
                 id="wiki-refresh-retry-{{ slug }}"
                 hx-get="/api/project/{{ slug }}/wiki-refresh"
                 hx-target="#wiki-refresh-panel"
                 hx-swap="outerHTML"
-                hx-headers='{"X-LV-DCP-Was-Degraded": "true", "X-LV-DCP-Retry-Source": "manual"}'
+                hx-headers='{"X-LV-DCP-Was-Degraded": "true", "X-LV-DCP-Retry-Source": "manual", "X-LV-DCP-Degraded-Since": "{{ degraded_since }}"}'
                 hx-disabled-elt="this"
                 style="margin-top:10px;padding:4px 10px;background:#fff;color:#795548;border:1px solid #f9a825;border-radius:4px;font-size:12px;cursor:pointer;">
             Retry now
@@ -369,9 +377,20 @@
         <div style="font-weight:bold;margin-bottom:2px;">
             &#x2713; Wiki refresh status recovered
         </div>
+        {# v0.8.19+: if the degraded wrapper stamped an
+           ``X-LV-DCP-Degraded-Since`` header (which it does by default
+           for any degraded render after this release) and the route
+           parsed it successfully, ``outage_duration_label`` is a short
+           human string like ``"47s"`` / ``"2m 17s"`` / ``"1h 23m"``.
+           We surface it on the recovery toast as a suffix to the
+           "reachable again" message so the user has actual context on
+           how long the dashboard was unreachable — answers the deferred-
+           from-v0.8.15 gap. Absent label (pre-v0.8.19 tab, malformed
+           header, zero/future timestamp) falls back to the original
+           copy so rolling upgrades don't lose the toast. #}
         <div style="opacity:0.92;">
             <code style="background:rgba(255,255,255,0.15);padding:1px 5px;border-radius:3px;color:#fff;">{{ slug }}</code>
-            is reachable again. Resuming normal polling.
+            {% if outage_duration_label %}is reachable again after {{ outage_duration_label }}. Resuming normal polling.{% else %}is reachable again. Resuming normal polling.{% endif %}
         </div>
     </div>
     <button type="button"
