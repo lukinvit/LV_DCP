@@ -266,3 +266,228 @@ async def test_wiki_refresh_fragment_endpoint_returns_404_for_unknown_slug(
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/api/project/does-not-exist/wiki-refresh")
     assert response.status_code == 404
+
+
+# -------- v0.8.9: crash-transition toast (hx-swap-oob) ---------------
+
+
+@pytest.mark.asyncio
+async def test_project_detail_has_toast_region_for_oob_swaps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Full page must carry the #toast-region drop zone so HTMX OOB swaps have a target."""
+    project = _seed_project(tmp_path, monkeypatch)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(f"/project/{_slug(project)}")
+
+    assert response.status_code == 200
+    assert 'id="toast-region"' in response.text
+
+
+@pytest.mark.asyncio
+async def test_crash_toast_emitted_on_htmx_fragment_for_fresh_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """HX-Request + just-crashed (< 15 s ago) → OOB toast in fragment."""
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(
+        project,
+        exit_code=2,
+        modules_updated=3,
+        elapsed_seconds=7.5,
+        completed_at=time.time() - 1.0,  # fresh crash, 1 s ago
+        log_tail=["ERROR: upstream failure", "RuntimeError: boom"],
+    )
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={"HX-Request": "true"},
+        )
+
+    assert response.status_code == 200
+    # OOB toast element must be present with hx-swap-oob targeting #toast-region.
+    assert 'hx-swap-oob="beforeend:#toast-region"' in response.text
+    assert 'id="crash-toast-' in response.text
+    # Toast body carries the crash summary.
+    assert "Wiki refresh failed" in response.text
+    assert "exited 2" in response.text
+    # The panel itself still renders (FAILED card with log tail).
+    assert "FAILED (exit 2)" in response.text
+    # Polling must be silent now (no hx-get on the wrapper).
+    panel_slice = response.text.split('id="wiki-refresh-panel"', 1)[1].split(">", 1)[0]
+    assert "hx-get=" not in panel_slice
+
+
+@pytest.mark.asyncio
+async def test_crash_toast_absent_on_non_htmx_full_page_load(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Full page /project/<slug> after a crash must NOT re-flash the toast."""
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(
+        project,
+        exit_code=2,
+        modules_updated=1,
+        elapsed_seconds=3.0,
+        completed_at=time.time() - 2.0,  # would be fresh if HX-Request were set
+        log_tail=["ERROR: crashed"],
+    )
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(f"/project/{_slug(project)}")
+
+    assert response.status_code == 200
+    # FAILED card renders (normal full-page behaviour), but no OOB toast.
+    assert "FAILED (exit 2)" in response.text
+    assert "hx-swap-oob" not in response.text
+    assert "Wiki refresh failed" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_crash_toast_absent_on_stale_crash_outside_freshness_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """HX-Request but crash > 15 s old → polling tick must stay silent."""
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(
+        project,
+        exit_code=2,
+        modules_updated=1,
+        elapsed_seconds=3.0,
+        completed_at=time.time() - 60.0,  # 1 min old → stale
+        log_tail=["ERROR: old crash"],
+    )
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={"HX-Request": "true"},
+        )
+
+    assert response.status_code == 200
+    assert "FAILED (exit 2)" in response.text
+    assert "hx-swap-oob" not in response.text
+    assert "Wiki refresh failed" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_crash_toast_absent_on_clean_last_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """HX-Request + exit_code=0 → no toast (clean completion)."""
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(
+        project,
+        exit_code=0,
+        modules_updated=5,
+        elapsed_seconds=2.1,
+        completed_at=time.time() - 1.0,
+    )
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={"HX-Request": "true"},
+        )
+
+    assert response.status_code == 200
+    assert "Last refresh: clean" in response.text
+    assert "hx-swap-oob" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_crash_toast_absent_on_sigterm_cancellation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """HX-Request + exit_code=143 (SIGTERM) → no toast; user-initiated cancels stay quiet."""
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(
+        project,
+        exit_code=143,
+        modules_updated=2,
+        elapsed_seconds=5.0,
+        completed_at=time.time() - 1.0,
+    )
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={"HX-Request": "true"},
+        )
+
+    assert response.status_code == 200
+    assert "cancelled (SIGTERM)" in response.text
+    assert "hx-swap-oob" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_crash_toast_absent_while_refresh_still_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Live refresh → no toast regardless of any past crash record."""
+    project = _seed_project(tmp_path, monkeypatch)
+    # Seed a fresh crash in the .last record AND a live lock on top —
+    # the live lock wins, so no toast should fire until the running
+    # refresh itself completes.
+    write_last_refresh(
+        project,
+        exit_code=2,
+        modules_updated=1,
+        elapsed_seconds=2.0,
+        completed_at=time.time() - 2.0,
+        log_tail=["ERROR: previous run"],
+    )
+    _seed_running_lock(project)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={"HX-Request": "true"},
+        )
+
+    assert response.status_code == 200
+    assert "Running" in response.text
+    assert "hx-swap-oob" not in response.text
+    # Polling must still be active.
+    assert 'hx-trigger="every 2s"' in response.text
+
+
+@pytest.mark.asyncio
+async def test_crash_toast_absent_on_manual_curl_without_htmx_header(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No HX-Request header → no toast even on a fresh crash. Manual curl stays quiet."""
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(
+        project,
+        exit_code=2,
+        modules_updated=1,
+        elapsed_seconds=2.0,
+        completed_at=time.time() - 1.0,
+        log_tail=["ERROR: crash"],
+    )
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(f"/api/project/{_slug(project)}/wiki-refresh")
+
+    assert response.status_code == 200
+    assert "FAILED (exit 2)" in response.text
+    assert "hx-swap-oob" not in response.text

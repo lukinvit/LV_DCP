@@ -5,8 +5,15 @@
   call site, so this partial is renderable both from the full
   ``project.html.j2`` page and from the HTMX polling fragment endpoint):
 
-    - ``wr``   : ``WikiBackgroundRefresh | None`` — the snapshot to render.
-    - ``slug`` : project slug — used for the HTMX polling URL.
+    - ``wr``               : ``WikiBackgroundRefresh | None`` — the snapshot to render.
+    - ``slug``             : project slug — used for the HTMX polling URL.
+    - ``show_crash_toast`` : bool (optional) — when the fragment endpoint
+      detects a just-crashed transition (HX-Request header + non-zero
+      ``last_exit_code`` that's not a SIGTERM + ``last_completed_at``
+      within ~15 s of now) it sets this to True. The partial then
+      appends a one-shot ``hx-swap-oob`` flash into ``#toast-region``
+      from ``base.html.j2``. Absent on full page loads so a user who
+      navigates after a long-past crash doesn't get re-flashed.
 
   Shapes (rendered inside a stable outer wrapper so HTMX can swap the
   whole element via ``hx-swap=outerHTML`` every ~2 s during a live
@@ -23,7 +30,9 @@
        wrapper has no ``hx-get`` so polling stops.
 
   Transition "running → done" works because HTMX swaps the full outer
-  element: the new DOM has no ``hx-get`` → no further timers fire.
+  element: the new DOM has no ``hx-get`` → no further timers fire. The
+  crash toast rides alongside that final swap as an OOB sibling so it
+  appears exactly once per crash event.
 #}
 <div id="wiki-refresh-panel"{% if wr and wr.in_progress and slug %} hx-get="/api/project/{{ slug }}/wiki-refresh" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
 {% if wr and (wr.in_progress or wr.last_exit_code is not none) %}
@@ -87,3 +96,33 @@
 </section>
 {% endif %}
 </div>
+{% if show_crash_toast and wr and wr.last_exit_code is not none and wr.last_completed_at is not none %}
+{# OOB flash banner for the running → FAILED transition. HTMX moves any
+   element carrying ``hx-swap-oob`` out of the fragment response into the
+   matching target in the DOM; ``beforeend:#toast-region`` appends it to
+   the fixed-position toast drop zone set up in base.html.j2. The ID is
+   deterministic per-crash (slug + completed_at int) so a double-poll
+   during the same crash would replace the existing toast rather than
+   duplicating it — but in practice the outer-wrapper swap stops polling
+   after this first post-crash response, so only one toast is ever
+   emitted per crash event. #}
+<div id="crash-toast-{{ slug }}-{{ wr.last_completed_at|int }}"
+     hx-swap-oob="beforeend:#toast-region"
+     style="pointer-events:auto;background:#d32f2f;color:#fff;padding:12px 16px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.18);display:flex;align-items:flex-start;gap:12px;font-size:13px;line-height:1.4;">
+    <div style="flex:1;min-width:0;">
+        <div style="font-weight:bold;margin-bottom:2px;">
+            &#x2717; Wiki refresh failed
+        </div>
+        <div style="opacity:0.92;">
+            <code style="background:rgba(255,255,255,0.15);padding:1px 5px;border-radius:3px;color:#fff;">{{ slug }}</code>
+            exited {{ wr.last_exit_code }}
+            {% if wr.last_modules_updated is not none %} after {{ wr.last_modules_updated }} module{{ "s" if wr.last_modules_updated != 1 else "" }}{% endif %}.
+            See the panel below for the log tail.
+        </div>
+    </div>
+    <button type="button"
+            onclick="this.parentElement.remove()"
+            aria-label="Dismiss"
+            style="background:transparent;border:0;color:#fff;opacity:0.8;cursor:pointer;font-size:18px;line-height:1;padding:0 2px;">&times;</button>
+</div>
+{% endif %}

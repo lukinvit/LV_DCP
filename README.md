@@ -2,8 +2,8 @@
 
 **Local-first engineering memory.** Turns projects on macOS into a queryable context layer for Claude, IDE agents, and humans. Supports Python, TypeScript/JS, Go, and Rust. Reduces token cost of repeated code reading, builds a relation graph, and makes agent edits safer.
 
-[![Phase 9 Complete](https://img.shields.io/badge/phase-9%20complete-green)](docs/release/2026-04-24-v0.8.8-wiki-refresh-htmx.md)
-[![Version 0.8.8](https://img.shields.io/badge/version-0.8.8-blue)](pyproject.toml)
+[![Phase 9 Complete](https://img.shields.io/badge/phase-9%20complete-green)](docs/release/2026-04-24-v0.8.9-crash-toast.md)
+[![Version 0.8.9](https://img.shields.io/badge/version-0.8.9-blue)](pyproject.toml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue)](pyproject.toml)
 
@@ -53,6 +53,8 @@ $ ctx pack . "refresh token rotation" --mode edit
 
 ## Status
 
+**v0.8.9 (2026-04-24)** — One-shot crash toast on the `wiki_refresh` panel. The HTMX polling tick that flips the panel from *running* → *FAILED* now also carries an `hx-swap-oob` flash banner that HTMX appends into a new fixed-position `#toast-region` drop zone added to `base.html.j2`. Four predicates gate the emission — `HX-Request` header, refresh finished and non-live, `last_exit_code` a real crash (not `0`/`143`), `last_completed_at` within 15 s of now — so the toast fires exactly once per crash event, never on full page reload, never on SIGTERM cancellation, never on a manual `curl`. No new JS, no new deps, no route changes — fragment endpoint just adds a `show_crash_toast` flag to the template context. Closes the second known gap from v0.8.8 (no transition notification).
+
 **v0.8.8 (2026-04-24)** — HTMX live-polling on the `wiki_refresh` panel. The dashboard's bg-refresh panel (v0.8.7) now updates in place every ~2 s while a refresh is running — no page reload, no new CSS, no new JS beyond the HTMX script that was already loaded since phase 7. New public helper `libs.status.aggregator.build_wiki_refresh` lets the polling endpoint skip the full `build_project_status` pipeline, keeping each tick cheap. A new fragment route `GET /api/project/<slug>/wiki-refresh` re-renders just the partial; the outer wrapper's presence-or-absence of `hx-get` is the cancellation signal, so polling self-cancels the moment the refresh transitions to idle.
 
 **v0.8.7 (2026-04-24)** — Dashboard renders `wiki_refresh` panel. The FastAPI/HTMX per-project page (`/project/<slug>`) now draws a new "Wiki background refresh" section between scan coverage and the dependency graph: blue "Running" card with phase + progress bar + current module + pid when a refresh is in flight, green "clean", gray "cancelled (SIGTERM)", or red "FAILED" card (with collapsible log tail) otherwise. Hidden for projects that have never run a refresh. Closes the #1 known gap from v0.8.6: data model was ready, just needed rendering. No route change — `ProjectStatus.wiki_refresh` from v0.8.6 was already passed to the template; v0.8.7 adds one `{% include %}` plus a partial.
@@ -82,6 +84,7 @@ $ ctx pack . "refresh token rotation" --mode edit
 Stabilization 0.6.1 baseline: mandatory GitHub Actions quality gates, green `ruff` / `mypy`, runtime-hardened embeddings and Qdrant.
 
 Release notes:
+- [docs/release/2026-04-24-v0.8.9-crash-toast.md](docs/release/2026-04-24-v0.8.9-crash-toast.md) (v0.8.9 — One-shot crash toast on `wiki_refresh` panel)
 - [docs/release/2026-04-24-v0.8.8-wiki-refresh-htmx.md](docs/release/2026-04-24-v0.8.8-wiki-refresh-htmx.md) (v0.8.8 — HTMX live-polling on the `wiki_refresh` panel)
 - [docs/release/2026-04-24-v0.8.7-dashboard-bg-refresh.md](docs/release/2026-04-24-v0.8.7-dashboard-bg-refresh.md) (v0.8.7 — Dashboard renders `wiki_refresh` panel)
 - [docs/release/2026-04-24-v0.8.6-mcp-bg-refresh.md](docs/release/2026-04-24-v0.8.6-mcp-bg-refresh.md) (v0.8.6 — MCP `lvdcp_status` surfaces bg refresh state)
@@ -446,6 +449,7 @@ The daemon uses `watchdog.observers.Observer` which auto-selects `FSEventsObserv
 - **v0.8.6** (done) — MCP `lvdcp_status` surfaces bg refresh state. `ProjectStatus.wiki_refresh` (nested) mirrors the `CopilotCheckReport.wiki_refresh_*` / `wiki_last_refresh_*` fields so agents and dashboards see the same bg-refresh snapshot the CLI shows (live progress, last-run outcome, crash tail). Lazy import of `libs.copilot` keeps non-wiki consumers cost-free. No new deps.
 - **v0.8.7** (done) — Dashboard renders `wiki_refresh` panel. New partial `apps/ui/templates/partials/wiki_refresh.html.j2` draws the v0.8.6 `ProjectStatus.wiki_refresh` field in four visually distinct shapes (running / clean / SIGTERM / FAILED-with-log-tail) on `/project/<slug>`. Hidden for projects that never ran a refresh. Closes the #1 known gap from v0.8.6 (data model ready, no UI). One `{% include %}`, no route change, no new deps.
 - **v0.8.8** (done) — HTMX live-polling on the `wiki_refresh` panel. New public helper `libs.status.aggregator.build_wiki_refresh` + new fragment route `GET /api/project/<slug>/wiki-refresh` let the panel update in place every ~2 s while a refresh runs. Outer wrapper's `hx-get` absence after completion self-cancels polling — no JS, no SSE, no `hx-swap-oob`. Cadence matches `ctx project check --watch` (v0.8.3). Closes the #1 known gap from v0.8.7.
+- **v0.8.9** (done) — One-shot crash toast on the `wiki_refresh` panel. New fixed-position `#toast-region` drop zone in `base.html.j2`; the polling fragment endpoint emits an `hx-swap-oob="beforeend:#toast-region"` red flash banner on the exact tick that flips the panel to `FAILED`. Gated by four predicates (`HX-Request` + non-live + real-crash exit + `last_completed_at` within 15 s) so the toast fires exactly once per crash event and stays silent on full page reload, SIGTERM cancel, clean completion, and manual `curl`. Closes the second known gap from v0.8.8.
 - **Phase 10** (next) — Java/Kotlin/Swift parsers, VS Code marketplace, Obsidian nightly sync.
 
 ## Contributing

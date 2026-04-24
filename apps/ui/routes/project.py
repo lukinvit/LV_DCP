@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections import defaultdict
 from pathlib import Path
 
@@ -16,11 +17,24 @@ from libs.status.aggregator import (
     resolve_config_path,
 )
 from libs.status.budget import compute_budget_status
-from libs.status.models import WorkspaceStatus
+from libs.status.models import WikiBackgroundRefresh, WorkspaceStatus
 from libs.summaries.store import SummaryStore, resolve_default_store_path
 from starlette.templating import _TemplateResponse
 
 router = APIRouter()
+
+#: Crash-toast freshness window. The fragment endpoint emits the OOB
+#: flash banner only when ``last_completed_at`` is within this many
+#: seconds of ``time.time()``. Long enough to absorb a polling tick plus
+#: a bit of clock drift (polling runs at 2 s), short enough that a user
+#: re-opening devtools 30 s after an old crash doesn't trigger a toast.
+_CRASH_TOAST_FRESH_SECONDS = 15.0
+
+#: Exit codes that represent "graceful" terminations and therefore must
+#: NOT surface the crash toast. ``0`` = clean completion; ``143`` =
+#: SIGTERM / ``ctx project cancel-refresh``. Any other non-zero exit is
+#: an unexpected crash and does trigger the toast.
+_NON_CRASH_EXIT_CODES: frozenset[int] = frozenset({0, 143})
 
 
 def _find_project_root_by_slug(workspace: WorkspaceStatus, slug: str) -> str | None:
@@ -63,6 +77,40 @@ def project_detail(slug: str, request: Request) -> _TemplateResponse:
     )
 
 
+def _should_flash_crash_toast(wr: WikiBackgroundRefresh | None, request: Request) -> bool:
+    """Decide whether the fragment response carries a one-shot crash toast.
+
+    Four conditions must hold simultaneously:
+
+    1. ``HX-Request`` header is present — rules out full page loads and
+       manual ``curl`` hits, so a user navigating to ``/project/<slug>``
+       ten minutes after a crash never sees the flash.
+    2. A refresh has finished and was NOT live (``in_progress=False``
+       with a concrete ``last_exit_code``). During an active refresh
+       each poll would otherwise re-evaluate stale crash state.
+    3. ``last_exit_code`` is a true crash — non-zero and not
+       ``143``/SIGTERM. Cancellations are user-initiated and don't merit
+       a red flash banner.
+    4. ``last_completed_at`` is within :data:`_CRASH_TOAST_FRESH_SECONDS`
+       of now. Guarantees the toast fires only on the *first* post-crash
+       poll; any later fragment re-fetch sees a stale timestamp and
+       stays silent.
+
+    All four together make the toast fire exactly once per crash event
+    — right on the polling tick that swaps the panel to FAILED and
+    strips ``hx-get`` from the outer wrapper, killing polling.
+    """
+    if request.headers.get("HX-Request", "").lower() != "true":
+        return False
+    if wr is None or wr.in_progress:
+        return False
+    if wr.last_exit_code is None or wr.last_exit_code in _NON_CRASH_EXIT_CODES:
+        return False
+    if wr.last_completed_at is None:
+        return False
+    return (time.time() - wr.last_completed_at) <= _CRASH_TOAST_FRESH_SECONDS
+
+
 @router.get("/api/project/{slug}/wiki-refresh", response_class=HTMLResponse)
 def wiki_refresh_fragment(slug: str, request: Request) -> _TemplateResponse:
     """HTMX polling endpoint: render just the wiki_refresh partial.
@@ -73,6 +121,13 @@ def wiki_refresh_fragment(slug: str, request: Request) -> _TemplateResponse:
     — so polling stays cheap even during a live refresh. When the
     refresh transitions to idle, the response has no ``hx-get`` on the
     outer wrapper and HTMX stops the timer.
+
+    On the exact polling tick that flips ``in_progress: True → False``
+    with a crashing ``last_exit_code``, the response additionally
+    carries an ``hx-swap-oob`` flash banner so HTMX moves it into the
+    ``#toast-region`` drop zone from ``base.html.j2``. See
+    :func:`_should_flash_crash_toast` for the freshness guard that
+    keeps the toast from re-firing on subsequent fetches.
     """
     ws = build_workspace_status()
     root = _find_project_root_by_slug(ws, slug)
@@ -84,7 +139,11 @@ def wiki_refresh_fragment(slug: str, request: Request) -> _TemplateResponse:
     return templates.TemplateResponse(  # type: ignore[no-any-return]
         request=request,
         name="partials/wiki_refresh.html.j2",
-        context={"wr": wr, "slug": slug},
+        context={
+            "wr": wr,
+            "slug": slug,
+            "show_crash_toast": _should_flash_crash_toast(wr, request),
+        },
     )
 
 
