@@ -1,4 +1,13 @@
 .vscode/
+.vscode-test/
 src/
 tsconfig.json
 node_modules/
+package-lock.json
+.claude/
+.github/
+**/.DS_Store
+**/*.map
+**/*.log
+**/*.tsbuildinfo
+*.vsix
