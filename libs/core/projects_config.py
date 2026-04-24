@@ -6,6 +6,8 @@ violating the apps/ -> libs/ layering rule.
 
 from __future__ import annotations
 
+import contextlib
+import os
 from pathlib import Path
 
 import yaml
@@ -168,3 +170,35 @@ def load_config(path: Path) -> DaemonConfig:
 
 def list_projects(config_path: Path) -> list[ProjectEntry]:
     return load_config(config_path).projects
+
+
+def save_config(path: Path, config: DaemonConfig) -> None:
+    """Atomically persist ``config`` to ``path``.
+
+    Writes to a sibling ``*.tmp`` file, fsyncs, then ``rename()`` onto the
+    target. On any failure the original file remains intact — the temp file
+    is never partially visible at the final path.
+
+    Used by destructive operations like ``ctx registry prune --yes``. Any
+    caller that needs an undo handle should take a ``*.bak`` copy before
+    invoking — this function focuses on write atomicity, not history.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = yaml.safe_dump(
+        config.model_dump(mode="json", exclude_defaults=False),
+        sort_keys=False,
+        allow_unicode=True,
+    )
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        with tmp.open("w", encoding="utf-8") as fh:
+            fh.write(payload)
+            fh.flush()
+            os.fsync(fh.fileno())
+        tmp.replace(path)
+    except Exception:
+        # Best-effort cleanup of the half-written temp; re-raise the original.
+        if tmp.exists():
+            with contextlib.suppress(OSError):
+                tmp.unlink()
+        raise
