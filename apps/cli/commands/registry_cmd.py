@@ -15,7 +15,7 @@ from dataclasses import asdict
 
 import typer
 from libs.status.aggregator import resolve_config_path
-from libs.status.registry_audit import ProjectAudit, audit_registry, is_stale
+from libs.status.registry_audit import ProjectAudit, audit_registry, is_missing, is_stale
 from libs.status.registry_prune import prune_stale
 
 app = typer.Typer(help="Audit and clean the LV_DCP project registry (~/.lvdcp/config.yaml).")
@@ -45,21 +45,40 @@ def _render_text(rows: list[ProjectAudit]) -> str:
     lines = [header, "-" * len(header)]
     for r in rows:
         name = (r.name[: name_w - 1] + "…") if len(r.name) > name_w else r.name
+        # Surface tombstones in the SCAN column: "MISS" reads at a glance as
+        # "root gone from disk" without widening the table or adding a column.
+        if r.missing:
+            scan_cell = "MISS"
+        elif r.scanned:
+            scan_cell = "yes"
+        else:
+            scan_cell = "no"
         lines.append(
             f"{name:<{name_w}}  {r.kind:<9} "
-            f"{'yes' if r.scanned else 'no':<5} "
+            f"{scan_cell:<5} "
             f"{r.packs_7d:>4} {r.packs_total:>6} "
             f"{_format_age(r.last_scan_age_hours):>9}  {r.root}"
         )
     return "\n".join(lines)
 
 
-def _apply_filters(rows: list[ProjectAudit], *, kind: str, stale: bool) -> list[ProjectAudit]:
+def _apply_filters(
+    rows: list[ProjectAudit],
+    *,
+    kind: str,
+    stale: bool,
+    missing: bool,
+) -> list[ProjectAudit]:
+    """Compose filters as AND. All independent — `ls --missing --kind transient`
+    returns tombstoned worktrees; `ls --missing --stale` returns the intersection
+    (which may be empty but is logically coherent)."""
     out = rows
     if kind != "all":
         out = [r for r in out if r.kind == kind]
     if stale:
         out = [r for r in out if is_stale(r)]
+    if missing:
+        out = [r for r in out if is_missing(r)]
     return out
 
 
@@ -82,6 +101,15 @@ def ls_cmd(
             "does NOT prune anything."
         ),
     ),
+    missing: bool = typer.Option(
+        False,
+        "--missing",
+        help=(
+            "Show only entries whose root directory no longer exists on disk — "
+            "tombstones left by deleted worktrees or moved project folders. "
+            "Composes with --kind and --stale (AND). Pure read — does NOT prune."
+        ),
+    ),
     as_json: bool = typer.Option(
         False, "--json", help="Emit the audit as a JSON array instead of a table."
     ),
@@ -95,7 +123,7 @@ def ls_cmd(
         raise typer.Exit(code=2)
 
     rows = audit_registry(resolve_config_path())
-    rows = _apply_filters(rows, kind=kind, stale=stale)
+    rows = _apply_filters(rows, kind=kind, stale=stale, missing=missing)
 
     if as_json:
         typer.echo(json.dumps([asdict(r) for r in rows], indent=2))
