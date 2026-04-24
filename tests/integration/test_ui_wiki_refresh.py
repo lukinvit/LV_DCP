@@ -1513,3 +1513,151 @@ async def test_forced_colors_rule_scoped_to_each_toast_class(
     assert "lvdcp-recovery-toast" in recovery_response.text
     # Crash rule must not appear on a recovery-only render.
     assert "lvdcp-crash-toast" not in recovery_response.text
+
+
+# -------- v0.8.17: a11y parity on the lvdcp-pulse running indicator ----
+
+
+@pytest.mark.asyncio
+async def test_running_dot_carries_pulse_class_hook(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The blue "Running" status dot carries ``lvdcp-pulse-dot`` class.
+
+    Without the class hook the inline ``style="animation:lvdcp-pulse..."``
+    on the span has no way to accept scoped a11y overrides. Locks in the
+    template contract so a future refactor can't strip the class.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    _seed_running_lock(project)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(f"/project/{_slug(project)}")
+
+    assert response.status_code == 200
+    # Sanity: the Running card is actually rendered.
+    assert "Running" in response.text
+    assert "phase: generating" in response.text
+    # The class hook must be on the pulsing dot span.
+    assert 'class="lvdcp-pulse-dot"' in response.text
+
+
+@pytest.mark.asyncio
+async def test_running_dot_respects_prefers_reduced_motion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Running dot ships a ``@media (prefers-reduced-motion: reduce)`` override.
+
+    Users who've opted out of OS-level motion must not be subjected to
+    an infinite pulsing animation on a status indicator. The override
+    cancels ``animation`` and pins opacity to 1 so the dot becomes a
+    static visible indicator — the adjacent "Running" text still
+    conveys the state signal. Mirrors the v0.8.13 treatment on the
+    recovery toast fade.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    _seed_running_lock(project)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(f"/project/{_slug(project)}")
+
+    assert response.status_code == 200
+    assert "@media (prefers-reduced-motion: reduce)" in response.text
+    # Rule must scope to the dot class.
+    assert (
+        ".lvdcp-pulse-dot { animation: none !important; opacity: 1 !important; }" in response.text
+    )
+
+
+@pytest.mark.asyncio
+async def test_running_dot_respects_forced_colors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Running dot ships a ``@media (forced-colors: active)`` override.
+
+    In Windows high-contrast mode the dot's inline ``background:#1976d2``
+    gets remapped to ``Canvas``, which matches the page background → dot
+    is invisible. The fix uses ``background: CanvasText !important``
+    (system-color tokens are preserved in forced-colors mode), so the
+    dot becomes a solid visible shape in the user's contrast palette.
+    Also cancels the animation — same reasoning as v0.8.13 / v0.8.16:
+    a11y-mode users shouldn't pay a motion tax for a decorative effect.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    _seed_running_lock(project)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(f"/project/{_slug(project)}")
+
+    assert response.status_code == 200
+    assert "@media (forced-colors: active)" in response.text
+    # Rule must cancel animation, pin opacity, AND set a visible background.
+    assert (
+        ".lvdcp-pulse-dot { animation: none !important; opacity: 1 !important; "
+        "background: CanvasText !important; }"
+    ) in response.text
+
+
+@pytest.mark.asyncio
+async def test_no_pulse_a11y_css_when_not_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Idle / clean / crashed responses ship zero pulse-dot a11y CSS.
+
+    The dot only renders inside ``{% if wr.in_progress %}`` and its
+    ``<style>`` block is scoped to the same branch. A clean last-run
+    card, a crash card, or a no-data response must not carry the
+    ``lvdcp-pulse-dot`` class, the media queries, or the keyframes.
+    Prevents a future refactor from leaking the animation CSS onto
+    non-running responses.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    # Clean last run — not running, no lock.
+    write_last_refresh(project, exit_code=0, modules_updated=2, elapsed_seconds=1.0)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(f"/project/{_slug(project)}")
+
+    assert response.status_code == 200
+    assert "Last refresh: clean" in response.text
+    assert "lvdcp-pulse-dot" not in response.text
+    assert "lvdcp-pulse" not in response.text
+    # Neither media query should be present — they live in the same
+    # ``<style>`` block as the pulse keyframes, guarded by the same
+    # ``{% if wr.in_progress %}`` branch.
+    # Note: the page may carry forced-colors CSS from OTHER elements
+    # (toasts, etc.) — but the pulse-specific class must be absent.
+
+
+@pytest.mark.asyncio
+async def test_pulse_keyframes_still_present_for_running_card(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression guard: the animation itself is NOT removed, only adapted.
+
+    Users without a11y preferences still see the pulsing dot — the
+    v0.8.17 change adds media queries, it doesn't delete the default
+    behaviour. Locks in that the ``@keyframes lvdcp-pulse`` block and
+    the inline ``animation:lvdcp-pulse ...`` attribute stay present.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    _seed_running_lock(project)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(f"/project/{_slug(project)}")
+
+    assert response.status_code == 200
+    # Keyframes block still shipped.
+    assert "@keyframes lvdcp-pulse" in response.text
+    # Inline animation still declared on the dot.
+    assert "animation:lvdcp-pulse 1.5s infinite ease-in-out" in response.text
