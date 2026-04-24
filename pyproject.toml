@@ -1,6 +1,6 @@
 [project]
 name = "lv-dcp"
-version = "0.8.27"
+version = "0.8.28"
 description = "LV_DCP — Developer Context Platform. Local-first engineering memory for macOS."
 readme = "README.md"
 requires-python = ">=3.12"
