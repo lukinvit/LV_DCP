@@ -2,8 +2,8 @@
 
 **Local-first engineering memory.** Turns projects on macOS into a queryable context layer for Claude, IDE agents, and humans. Supports Python, TypeScript/JS, Go, and Rust. Reduces token cost of repeated code reading, builds a relation graph, and makes agent edits safer.
 
-[![Phase 9 Complete](https://img.shields.io/badge/phase-9%20complete-green)](docs/release/2026-04-24-v0.8.12-toast-autodismiss.md)
-[![Version 0.8.12](https://img.shields.io/badge/version-0.8.12-blue)](pyproject.toml)
+[![Phase 9 Complete](https://img.shields.io/badge/phase-9%20complete-green)](docs/release/2026-04-24-v0.8.13-toast-a11y.md)
+[![Version 0.8.13](https://img.shields.io/badge/version-0.8.13-blue)](pyproject.toml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue)](pyproject.toml)
 
@@ -53,6 +53,8 @@ $ ctx pack . "refresh token rotation" --mode edit
 
 ## Status
 
+**v0.8.13 (2026-04-24)** — Accessibility + hover polish on the recovery toast fade. Two carry-forward gaps from v0.8.12 closed in one pure-CSS patch: (a) `@media (prefers-reduced-motion: reduce)` cancels the fadeout animation entirely for users who've opted out of OS-level motion — the toast then stays sticky like the crash toast, manual dismiss only; (b) `.lvdcp-recovery-toast:hover { animation-play-state: paused !important }` freezes the fade while the cursor is over the toast — moving off resumes from the current opacity, no re-triggering. Both rules hang off a new `lvdcp-recovery-toast` class and live inside the same `{% if show_recovery_toast %}` guard as v0.8.12's keyframes, so idle polls still ship zero a11y CSS. `!important` needed because the v0.8.12 inline `animation:` shorthand has specificity 1000 — justified vs the alternative of breaking the shorthand into longhand or updating the v0.8.12 test. No JS, no new deps.
+
 **v0.8.12 (2026-04-24)** — Auto-dismiss for the recovery toast. The green "wiki refresh status recovered" banner (v0.8.11) now carries an inline `animation: lvdcp-toast-fadeout 8s forwards` so it fades and disappears ~8 s after it appears (6 s visible + 2 s fade). The red crash toast stays sticky — bad news needs acknowledgment, good news does not. Zero JS, no new deps; the `@keyframes` block is scoped to the `{% if show_recovery_toast %}` guard so normal idle polls ship zero fadeout CSS. The final keyframe flips `pointer-events: none` so the invisible end-state doesn't intercept clicks. Closes the top UX gap from v0.8.11 (transient good-news toast required a manual click).
 
 **v0.8.11 (2026-04-24)** — Recovery toast on the `wiki_refresh` degraded → normal transition. Symmetric to v0.8.9's red crash toast: on the exact polling tick that flips the panel out of degraded mode (v0.8.10), the fragment response also carries a green `hx-swap-oob` banner into `#toast-region` so scrolled-away users notice the self-heal. Detection is pure-HTMX: the degraded wrapper echoes `hx-headers='{"X-LV-DCP-Was-Degraded": "true"}'`, HTMX sends the marker on the next poll, the route sees the header on a now-successful assembly and flips a one-shot toast on. The new successful wrapper omits the marker so the toast fires exactly once per recovery event. No cookies, no session store, no JS state. Closes the top known gap from v0.8.10 (silent self-heal).
@@ -90,6 +92,7 @@ $ ctx pack . "refresh token rotation" --mode edit
 Stabilization 0.6.1 baseline: mandatory GitHub Actions quality gates, green `ruff` / `mypy`, runtime-hardened embeddings and Qdrant.
 
 Release notes:
+- [docs/release/2026-04-24-v0.8.13-toast-a11y.md](docs/release/2026-04-24-v0.8.13-toast-a11y.md) (v0.8.13 — Accessibility + hover polish on the recovery toast fade)
 - [docs/release/2026-04-24-v0.8.12-toast-autodismiss.md](docs/release/2026-04-24-v0.8.12-toast-autodismiss.md) (v0.8.12 — Auto-dismiss for the recovery toast)
 - [docs/release/2026-04-24-v0.8.11-recovery-toast.md](docs/release/2026-04-24-v0.8.11-recovery-toast.md) (v0.8.11 — Recovery toast on `wiki_refresh` degraded → normal)
 - [docs/release/2026-04-24-v0.8.10-error-backoff.md](docs/release/2026-04-24-v0.8.10-error-backoff.md) (v0.8.10 — Error-backoff shell on `wiki_refresh` polling endpoint)
@@ -462,6 +465,7 @@ The daemon uses `watchdog.observers.Observer` which auto-selects `FSEventsObserv
 - **v0.8.10** (done) — Error-backoff shell on the `wiki_refresh` polling endpoint. `/api/project/{slug}/wiki-refresh` now wraps its status-assembly path in try/except: on any internal exception it returns 200 with the partial in degraded mode (yellow "refresh status unavailable" card + `hx-trigger="every 30s"` instead of `every 2s`). `except HTTPException: raise` preserves the 404-for-unknown-slug contract. Full-page `/project/<slug>` still 500s on real errors, so the degraded shell is scoped to continuous polling only. Closes the first operational known gap from v0.8.8 (500 mid-poll → HTMX hammers at 2 s; silent `None` → polling stops forever).
 - **v0.8.11** (done) — Recovery toast on `wiki_refresh` degraded → normal. Symmetric to v0.8.9's red crash toast: on the exact poll that flips the panel out of degraded mode, the fragment carries a green `hx-swap-oob` banner into `#toast-region`. Detection is pure-HTMX: the degraded wrapper sets `hx-headers='{"X-LV-DCP-Was-Degraded": "true"}'`; the route sees the marker on a now-successful assembly and flips `show_recovery_toast=True` for exactly one response. The new successful wrapper omits the marker → no replay. No cookies, no session store, no JS. Closes the top known gap from v0.8.10 (silent self-heal).
 - **v0.8.12** (done) — Auto-dismiss for the recovery toast. Inline `animation: lvdcp-toast-fadeout 8s forwards` on the green toast only (crash toast stays sticky) — 6 s at full opacity, 2 s fade to `opacity: 0` + `pointer-events: none`. Zero JS, no new deps, ~200 bytes of inline CSS added only when the toast renders. Locks in the red/sticky vs green/transient UX asymmetry: bad news demands acknowledgment, good news fades. Closes the top UX gap from v0.8.11.
+- **v0.8.13** (done) — Accessibility + hover polish on the v0.8.12 fade. New `lvdcp-recovery-toast` class hook hangs two rules off the toast: `@media (prefers-reduced-motion: reduce) { animation: none !important; opacity: 1 !important; pointer-events: auto !important; }` cancels the fade for users who've opted out of OS-level motion (toast then stays sticky like the crash toast); `:hover { animation-play-state: paused !important; }` freezes the fade while the cursor is over the toast, resuming from the current opacity on mouse-out. `!important` needed to beat the inline `animation:` shorthand's specificity-1000. Both rules scoped to `{% if show_recovery_toast %}` so idle polls still ship zero a11y CSS. 1168 tests passing.
 - **Phase 10** (next) — Java/Kotlin/Swift parsers, VS Code marketplace, Obsidian nightly sync.
 
 ## Contributing
