@@ -2,6 +2,20 @@
 
 All notable changes to the LV_DCP VS Code extension.
 
+## 0.8.30 — 2026-04-24
+
+**Activation-event narrowing.** The extension no longer activates on every VS Code startup — it activates only when the workspace actually contains an LV_DCP index. Visible side effect: the "LV_DCP" status bar item stops appearing in unrelated projects.
+
+- Replaced `"activationEvents": ["onStartupFinished"]` with `"activationEvents": ["workspaceContains:**/.context/cache.db"]`. Users opening a non-indexed project see no LV_DCP UI; users opening an indexed project get the status bar item, tree view, and commands as before.
+- Commands `lvdcp.getPack` and `lvdcp.showImpact` remain invokable from the Command Palette anywhere thanks to implicit command activation (VS Code ≥1.74; engine requirement stays at ^1.85.0). Invoking a command in a non-indexed workspace still works — it just activates on demand rather than pre-emptively.
+- No changes to `src/*.ts` — pure manifest change. `out/` rebuild not required for this release; the compiled code path is identical.
+
+**Known behaviour change:** if you relied on the status bar item as a permanent "LV_DCP is installed" reminder in projects you never scan, that reminder is gone. Run `ctx scan` once in the project to re-enable the sidebar affordances.
+
+## 0.8.28–0.8.29 — 2026-04-24 (unreleased to marketplace)
+
+- No extension-side changes. v0.8.28 shipped `ctx obsidian sync-all` (CLI), v0.8.29 added Obsidian sync observability to the dashboard project card. Both are backend-only; the extension version stayed at 0.8.27 through those releases and jumps to 0.8.30 here.
+
 ## 0.8.27 — 2026-04-24
 
 **Extension settings.** First user-configurable behaviour in the extension. No breaking change — all settings have defaults that preserve the 0.8.26 behaviour.
