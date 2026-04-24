@@ -129,7 +129,7 @@ def build_workspace_status() -> WorkspaceStatus:
     )
 
 
-_EXPECT_SYMBOLS_LANGUAGES = frozenset({"python", "typescript", "javascript", "go", "rust"})
+_EXPECT_SYMBOLS_LANGUAGES = frozenset({"python", "typescript", "javascript", "go", "rust", "java"})
 
 
 def _file_expects_symbols(f_path: str, f_language: str, f_size: int) -> bool:
