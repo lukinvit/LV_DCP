@@ -24,13 +24,31 @@ The extension shells out to the `ctx` CLI (part of the LV_DCP backend). Indexes 
 - **LV_DCP: Get Context Pack** (`lvdcp.getPack`) — prompts for a query, shows results in the activity-bar tree view.
 - **LV_DCP: Show Impact** (`lvdcp.showImpact`) — runs impact analysis on the active file; results appear in the same tree view.
 
+## Settings
+
+All settings live under `lvdcp.*` in VS Code's Settings UI.
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `lvdcp.cliPath` | `"ctx"` | Path to the `ctx` executable. Use an absolute path or a wrapper script if `ctx` is not on `PATH` (e.g. when running via `uv run python -m apps.cli`). |
+| `lvdcp.defaultMode` | `"navigate"` | Default retrieval mode for `LV_DCP: Get Context Pack`. `"navigate"` ranks for reading; `"edit"` ranks for modification with impact-aware weighting. `LV_DCP: Show Impact` always uses `"edit"`. |
+| `lvdcp.cliTimeoutMs` | `30000` | Timeout (ms) for `ctx` subprocess calls. Increase for large projects where pack generation exceeds the default. Range: 1000–300000. |
+
+**Example — running the CLI via a `uv run` wrapper.** Create `~/bin/ctx-lvdcp` with:
+
+```sh
+#!/usr/bin/env bash
+exec uv run --project /path/to/LV_DCP python -m apps.cli "$@"
+```
+
+Then set `"lvdcp.cliPath": "/Users/you/bin/ctx-lvdcp"` in User Settings.
+
 ## Design philosophy
 
 LV_DCP is **local-first** by design. The extension never uploads your source code anywhere. All retrieval happens against a local index on your machine; optionally, summarisation goes through Claude API (user-controlled). Secrets in source files are detected by regex and excluded from the index.
 
 ## Known limitations
 
-- The extension expects the `ctx` CLI to be on `PATH`. If you installed the LV_DCP backend with `uv sync`, you may need to run the CLI via `uv run` — configure this via a shell wrapper for now. Path-configuration via extension settings is planned.
 - A publisher account is required for the public marketplace install. Until first publish, you can install the `.vsix` locally via `code --install-extension lv-dcp-<version>.vsix`.
 - The status bar currently shows a single indicator; per-query history and re-run from the tree view are planned.
 

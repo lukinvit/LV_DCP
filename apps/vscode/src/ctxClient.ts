@@ -10,29 +10,43 @@ export interface PackResult {
     markdown: string;
 }
 
+export interface CtxConfig {
+    cliPath: string;
+    timeoutMs: number;
+}
+
 export async function getContextPack(
     projectPath: string,
     query: string,
-    mode: "navigate" | "edit" = "navigate"
+    mode: "navigate" | "edit",
+    config: CtxConfig,
 ): Promise<PackResult> {
-    const { stdout } = await execFileAsync("ctx", [
-        "pack",
-        projectPath,
-        "--query",
-        query,
-        "--mode",
-        mode,
-        "--format",
-        "json",
-    ], { timeout: 30000 });
+    const { stdout } = await execFileAsync(
+        config.cliPath,
+        [
+            "pack",
+            projectPath,
+            "--query",
+            query,
+            "--mode",
+            mode,
+            "--format",
+            "json",
+        ],
+        { timeout: config.timeoutMs },
+    );
 
     return JSON.parse(stdout);
 }
 
-export async function getInspect(projectPath: string): Promise<string> {
-    const { stdout } = await execFileAsync("ctx", [
-        "inspect",
-        projectPath,
-    ], { timeout: 15000 });
+export async function getInspect(
+    projectPath: string,
+    config: CtxConfig,
+): Promise<string> {
+    const { stdout } = await execFileAsync(
+        config.cliPath,
+        ["inspect", projectPath],
+        { timeout: config.timeoutMs },
+    );
     return stdout;
 }

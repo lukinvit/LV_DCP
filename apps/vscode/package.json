@@ -2,7 +2,7 @@
     "name": "lv-dcp",
     "displayName": "LV_DCP — Developer Context Platform",
     "description": "Local-first context packs and impact analysis for your codebase. Query your project in plain language; LV_DCP returns the 2–5 most relevant files via a ranked retrieval pipeline.",
-    "version": "0.8.26",
+    "version": "0.8.27",
     "publisher": "lv-dcp",
     "license": "Apache-2.0",
     "homepage": "https://github.com/lukinvit/LV_DCP#readme",
@@ -70,6 +70,36 @@
                     "name": "Context Pack"
                 }
             ]
+        },
+        "configuration": {
+            "title": "LV_DCP",
+            "properties": {
+                "lvdcp.cliPath": {
+                    "type": "string",
+                    "default": "ctx",
+                    "description": "Path to the `ctx` executable. Defaults to `ctx` on PATH. Set to an absolute path (e.g. `/usr/local/bin/ctx`) or a wrapper script (e.g. `/Users/you/bin/ctx-uv`) if `ctx` is not on PATH — useful when running via `uv run python -m apps.cli`."
+                },
+                "lvdcp.defaultMode": {
+                    "type": "string",
+                    "enum": [
+                        "navigate",
+                        "edit"
+                    ],
+                    "enumDescriptions": [
+                        "Navigation mode — ranks files for reading / understanding the code.",
+                        "Edit mode — ranks files for modification, with impact-aware weighting."
+                    ],
+                    "default": "navigate",
+                    "description": "Default retrieval mode for the `LV_DCP: Get Context Pack` command. The `LV_DCP: Show Impact` command always uses `edit` mode regardless of this setting."
+                },
+                "lvdcp.cliTimeoutMs": {
+                    "type": "number",
+                    "default": 30000,
+                    "minimum": 1000,
+                    "maximum": 300000,
+                    "description": "Timeout (in milliseconds) for `ctx` subprocess calls. Increase if your project is large and pack generation routinely exceeds the default."
+                }
+            }
         }
     },
     "scripts": {
