@@ -2,8 +2,8 @@
 
 **Local-first engineering memory.** Turns projects on macOS into a queryable context layer for Claude, IDE agents, and humans. Supports Python, TypeScript/JS, Go, and Rust. Reduces token cost of repeated code reading, builds a relation graph, and makes agent edits safer.
 
-[![Phase 9 Complete](https://img.shields.io/badge/phase-9%20complete-green)](docs/release/2026-04-24-v0.8.9-crash-toast.md)
-[![Version 0.8.9](https://img.shields.io/badge/version-0.8.9-blue)](pyproject.toml)
+[![Phase 9 Complete](https://img.shields.io/badge/phase-9%20complete-green)](docs/release/2026-04-24-v0.8.10-error-backoff.md)
+[![Version 0.8.10](https://img.shields.io/badge/version-0.8.10-blue)](pyproject.toml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue)](pyproject.toml)
 
@@ -53,6 +53,8 @@ $ ctx pack . "refresh token rotation" --mode edit
 
 ## Status
 
+**v0.8.10 (2026-04-24)** — Error-backoff shell on the `wiki_refresh` polling endpoint. The `/api/project/{slug}/wiki-refresh` route now wraps its status-assembly path in a try/except: on any internal failure it returns a 200 response carrying the partial in degraded mode — a yellow "refresh status unavailable" card with `hx-trigger="every 30s"` instead of `every 2s`. Closes two failure modes that predated the contract: (a) a 500 during polling caused HTMX to hammer the endpoint at the original 2 s cadence; (b) a `build_wiki_refresh` returning `None` silently stripped `hx-get` from the wrapper, freezing the panel until a full page reload. The 404-for-unknown-slug contract is preserved via `except HTTPException: raise`, and full-page `/project/<slug>` still 500s on genuine errors — the degraded shell is scoped to the polling endpoint only. Closes the first operational known gap from v0.8.8.
+
 **v0.8.9 (2026-04-24)** — One-shot crash toast on the `wiki_refresh` panel. The HTMX polling tick that flips the panel from *running* → *FAILED* now also carries an `hx-swap-oob` flash banner that HTMX appends into a new fixed-position `#toast-region` drop zone added to `base.html.j2`. Four predicates gate the emission — `HX-Request` header, refresh finished and non-live, `last_exit_code` a real crash (not `0`/`143`), `last_completed_at` within 15 s of now — so the toast fires exactly once per crash event, never on full page reload, never on SIGTERM cancellation, never on a manual `curl`. No new JS, no new deps, no route changes — fragment endpoint just adds a `show_crash_toast` flag to the template context. Closes the second known gap from v0.8.8 (no transition notification).
 
 **v0.8.8 (2026-04-24)** — HTMX live-polling on the `wiki_refresh` panel. The dashboard's bg-refresh panel (v0.8.7) now updates in place every ~2 s while a refresh is running — no page reload, no new CSS, no new JS beyond the HTMX script that was already loaded since phase 7. New public helper `libs.status.aggregator.build_wiki_refresh` lets the polling endpoint skip the full `build_project_status` pipeline, keeping each tick cheap. A new fragment route `GET /api/project/<slug>/wiki-refresh` re-renders just the partial; the outer wrapper's presence-or-absence of `hx-get` is the cancellation signal, so polling self-cancels the moment the refresh transitions to idle.
@@ -84,6 +86,7 @@ $ ctx pack . "refresh token rotation" --mode edit
 Stabilization 0.6.1 baseline: mandatory GitHub Actions quality gates, green `ruff` / `mypy`, runtime-hardened embeddings and Qdrant.
 
 Release notes:
+- [docs/release/2026-04-24-v0.8.10-error-backoff.md](docs/release/2026-04-24-v0.8.10-error-backoff.md) (v0.8.10 — Error-backoff shell on `wiki_refresh` polling endpoint)
 - [docs/release/2026-04-24-v0.8.9-crash-toast.md](docs/release/2026-04-24-v0.8.9-crash-toast.md) (v0.8.9 — One-shot crash toast on `wiki_refresh` panel)
 - [docs/release/2026-04-24-v0.8.8-wiki-refresh-htmx.md](docs/release/2026-04-24-v0.8.8-wiki-refresh-htmx.md) (v0.8.8 — HTMX live-polling on the `wiki_refresh` panel)
 - [docs/release/2026-04-24-v0.8.7-dashboard-bg-refresh.md](docs/release/2026-04-24-v0.8.7-dashboard-bg-refresh.md) (v0.8.7 — Dashboard renders `wiki_refresh` panel)
@@ -450,6 +453,7 @@ The daemon uses `watchdog.observers.Observer` which auto-selects `FSEventsObserv
 - **v0.8.7** (done) — Dashboard renders `wiki_refresh` panel. New partial `apps/ui/templates/partials/wiki_refresh.html.j2` draws the v0.8.6 `ProjectStatus.wiki_refresh` field in four visually distinct shapes (running / clean / SIGTERM / FAILED-with-log-tail) on `/project/<slug>`. Hidden for projects that never ran a refresh. Closes the #1 known gap from v0.8.6 (data model ready, no UI). One `{% include %}`, no route change, no new deps.
 - **v0.8.8** (done) — HTMX live-polling on the `wiki_refresh` panel. New public helper `libs.status.aggregator.build_wiki_refresh` + new fragment route `GET /api/project/<slug>/wiki-refresh` let the panel update in place every ~2 s while a refresh runs. Outer wrapper's `hx-get` absence after completion self-cancels polling — no JS, no SSE, no `hx-swap-oob`. Cadence matches `ctx project check --watch` (v0.8.3). Closes the #1 known gap from v0.8.7.
 - **v0.8.9** (done) — One-shot crash toast on the `wiki_refresh` panel. New fixed-position `#toast-region` drop zone in `base.html.j2`; the polling fragment endpoint emits an `hx-swap-oob="beforeend:#toast-region"` red flash banner on the exact tick that flips the panel to `FAILED`. Gated by four predicates (`HX-Request` + non-live + real-crash exit + `last_completed_at` within 15 s) so the toast fires exactly once per crash event and stays silent on full page reload, SIGTERM cancel, clean completion, and manual `curl`. Closes the second known gap from v0.8.8.
+- **v0.8.10** (done) — Error-backoff shell on the `wiki_refresh` polling endpoint. `/api/project/{slug}/wiki-refresh` now wraps its status-assembly path in try/except: on any internal exception it returns 200 with the partial in degraded mode (yellow "refresh status unavailable" card + `hx-trigger="every 30s"` instead of `every 2s`). `except HTTPException: raise` preserves the 404-for-unknown-slug contract. Full-page `/project/<slug>` still 500s on real errors, so the degraded shell is scoped to continuous polling only. Closes the first operational known gap from v0.8.8 (500 mid-poll → HTMX hammers at 2 s; silent `None` → polling stops forever).
 - **Phase 10** (next) — Java/Kotlin/Swift parsers, VS Code marketplace, Obsidian nightly sync.
 
 ## Contributing
