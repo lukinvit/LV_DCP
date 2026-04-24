@@ -2,6 +2,16 @@
 
 All notable changes to the LV_DCP VS Code extension.
 
+## 0.8.27 — 2026-04-24
+
+**Extension settings.** First user-configurable behaviour in the extension. No breaking change — all settings have defaults that preserve the 0.8.26 behaviour.
+
+- Added `lvdcp.cliPath` (default `"ctx"`) — path to the `ctx` executable. Unblocks users whose `ctx` is not on `PATH` (e.g. running the CLI via `uv run python -m apps.cli`).
+- Added `lvdcp.defaultMode` (default `"navigate"`, enum `"navigate" | "edit"`) — default retrieval mode for `LV_DCP: Get Context Pack`. `LV_DCP: Show Impact` continues to force `"edit"`.
+- Added `lvdcp.cliTimeoutMs` (default `30000`, range `1000–300000`) — timeout for `ctx` subprocess calls, previously hardcoded.
+- `ctxClient.ts` refactored to take an explicit `CtxConfig` parameter instead of relying on implicit `ctx` PATH lookup and hardcoded 30s timeout.
+- README: new "Settings" section with table + `uv run` wrapper example.
+
 ## 0.8.26 — 2026-04-24
 
 **Marketplace-readiness prep.** No behaviour change; metadata and packaging only.

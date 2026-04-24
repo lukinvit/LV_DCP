@@ -1,8 +1,26 @@
 import * as vscode from "vscode";
-import { getContextPack } from "./ctxClient";
+import { CtxConfig, getContextPack } from "./ctxClient";
 import { PackProvider } from "./packProvider";
 
 let statusBarItem: vscode.StatusBarItem;
+
+/**
+ * Read `lvdcp.*` settings from the active workspace. Called per command
+ * invocation so live edits in Settings UI take effect without reload.
+ */
+function readCtxConfig(): CtxConfig {
+    const cfg = vscode.workspace.getConfiguration("lvdcp");
+    return {
+        cliPath: cfg.get<string>("cliPath", "ctx"),
+        timeoutMs: cfg.get<number>("cliTimeoutMs", 30000),
+    };
+}
+
+function readDefaultMode(): "navigate" | "edit" {
+    const cfg = vscode.workspace.getConfiguration("lvdcp");
+    const mode = cfg.get<string>("defaultMode", "navigate");
+    return mode === "edit" ? "edit" : "navigate";
+}
 
 export function activate(context: vscode.ExtensionContext): void {
     const packProvider = new PackProvider();
@@ -40,7 +58,9 @@ export function activate(context: vscode.ExtensionContext): void {
                 statusBarItem.text = "$(loading~spin) LV_DCP...";
                 const result = await getContextPack(
                     workspaceFolder.uri.fsPath,
-                    query
+                    query,
+                    readDefaultMode(),
+                    readCtxConfig(),
                 );
                 packProvider.update(result, workspaceFolder.uri.fsPath);
                 statusBarItem.text = `$(symbol-structure) LV_DCP [${result.files.length} files]`;
@@ -73,7 +93,8 @@ export function activate(context: vscode.ExtensionContext): void {
                 const result = await getContextPack(
                     workspaceFolder.uri.fsPath,
                     `impact analysis for ${relativePath}`,
-                    "edit"
+                    "edit",
+                    readCtxConfig(),
                 );
                 packProvider.update(result, workspaceFolder.uri.fsPath);
             } catch (err: unknown) {
