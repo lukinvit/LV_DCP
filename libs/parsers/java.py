@@ -9,18 +9,20 @@ and the common JUnit naming conventions (``*Test.java``, ``*Tests.java``,
 ``src/test/java/`` source root when present so the Java package path is
 what lands on the symbol's ``parent_fq_name``.
 
-This parser aims for parity with :class:`libs.parsers.rust.RustParser` —
-symbol + import + role + fq. Richer features (call graph, inheritance
-edges, ``tests_for`` inference) can be added incrementally following the
-TypeScript parser's lead.
+In addition to the base symbol + import + role + fq scaffolding, this
+parser emits :data:`RelationType.INHERITS` edges for ``extends`` and
+``implements`` clauses (class / interface / enum / record), following
+the TypeScript parser's pattern. Richer features (call graph, record
+component surfacing) can be added incrementally.
 """
 
 from __future__ import annotations
 
 import tree_sitter_java as tsjava
-from tree_sitter import Language, Node
+from tree_sitter import Language, Node, Parser
 
-from libs.core.entities import SymbolType
+from libs.core.entities import Relation, RelationType, SymbolType
+from libs.parsers.base import ParseResult
 from libs.parsers.treesitter_base import TreeSitterParser
 
 _MAVEN_SOURCE_ROOTS: tuple[str, ...] = (
@@ -34,6 +36,17 @@ _JUNIT_TEST_DIR_FRAGMENTS: tuple[str, ...] = (
     "tests/",
     "/test/",
     "test/",
+)
+
+# AST node kinds that can carry an ``extends`` or ``implements`` clause.
+# Annotation types (``@interface``) cannot inherit, so they stay off this list.
+_TYPE_DECLARATION_NODES: frozenset[str] = frozenset(
+    {
+        "class_declaration",
+        "interface_declaration",
+        "enum_declaration",
+        "record_declaration",
+    }
 )
 
 
@@ -177,3 +190,136 @@ class JavaParser(TreeSitterParser):
                 posix = posix[idx + len(root) :]
                 break
         return posix.replace("/", ".")
+
+    # ------------------------------------------------------------------
+    # Extended parse: emit INHERITS edges for extends / implements clauses
+    # ------------------------------------------------------------------
+
+    def parse(self, *, file_path: str, data: bytes) -> ParseResult:
+        """Parse, then supplement the base result with INHERITS edges."""
+        result = super().parse(file_path=file_path, data=data)
+
+        parser = Parser(self._get_ts_language())
+        tree = parser.parse(data)
+        root = tree.root_node
+
+        module_fq = self._module_fq(file_path)
+        inherits = self._extract_inherits(root, module_fq)
+        if not inherits:
+            return result
+        return ParseResult(
+            file_path=result.file_path,
+            language=result.language,
+            role=result.role,
+            symbols=result.symbols,
+            relations=result.relations + tuple(inherits),
+            errors=result.errors,
+        )
+
+    @classmethod
+    def _extract_inherits(cls, root: Node, module_fq: str) -> list[Relation]:
+        """Emit INHERITS edges for every ``extends`` / ``implements`` clause.
+
+        Walks the CST scope-aware so nested types correctly qualify their
+        edge source: ``class Outer { class Inner extends Base {} }``
+        produces ``<module>.Outer.Inner INHERITS Base`` — matching the
+        nested symbol's ``fq_name`` in the symbol table.
+
+        Covers:
+
+        - ``class Foo extends Bar`` → 1 edge
+        - ``class Foo implements A, B`` → 2 edges
+        - ``class Foo extends Bar implements A`` → 2 edges
+        - ``interface Foo extends A, B`` → 2 edges
+        - ``enum Color implements Serializable`` → 1 edge
+        - ``record Point(int x, int y) implements Coord`` → 1 edge
+        - Generics: ``extends Container<String>`` → ``Container`` (arguments stripped)
+        - Scoped: ``extends pkg.Outer.Inner`` → ``pkg.Outer.Inner`` (full path)
+
+        Annotation types (``@interface``) cannot have heritage and never
+        appear as sources; they are not in ``_TYPE_DECLARATION_NODES``.
+        """
+        relations: list[Relation] = []
+        # (node, enclosing_fq) — enclosing_fq is the fq_name the walker
+        # would push onto the scope stack for this node's parent in the
+        # main symbol walk, so nested types get the right src_ref.
+        stack: list[tuple[Node, str]] = [(root, module_fq)]
+        while stack:
+            node, scope = stack.pop()
+            next_scope = scope
+            if node.type in _TYPE_DECLARATION_NODES:
+                name_node = node.child_by_field_name("name")
+                if name_node is not None and name_node.text:
+                    type_name = name_node.text.decode("utf-8", errors="replace")
+                    type_fq = f"{scope}.{type_name}"
+                    next_scope = type_fq
+                    for base in cls._collect_heritage(node):
+                        relations.append(
+                            Relation(
+                                src_type="symbol",
+                                src_ref=type_fq,
+                                dst_type="symbol",
+                                dst_ref=base,
+                                relation_type=RelationType.INHERITS,
+                            )
+                        )
+            for child in node.children:
+                stack.append((child, next_scope))
+        return relations
+
+    @classmethod
+    def _collect_heritage(cls, type_node: Node) -> list[str]:
+        """Return base type names for one class/interface/enum/record node.
+
+        Handles the three Java heritage carriers:
+
+        - ``superclass`` (class only, single type) — the ``extends`` clause
+        - ``super_interfaces`` (class/enum/record) — the ``implements`` clause
+        - ``extends_interfaces`` (interface) — the ``extends`` clause
+
+        ``extends`` and ``implements`` semantics collapse onto a single
+        ``INHERITS`` edge type: graph consumers treat "is-a" as one
+        relation regardless of whether the source is a class or an
+        interface. Distinguishing the two would require a new relation
+        type in :mod:`libs.core.entities`.
+        """
+        bases: list[str] = []
+        for child in type_node.children:
+            if child.type == "superclass":
+                # Single base type; skip the ``extends`` keyword token.
+                for sub in child.children:
+                    name = cls._heritage_type_name(sub)
+                    if name is not None:
+                        bases.append(name)
+                        break  # class extends at most one base
+            elif child.type in ("super_interfaces", "extends_interfaces"):
+                for sub in child.children:
+                    if sub.type == "type_list":
+                        for item in sub.children:
+                            name = cls._heritage_type_name(item)
+                            if name is not None:
+                                bases.append(name)
+        return bases
+
+    @classmethod
+    def _heritage_type_name(cls, node: Node) -> str | None:
+        """Extract a base type name from a heritage type node.
+
+        - ``type_identifier`` → ``"Foo"``
+        - ``scoped_type_identifier`` → ``"pkg.Outer.Inner"`` (full dotted path)
+        - ``generic_type`` → strip ``type_arguments`` and recurse on the
+          base node, so ``Container<String>`` becomes ``"Container"`` and
+          ``pkg.Box<T>`` becomes ``"pkg.Box"``
+
+        Other node types (keywords, punctuation, comments) return None
+        so the caller can ignore them cleanly.
+        """
+        if node.type == "type_identifier" and node.text:
+            return node.text.decode("utf-8", errors="replace")
+        if node.type == "scoped_type_identifier" and node.text:
+            return node.text.decode("utf-8", errors="replace")
+        if node.type == "generic_type":
+            for child in node.children:
+                if child.type in ("type_identifier", "scoped_type_identifier"):
+                    return cls._heritage_type_name(child)
+        return None
