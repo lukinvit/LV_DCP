@@ -2,8 +2,8 @@
 
 **Local-first engineering memory.** Turns projects on macOS into a queryable context layer for Claude, IDE agents, and humans. Supports Python, TypeScript/JS, Go, and Rust. Reduces token cost of repeated code reading, builds a relation graph, and makes agent edits safer.
 
-[![Phase 9 Complete](https://img.shields.io/badge/phase-9%20complete-green)](docs/release/2026-04-24-v0.8.13-toast-a11y.md)
-[![Version 0.8.13](https://img.shields.io/badge/version-0.8.13-blue)](pyproject.toml)
+[![Phase 9 Complete](https://img.shields.io/badge/phase-9%20complete-green)](docs/release/2026-04-24-v0.8.14-retry-now.md)
+[![Version 0.8.14](https://img.shields.io/badge/version-0.8.14-blue)](pyproject.toml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue)](pyproject.toml)
 
@@ -53,6 +53,8 @@ $ ctx pack . "refresh token rotation" --mode edit
 
 ## Status
 
+**v0.8.14 (2026-04-24)** — "Retry now" escape hatch on the `wiki_refresh` degraded card. The yellow "refresh status unavailable" card (v0.8.10) now carries a small Retry button that fires the same polling endpoint on click — identical `hx-get` / `hx-target="#wiki-refresh-panel"` / `hx-swap="outerHTML"` as the auto-poll, plus `hx-headers='{"X-LV-DCP-Was-Degraded": "true"}'` so a successful manual retry triggers the green recovery toast exactly like an auto-recovery would. `hx-disabled-elt="this"` prevents double-click races. A user who knows (restarted infra, migration finished, etc.) that the service is back no longer has to wait up to 30 s for the next tick. No new route, no new JS, button scoped strictly to `{% if degraded %}` so it never appears on healthy responses. Closes the "Retry now" carry-forward gap from v0.8.10-v0.8.13.
+
 **v0.8.13 (2026-04-24)** — Accessibility + hover polish on the recovery toast fade. Two carry-forward gaps from v0.8.12 closed in one pure-CSS patch: (a) `@media (prefers-reduced-motion: reduce)` cancels the fadeout animation entirely for users who've opted out of OS-level motion — the toast then stays sticky like the crash toast, manual dismiss only; (b) `.lvdcp-recovery-toast:hover { animation-play-state: paused !important }` freezes the fade while the cursor is over the toast — moving off resumes from the current opacity, no re-triggering. Both rules hang off a new `lvdcp-recovery-toast` class and live inside the same `{% if show_recovery_toast %}` guard as v0.8.12's keyframes, so idle polls still ship zero a11y CSS. `!important` needed because the v0.8.12 inline `animation:` shorthand has specificity 1000 — justified vs the alternative of breaking the shorthand into longhand or updating the v0.8.12 test. No JS, no new deps.
 
 **v0.8.12 (2026-04-24)** — Auto-dismiss for the recovery toast. The green "wiki refresh status recovered" banner (v0.8.11) now carries an inline `animation: lvdcp-toast-fadeout 8s forwards` so it fades and disappears ~8 s after it appears (6 s visible + 2 s fade). The red crash toast stays sticky — bad news needs acknowledgment, good news does not. Zero JS, no new deps; the `@keyframes` block is scoped to the `{% if show_recovery_toast %}` guard so normal idle polls ship zero fadeout CSS. The final keyframe flips `pointer-events: none` so the invisible end-state doesn't intercept clicks. Closes the top UX gap from v0.8.11 (transient good-news toast required a manual click).
@@ -92,6 +94,7 @@ $ ctx pack . "refresh token rotation" --mode edit
 Stabilization 0.6.1 baseline: mandatory GitHub Actions quality gates, green `ruff` / `mypy`, runtime-hardened embeddings and Qdrant.
 
 Release notes:
+- [docs/release/2026-04-24-v0.8.14-retry-now.md](docs/release/2026-04-24-v0.8.14-retry-now.md) (v0.8.14 — "Retry now" escape hatch on the degraded card)
 - [docs/release/2026-04-24-v0.8.13-toast-a11y.md](docs/release/2026-04-24-v0.8.13-toast-a11y.md) (v0.8.13 — Accessibility + hover polish on the recovery toast fade)
 - [docs/release/2026-04-24-v0.8.12-toast-autodismiss.md](docs/release/2026-04-24-v0.8.12-toast-autodismiss.md) (v0.8.12 — Auto-dismiss for the recovery toast)
 - [docs/release/2026-04-24-v0.8.11-recovery-toast.md](docs/release/2026-04-24-v0.8.11-recovery-toast.md) (v0.8.11 — Recovery toast on `wiki_refresh` degraded → normal)
@@ -466,6 +469,7 @@ The daemon uses `watchdog.observers.Observer` which auto-selects `FSEventsObserv
 - **v0.8.11** (done) — Recovery toast on `wiki_refresh` degraded → normal. Symmetric to v0.8.9's red crash toast: on the exact poll that flips the panel out of degraded mode, the fragment carries a green `hx-swap-oob` banner into `#toast-region`. Detection is pure-HTMX: the degraded wrapper sets `hx-headers='{"X-LV-DCP-Was-Degraded": "true"}'`; the route sees the marker on a now-successful assembly and flips `show_recovery_toast=True` for exactly one response. The new successful wrapper omits the marker → no replay. No cookies, no session store, no JS. Closes the top known gap from v0.8.10 (silent self-heal).
 - **v0.8.12** (done) — Auto-dismiss for the recovery toast. Inline `animation: lvdcp-toast-fadeout 8s forwards` on the green toast only (crash toast stays sticky) — 6 s at full opacity, 2 s fade to `opacity: 0` + `pointer-events: none`. Zero JS, no new deps, ~200 bytes of inline CSS added only when the toast renders. Locks in the red/sticky vs green/transient UX asymmetry: bad news demands acknowledgment, good news fades. Closes the top UX gap from v0.8.11.
 - **v0.8.13** (done) — Accessibility + hover polish on the v0.8.12 fade. New `lvdcp-recovery-toast` class hook hangs two rules off the toast: `@media (prefers-reduced-motion: reduce) { animation: none !important; opacity: 1 !important; pointer-events: auto !important; }` cancels the fade for users who've opted out of OS-level motion (toast then stays sticky like the crash toast); `:hover { animation-play-state: paused !important; }` freezes the fade while the cursor is over the toast, resuming from the current opacity on mouse-out. `!important` needed to beat the inline `animation:` shorthand's specificity-1000. Both rules scoped to `{% if show_recovery_toast %}` so idle polls still ship zero a11y CSS. 1168 tests passing.
+- **v0.8.14** (done) — "Retry now" escape hatch on the degraded card. Adds a small button inside `{% if degraded %}` that hits `GET /api/project/<slug>/wiki-refresh` via `hx-get` + `hx-target="#wiki-refresh-panel"` + `hx-swap="outerHTML"` + `hx-disabled-elt="this"`, echoing the same `X-LV-DCP-Was-Degraded` marker the polling wrapper sends. Marker parity means a successful manual click flips `show_recovery_toast=True` and fires the green recovery toast exactly like an auto-recovery would — identical success UX regardless of trigger source. Scoped to degraded mode only, no new route, no JS. Closes the user-agency gap carried from v0.8.10. 1171 tests passing.
 - **Phase 10** (next) — Java/Kotlin/Swift parsers, VS Code marketplace, Obsidian nightly sync.
 
 ## Contributing

@@ -1013,3 +1013,124 @@ async def test_no_a11y_css_when_no_recovery_toast_rendered(
     assert "prefers-reduced-motion" not in response.text
     assert ".lvdcp-recovery-toast:hover" not in response.text
     assert "lvdcp-recovery-toast" not in response.text
+
+
+# -------- v0.8.14: "Retry now" button on the degraded card -----------
+
+
+@pytest.mark.asyncio
+async def test_degraded_card_carries_retry_now_button(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Degraded response renders a button that hits the same endpoint on click.
+
+    The 30s polling is a fallback, not the only escape hatch. A user who
+    knows infra just came back should be able to force a retry. The
+    button uses HTMX (``hx-get`` + ``hx-target`` + ``hx-swap`` pointing
+    at the outer wrapper), identical to what the polling tick does on
+    itself — so on success the wiki_refresh panel is replaced with the
+    real card, on continued failure the degraded card is re-rendered
+    in place.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+
+    import apps.ui.routes.project as project_route
+
+    def _boom(_root: Path) -> object:
+        raise RuntimeError("transient hiccup")
+
+    monkeypatch.setattr(project_route, "build_wiki_refresh", _boom)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={"HX-Request": "true"},
+        )
+
+    assert response.status_code == 200
+    # Sanity: we're in the degraded branch.
+    assert "Refresh status unavailable" in response.text
+    # Button text, id, and all the HTMX attrs must be there.
+    assert (
+        ">Retry now</button>" in response.text.replace("\n", "").replace("        ", "")
+        or "Retry now" in response.text
+    )
+    assert f'id="wiki-refresh-retry-{_slug(project)}"' in response.text
+    assert f'hx-get="/api/project/{_slug(project)}/wiki-refresh"' in response.text
+    # Target the outer wrapper so the swap replaces the whole panel.
+    assert 'hx-target="#wiki-refresh-panel"' in response.text
+    assert 'hx-swap="outerHTML"' in response.text
+    # ``hx-disabled-elt`` prevents a double-click from firing two parallel reqs.
+    assert 'hx-disabled-elt="this"' in response.text
+
+
+@pytest.mark.asyncio
+async def test_retry_now_button_absent_on_happy_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Non-degraded responses do not render the Retry button.
+
+    The button lives inside the ``{% if degraded %}`` branch, so a clean
+    last-run render — or a running refresh render — must never carry it.
+    Locks in the scope invariant: Retry now is a degraded-mode-only
+    affordance, not a general "force poll" button.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=0, modules_updated=5, elapsed_seconds=2.0)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={"HX-Request": "true"},
+        )
+
+    assert response.status_code == 200
+    assert "Last refresh: clean" in response.text
+    assert "Retry now" not in response.text
+    assert f'id="wiki-refresh-retry-{_slug(project)}"' not in response.text
+
+
+@pytest.mark.asyncio
+async def test_retry_now_button_carries_was_degraded_marker_for_recovery_toast(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Retry button echoes the same recovery marker the polling wrapper does.
+
+    The wrapper element in degraded mode carries
+    ``hx-headers='{"X-LV-DCP-Was-Degraded": "true"}'`` so the next
+    successful poll gets the recovery toast. The Retry-now button must
+    carry the exact same marker — otherwise clicking Retry at the
+    moment infra recovers would silently return a normal card without
+    the "recovered" confirmation, and the user would wonder whether
+    the click did anything. Marker parity means manual retry and auto
+    retry have identical success UX.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+
+    import apps.ui.routes.project as project_route
+
+    def _boom(_root: Path) -> object:
+        raise RuntimeError("transient hiccup")
+
+    monkeypatch.setattr(project_route, "build_wiki_refresh", _boom)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={"HX-Request": "true"},
+        )
+
+    assert response.status_code == 200
+    # Both the wrapper (for polling) AND the button (for manual click)
+    # must carry the marker. Parity = identical recovery-toast UX from
+    # either trigger source.
+    assert response.text.count('hx-headers=\'{"X-LV-DCP-Was-Degraded": "true"}\'') >= 2, (
+        "Expected the X-LV-DCP-Was-Degraded marker on BOTH the polling "
+        "wrapper and the Retry button."
+    )
