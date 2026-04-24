@@ -13,6 +13,7 @@ from apps.cli.commands import (
     memory_cmd,
     obsidian_cmd,
     project_cmd,
+    registry_cmd,
     timeline_cmd,
     watch_cmd,
     wiki_cmd,
@@ -83,3 +84,4 @@ app.add_typer(wiki_cmd.app, name="wiki")
 app.add_typer(memory_cmd.app, name="memory")
 app.add_typer(timeline_cmd.app, name="timeline")
 app.add_typer(project_cmd.app, name="project")
+app.add_typer(registry_cmd.app, name="registry")
