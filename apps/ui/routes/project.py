@@ -56,6 +56,19 @@ _WAS_DEGRADED_HEADER = "X-LV-DCP-Was-Degraded"
 #: NOT send this header, so the absence alone classifies the trigger.
 _RETRY_SOURCE_HEADER = "X-LV-DCP-Retry-Source"
 
+#: Request header the v0.8.19 degraded wrapper stamps on its first
+#: degraded render and echoes back on every subsequent degraded poll
+#: via HTMX ``hx-headers``. Carries an integer Unix timestamp (seconds
+#: since epoch) marking when the current outage started. On the
+#: recovery tick (degraded → normal) the route reads it back and
+#: surfaces the duration on the green recovery toast ("reachable again
+#: after 2m 17s"). Pure-HTMX round-trip: no cookie, no session, no
+#: server-side memory — identical discipline to the v0.8.11
+#: ``X-LV-DCP-Was-Degraded`` marker. A malformed / missing / future
+#: value is tolerated — it yields no label, the recovery toast just
+#: falls back to the pre-v0.8.19 copy.
+_DEGRADED_SINCE_HEADER = "X-LV-DCP-Degraded-Since"
+
 
 def _find_project_root_by_slug(workspace: WorkspaceStatus, slug: str) -> str | None:
     for card in workspace.projects:
@@ -159,6 +172,74 @@ def _should_flash_recovery_toast(request: Request) -> bool:
     return request.headers.get(_WAS_DEGRADED_HEADER, "").lower() == "true"
 
 
+def _parse_degraded_since(request: Request) -> int | None:
+    """Parse :data:`_DEGRADED_SINCE_HEADER` into a Unix timestamp (int seconds).
+
+    Returns ``None`` on any of:
+
+    - Header absent or empty after strip.
+    - Non-integer value (e.g. a float, a base-16 string, or garbled bytes).
+    - Non-positive value (``0`` or negative → sentinel / garbage).
+    - Future value beyond ``int(time.time())`` (clock skew between browser
+      and server, or a malicious client trying to inflate outage labels).
+
+    All failure modes collapse to ``None`` so the caller can safely
+    branch on truthiness without worrying about exceptions. Defensive:
+    the header is client-controlled via HTMX round-trip, so we never
+    trust its contents structurally — only as an opaque integer hint
+    that the caller can choose to use or ignore.
+    """
+    raw = request.headers.get(_DEGRADED_SINCE_HEADER, "").strip()
+    if not raw:
+        return None
+    try:
+        ts = int(raw)
+    except ValueError:
+        return None
+    if ts <= 0:
+        return None
+    now = int(time.time())
+    if ts > now:
+        return None
+    return ts
+
+
+def _format_outage_duration(seconds: int) -> str:
+    """Format an outage length in seconds as a short human label.
+
+    Ranges:
+
+    - ``< 1`` seconds → ``"<1s"`` (clock skew can produce this legitimately
+      on a very fast recovery).
+    - ``1-59`` → ``"Ns"`` (e.g. ``"47s"``).
+    - ``60-3599`` → ``"Xm"`` or ``"Xm Ys"``; the ``"Ys"`` suffix is
+      omitted when the remainder is 0 so ``180 → "3m"`` not ``"3m 0s"``.
+    - ``>= 3600`` → ``"Xh"`` or ``"Xh Ym"``; same omission logic for
+      zero-minute values.
+
+    Deliberately simple / no locale handling — this label rides on a
+    toast banner that already carries English copy ("reachable again
+    after ..."), so we match the surrounding tone. Seconds precision on
+    longer outages would just add noise ("1h 23m 47s" is harder to
+    scan than "1h 23m") so only the two largest non-zero units are
+    surfaced.
+    """
+    if seconds < 1:
+        return "<1s"
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        minutes, secs = divmod(seconds, 60)
+        if secs == 0:
+            return f"{minutes}m"
+        return f"{minutes}m {secs}s"
+    hours, rem = divmod(seconds, 3600)
+    minutes = rem // 60
+    if minutes == 0:
+        return f"{hours}h"
+    return f"{hours}h {minutes}m"
+
+
 def _classify_recovery_trigger(request: Request) -> str:
     """Classify a recovery-toast fetch as ``"manual"`` or ``"poll"``.
 
@@ -239,6 +320,19 @@ def wiki_refresh_fragment(slug: str, request: Request) -> _TemplateResponse:
             slug,
             exc_info=True,
         )
+        # v0.8.19+: stamp (or preserve) the outage-start timestamp on
+        # the degraded response so the next recovery tick can surface
+        # an outage duration. The degraded wrapper and the Retry button
+        # both echo ``X-LV-DCP-Degraded-Since`` back via ``hx-headers``,
+        # so a long multi-tick outage keeps the same start time across
+        # every re-render. A first-time degradation has no incoming
+        # header → stamp ``int(time.time())``. A corrupted / future
+        # value is ignored (``_parse_degraded_since`` returns None) →
+        # stamp fresh. Future-dated timestamps are rejected in the
+        # parser, but a very-old real timestamp is technically accepted
+        # — outage length is a telemetry hint, not a security boundary,
+        # so a malicious client at worst inflates its own label.
+        degraded_since = _parse_degraded_since(request) or int(time.time())
         return templates.TemplateResponse(  # type: ignore[no-any-return]
             request=request,
             name="partials/wiki_refresh.html.j2",
@@ -247,6 +341,7 @@ def wiki_refresh_fragment(slug: str, request: Request) -> _TemplateResponse:
                 "slug": slug,
                 "show_crash_toast": False,
                 "degraded": True,
+                "degraded_since": degraded_since,
             },
         )
     show_crash_toast = _should_flash_crash_toast(wr, request)
@@ -281,7 +376,23 @@ def wiki_refresh_fragment(slug: str, request: Request) -> _TemplateResponse:
                 "kind": "crash",
             },
         )
+    # v0.8.19+: on the recovery tick, translate the incoming
+    # ``X-LV-DCP-Degraded-Since`` timestamp into a human-readable outage
+    # duration ("reachable again after 2m 17s"). The header is a pure-
+    # HTMX round-trip stamped on the degraded wrapper, so the moment
+    # the user's browser echoes it back on the first successful poll
+    # we can compute ``now - since`` without any server-side state.
+    # A missing / malformed / future header → ``outage_seconds = None``,
+    # and the toast falls back to the pre-v0.8.19 copy — backwards-
+    # compatible with any browser tab that opened on a pre-v0.8.19
+    # build and hasn't reloaded yet.
+    outage_seconds: int | None = None
+    outage_duration_label: str | None = None
     if show_recovery_toast:
+        since = _parse_degraded_since(request)
+        if since is not None:
+            outage_seconds = max(0, int(time.time()) - since)
+            outage_duration_label = _format_outage_duration(outage_seconds)
         log.info(
             "ui.wiki_refresh.toast.rendered",
             extra={
@@ -289,6 +400,7 @@ def wiki_refresh_fragment(slug: str, request: Request) -> _TemplateResponse:
                 "slug": slug,
                 "kind": "recovery",
                 "trigger": _classify_recovery_trigger(request),
+                "outage_seconds": outage_seconds,
             },
         )
 
@@ -300,6 +412,7 @@ def wiki_refresh_fragment(slug: str, request: Request) -> _TemplateResponse:
             "slug": slug,
             "show_crash_toast": show_crash_toast,
             "show_recovery_toast": show_recovery_toast,
+            "outage_duration_label": outage_duration_label,
         },
     )
 

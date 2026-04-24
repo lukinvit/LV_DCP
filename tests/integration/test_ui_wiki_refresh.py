@@ -1863,3 +1863,421 @@ async def test_progress_bar_transition_still_present_for_running_card(
 
     assert response.status_code == 200
     assert "transition:width 0.3s" in response.text
+
+
+# -------- v0.8.19: outage-duration signal on recovery toast ---------
+
+
+@pytest.mark.asyncio
+async def test_degraded_wrapper_stamps_degraded_since_header(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """First degraded render stamps an integer Unix timestamp for X-LV-DCP-Degraded-Since.
+
+    The v0.8.19 hx-headers JSON on the degraded wrapper must include
+    ``X-LV-DCP-Degraded-Since`` alongside the v0.8.11 was-degraded
+    marker. Value is ``int(time.time())`` at render time and is echoed
+    back on every subsequent poll via HTMX so the recovery tick can
+    compute ``now - since``.
+    """
+    _seed_project(tmp_path, monkeypatch)
+
+    import apps.ui.routes.project as project_route
+
+    def _boom() -> object:
+        raise RuntimeError("transient hiccup")
+
+    monkeypatch.setattr(project_route, "build_workspace_status", _boom)
+
+    before = int(time.time())
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            "/api/project/anything/wiki-refresh",
+            headers={"HX-Request": "true"},
+        )
+    after = int(time.time())
+
+    assert response.status_code == 200
+    # Key appears in hx-headers JSON on the wrapper.
+    assert "X-LV-DCP-Degraded-Since" in response.text
+    # Extract the value the template rendered and sanity-check it is
+    # a plausible timestamp (within the ±1 s test-execution window).
+    # Match the wrapper's hx-headers value, not the retry button's.
+    panel_slice = response.text.split('id="wiki-refresh-panel"', 1)[1].split(">", 1)[0]
+    assert "X-LV-DCP-Degraded-Since" in panel_slice
+    # Extract the int following the header key in the panel's hx-headers.
+    marker = '"X-LV-DCP-Degraded-Since": "'
+    idx = panel_slice.index(marker) + len(marker)
+    end = panel_slice.index('"', idx)
+    ts = int(panel_slice[idx:end])
+    assert before <= ts <= after
+
+
+@pytest.mark.asyncio
+async def test_degraded_wrapper_preserves_incoming_degraded_since(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Subsequent degraded polls echo the SAME timestamp, not a fresh one.
+
+    This is the core round-trip invariant: a long multi-tick outage
+    must report its original start time so the recovery toast says
+    "reachable again after 2m 17s", not "after 30s" (which would just
+    be the gap between the last degraded tick and the recovery tick).
+    """
+    _seed_project(tmp_path, monkeypatch)
+
+    import apps.ui.routes.project as project_route
+
+    def _boom() -> object:
+        raise RuntimeError("still broken")
+
+    monkeypatch.setattr(project_route, "build_workspace_status", _boom)
+
+    # Pretend the outage started 137 seconds ago.
+    original = int(time.time()) - 137
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            "/api/project/anything/wiki-refresh",
+            headers={
+                "HX-Request": "true",
+                "X-LV-DCP-Was-Degraded": "true",
+                "X-LV-DCP-Degraded-Since": str(original),
+            },
+        )
+
+    assert response.status_code == 200
+    # The panel wrapper must echo the incoming timestamp verbatim.
+    panel_slice = response.text.split('id="wiki-refresh-panel"', 1)[1].split(">", 1)[0]
+    assert f'"X-LV-DCP-Degraded-Since": "{original}"' in panel_slice
+
+
+@pytest.mark.asyncio
+async def test_degraded_wrapper_stamps_fresh_since_when_incoming_is_malformed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Malformed / non-positive / future incoming timestamp → stamp a fresh one.
+
+    The parser rejects: empty, non-int ("abc"), non-positive (``0`` /
+    negative), and future values. In every case the route falls back
+    to ``int(time.time())`` so the recovery toast still has a usable
+    (if short) duration to display rather than silently dropping the
+    label because of a single bad upstream tick.
+    """
+    _seed_project(tmp_path, monkeypatch)
+
+    import apps.ui.routes.project as project_route
+
+    def _boom() -> object:
+        raise RuntimeError("still broken")
+
+    monkeypatch.setattr(project_route, "build_workspace_status", _boom)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    # Cover the three representative failure modes in one sweep.
+    for bad_value in ("not-a-number", "0", str(int(time.time()) + 3600)):
+        before = int(time.time())
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                "/api/project/anything/wiki-refresh",
+                headers={
+                    "HX-Request": "true",
+                    "X-LV-DCP-Was-Degraded": "true",
+                    "X-LV-DCP-Degraded-Since": bad_value,
+                },
+            )
+        after = int(time.time())
+
+        assert response.status_code == 200
+        panel_slice = response.text.split('id="wiki-refresh-panel"', 1)[1].split(">", 1)[0]
+        marker = '"X-LV-DCP-Degraded-Since": "'
+        idx = panel_slice.index(marker) + len(marker)
+        end = panel_slice.index('"', idx)
+        ts = int(panel_slice[idx:end])
+        # The stamped timestamp must be fresh (within the request
+        # window), NOT the bad incoming value.
+        assert before <= ts <= after, (
+            f"bad incoming value {bad_value!r} should have been replaced "
+            f"with a fresh int(time.time()); got {ts}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_retry_button_also_carries_degraded_since(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The Retry button's hx-headers JSON includes X-LV-DCP-Degraded-Since.
+
+    Without this the manual-retry recovery path would flash a generic
+    "recovered" banner while the poll-initiated recovery path would
+    flash "recovered after Xm Ys" — same event, inconsistent UX. The
+    button must round-trip the timestamp identically to the polling
+    wrapper so both paths converge on the duration-aware copy.
+    """
+    _seed_project(tmp_path, monkeypatch)
+
+    import apps.ui.routes.project as project_route
+
+    def _boom() -> object:
+        raise RuntimeError("transient hiccup")
+
+    monkeypatch.setattr(project_route, "build_workspace_status", _boom)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            "/api/project/anything/wiki-refresh",
+            headers={"HX-Request": "true"},
+        )
+
+    assert response.status_code == 200
+    # Both the wrapper and the button declare the header, so the count
+    # of occurrences in the rendered output is at least 2.
+    assert response.text.count("X-LV-DCP-Degraded-Since") >= 2, (
+        "Expected the X-LV-DCP-Degraded-Since header on BOTH the polling "
+        "wrapper and the Retry button — one of them is missing."
+    )
+    # The button line itself must include the key; isolate by id.
+    button_marker = 'id="wiki-refresh-retry-'
+    assert button_marker in response.text
+    btn_slice = response.text.split(button_marker, 1)[1].split("</button>", 1)[0]
+    assert "X-LV-DCP-Degraded-Since" in btn_slice
+    # Button also keeps the retry-source marker from v0.8.15.
+    assert '"X-LV-DCP-Retry-Source": "manual"' in btn_slice
+
+
+@pytest.mark.asyncio
+async def test_recovery_toast_surfaces_outage_duration_label(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recovery tick with a valid Degraded-Since header → "reachable again after <duration>".
+
+    Simulates a 2m 17s outage by sending ``X-LV-DCP-Degraded-Since``
+    set to ``int(time.time()) - 137``. The route formats the diff as
+    ``"2m 17s"`` and the template splices it into the toast copy.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=0, modules_updated=3, elapsed_seconds=1.5)
+
+    since = int(time.time()) - 137
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={
+                "HX-Request": "true",
+                "X-LV-DCP-Was-Degraded": "true",
+                "X-LV-DCP-Degraded-Since": str(since),
+            },
+        )
+
+    assert response.status_code == 200
+    # Recovery toast present.
+    assert "Wiki refresh status recovered" in response.text
+    # Duration-aware copy. The first second can drift ±1 depending on
+    # test-execution timing, so accept 2m 16s, 2m 17s, or 2m 18s.
+    assert (
+        "reachable again after 2m 16s" in response.text
+        or "reachable again after 2m 17s" in response.text
+        or "reachable again after 2m 18s" in response.text
+    ), "Expected 2m 16s/17s/18s duration label in recovery toast"
+    # Pre-v0.8.19 fallback copy must NOT also appear.
+    assert "is reachable again. Resuming normal polling." not in response.text
+
+
+@pytest.mark.asyncio
+async def test_recovery_toast_falls_back_to_plain_copy_without_since_header(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Missing Degraded-Since header → pre-v0.8.19 copy (backwards compatible).
+
+    A browser tab that opened on a pre-v0.8.19 build and finally polls
+    through a recovery has no Degraded-Since to echo. The toast must
+    still fire with the original copy so rolling upgrades don't lose
+    the recovery signal mid-flight.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=0, modules_updated=3, elapsed_seconds=1.5)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={
+                "HX-Request": "true",
+                "X-LV-DCP-Was-Degraded": "true",
+            },
+        )
+
+    assert response.status_code == 200
+    assert "Wiki refresh status recovered" in response.text
+    # Pre-v0.8.19 copy present.
+    assert "is reachable again. Resuming normal polling." in response.text
+    # No "after <duration>" copy (the label branch didn't fire).
+    assert "reachable again after" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_recovery_toast_falls_back_when_since_header_malformed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Malformed / zero / future Degraded-Since → recovery toast uses fallback copy.
+
+    The parser collapses every failure mode to ``None`` so the toast
+    branch cannot explode on garbage input. Locks that graceful
+    degradation in.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=0, modules_updated=3, elapsed_seconds=1.5)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    for bad_value in ("garbled", "0", "-42", str(int(time.time()) + 3600)):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                f"/api/project/{_slug(project)}/wiki-refresh",
+                headers={
+                    "HX-Request": "true",
+                    "X-LV-DCP-Was-Degraded": "true",
+                    "X-LV-DCP-Degraded-Since": bad_value,
+                },
+            )
+
+        assert response.status_code == 200, (
+            f"route should stay 200 on bad Degraded-Since={bad_value!r}"
+        )
+        assert "Wiki refresh status recovered" in response.text
+        # Fallback copy — no "after <duration>" should render.
+        assert "is reachable again. Resuming normal polling." in response.text, (
+            f"expected fallback copy for bad value {bad_value!r}"
+        )
+        assert "reachable again after" not in response.text, (
+            f"bad value {bad_value!r} leaked a duration label"
+        )
+
+
+@pytest.mark.asyncio
+async def test_recovery_log_event_includes_outage_seconds(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``ui.wiki_refresh.toast.rendered`` carries outage_seconds on recovery.
+
+    Extends the v0.8.15 trigger telemetry with a numeric outage length
+    so dashboards can plot mean/p95 outage duration without having to
+    re-derive it from tick counts. Missing Degraded-Since → field is
+    present as ``None`` (so field shape stays stable for consumers).
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=0, modules_updated=2, elapsed_seconds=1.0)
+
+    since = int(time.time()) - 42
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    with caplog.at_level("INFO", logger="apps.ui.routes.project"):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                f"/api/project/{_slug(project)}/wiki-refresh",
+                headers={
+                    "HX-Request": "true",
+                    "X-LV-DCP-Was-Degraded": "true",
+                    "X-LV-DCP-Degraded-Since": str(since),
+                },
+            )
+
+    assert response.status_code == 200
+    assert "Wiki refresh status recovered" in response.text
+
+    rendered = [r for r in caplog.records if r.getMessage() == "ui.wiki_refresh.toast.rendered"]
+    assert len(rendered) == 1
+    record = rendered[0]
+    assert getattr(record, "kind", None) == "recovery"
+    # Value within the ±1 s test-execution window of the planned 42s gap.
+    outage = getattr(record, "outage_seconds", None)
+    assert outage is not None, (
+        "outage_seconds must be set on a recovery with a valid Degraded-Since"
+    )
+    assert 41 <= outage <= 43, f"expected outage_seconds ≈ 42, got {outage}"
+
+
+@pytest.mark.asyncio
+async def test_recovery_log_event_outage_seconds_is_none_when_header_absent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Recovery without a Degraded-Since header still logs with outage_seconds=None.
+
+    Field stability matters for downstream log consumers — a missing
+    key vs a None value parse differently in structured-log sinks.
+    Locks in that the route always emits the key, even when it has
+    no duration hint to report.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=0, modules_updated=2, elapsed_seconds=1.0)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    with caplog.at_level("INFO", logger="apps.ui.routes.project"):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                f"/api/project/{_slug(project)}/wiki-refresh",
+                headers={
+                    "HX-Request": "true",
+                    "X-LV-DCP-Was-Degraded": "true",
+                },
+            )
+
+    assert response.status_code == 200
+    rendered = [r for r in caplog.records if r.getMessage() == "ui.wiki_refresh.toast.rendered"]
+    assert len(rendered) == 1
+    record = rendered[0]
+    assert getattr(record, "kind", None) == "recovery"
+    # Attribute exists (so the extras dict included the key) and is None.
+    assert hasattr(record, "outage_seconds")
+    assert getattr(record, "outage_seconds", "MISSING") is None
+
+
+# -------- v0.8.19: _format_outage_duration unit tests ---------------
+
+
+@pytest.mark.parametrize(
+    "seconds,expected",
+    [
+        (0, "<1s"),
+        (1, "1s"),
+        (42, "42s"),
+        (59, "59s"),
+        (60, "1m"),
+        (61, "1m 1s"),
+        (137, "2m 17s"),
+        (180, "3m"),
+        (3599, "59m 59s"),
+        (3600, "1h"),
+        (3660, "1h 1m"),
+        (5025, "1h 23m"),
+        (86399, "23h 59m"),
+        (86400, "24h"),
+    ],
+)
+def test_format_outage_duration_covers_range(seconds: int, expected: str) -> None:
+    """``_format_outage_duration`` matches the v0.8.19 copy spec.
+
+    Boundary values (1/59/60/3599/3600/86400) and representative
+    midrange values lock in the format's range semantics so a future
+    edit can't silently regress the "reachable again after ..." copy.
+    """
+    from apps.ui.routes.project import _format_outage_duration
+
+    assert _format_outage_duration(seconds) == expected
