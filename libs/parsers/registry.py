@@ -5,6 +5,7 @@ from __future__ import annotations
 from libs.parsers.base import FileParser
 from libs.parsers.golang import GoParser
 from libs.parsers.java import JavaParser
+from libs.parsers.kotlin import KotlinParser
 from libs.parsers.python import PythonParser
 from libs.parsers.rust import RustParser
 from libs.parsers.text_parsers import JsonParser, MarkdownParser, TomlParser, YamlParser
@@ -27,6 +28,8 @@ EXTENSION_TO_LANGUAGE: dict[str, str] = {
     ".go": "go",
     ".rs": "rust",
     ".java": "java",
+    ".kt": "kotlin",
+    ".kts": "kotlin",
 }
 
 
@@ -55,6 +58,7 @@ _PARSERS: dict[str, FileParser] = {
     "go": GoParser(),
     "rust": RustParser(),
     "java": JavaParser(),
+    "kotlin": KotlinParser(),
 }
 
 

@@ -13,7 +13,7 @@ from pathlib import Path
 
 from libs.core.projects_config import list_projects
 
-_SRC_LANGS = ("python", "typescript", "javascript", "go", "rust", "java")
+_SRC_LANGS = ("python", "typescript", "javascript", "go", "rust", "java", "kotlin")
 
 
 @dataclass

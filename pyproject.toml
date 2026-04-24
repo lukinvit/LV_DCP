@@ -1,6 +1,6 @@
 [project]
 name = "lv-dcp"
-version = "0.8.20"
+version = "0.8.21"
 description = "LV_DCP — Developer Context Platform. Local-first engineering memory for macOS."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -23,6 +23,7 @@ dependencies = [
     "tree-sitter-go>=0.23",
     "tree-sitter-rust>=0.23",
     "tree-sitter-java>=0.23",
+    "tree-sitter-kotlin>=1.1",
     "qdrant-client>=1.9",
     "mcp>=1.12,<2",
     "watchdog>=4.0,<5",
@@ -34,7 +35,6 @@ dependencies = [
     "tiktoken>=0.7",
     "pymorphy3>=2.0",
     "pymorphy3-dicts-ru>=2.0",
-    "tree-sitter-java>=0.23",
 ]
 
 [project.optional-dependencies]
