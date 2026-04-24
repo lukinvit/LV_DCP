@@ -129,8 +129,8 @@
                     {% if wr.pid %} &middot; pid {{ wr.pid }}{% endif %}
                 </div>
                 {% if wr.modules_total %}
-                <div style="background:#bbdefb;height:6px;border-radius:3px;margin-top:8px;overflow:hidden;">
-                    <div style="background:#1976d2;height:100%;width:{{ (wr.modules_done / wr.modules_total * 100) | round(0, 'floor') }}%;transition:width 0.3s;"></div>
+                <div class="lvdcp-progress-track" style="background:#bbdefb;height:6px;border-radius:3px;margin-top:8px;overflow:hidden;">
+                    <div class="lvdcp-progress-fill" style="background:#1976d2;height:100%;width:{{ (wr.modules_done / wr.modules_total * 100) | round(0, 'floor') }}%;transition:width 0.3s;"></div>
                 </div>
                 {% endif %}
             </div>
@@ -160,13 +160,39 @@
 
            ``!important`` needed on all three rules because the inline
            ``animation`` / ``opacity`` / ``background`` shorthand on the
-           element has specificity 1000 and a plain class rule has 10. #}
+           element has specificity 1000 and a plain class rule has 10.
+
+           **v0.8.18+: progress-bar a11y.** The nested progress bar
+           (``<div class="lvdcp-progress-track">`` + ``<div class=
+           "lvdcp-progress-fill">``) ships with inline
+           ``background:#bbdefb`` (track) and ``background:#1976d2``
+           (fill). In ``forced-colors: active`` both get remapped to
+           system ``Canvas`` — identical to the page background, so the
+           bar becomes a 6 px-tall invisible sliver and the module-
+           progress signal is lost. The fix mirrors v0.8.16 / v0.8.17:
+
+             - Track gets ``border: 1px solid CanvasText`` so the
+               container is visible regardless of the fill state
+               (borders are preserved under forced-colors).
+             - Fill is pinned to ``background: CanvasText`` so the
+               progress indicator itself is a solid dense shape
+               against the system background.
+             - Fill's ``transition: width 0.3s`` is cancelled under
+               ``prefers-reduced-motion: reduce`` — the transition
+               fires on every 2 s polling tick whenever ``modules_
+               done`` advances, which is a repeated motion effect
+               that a11y-mode users have opted out of. Same rule also
+               cancelled in forced-colors (consistency with v0.8.17
+               dot: when in doubt, stay static). #}
         <style>@keyframes lvdcp-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 @media (prefers-reduced-motion: reduce) {
     .lvdcp-pulse-dot { animation: none !important; opacity: 1 !important; }
+    .lvdcp-progress-fill { transition: none !important; }
 }
 @media (forced-colors: active) {
     .lvdcp-pulse-dot { animation: none !important; opacity: 1 !important; background: CanvasText !important; }
+    .lvdcp-progress-track { border: 1px solid CanvasText !important; }
+    .lvdcp-progress-fill { background: CanvasText !important; transition: none !important; }
 }</style>
     {% elif wr.last_exit_code == 0 %}
         <div style="padding:12px;background:#e8f5e9;border-radius:8px;border-left:4px solid #2e7d32;">

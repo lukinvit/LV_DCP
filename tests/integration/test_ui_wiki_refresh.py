@@ -1661,3 +1661,205 @@ async def test_pulse_keyframes_still_present_for_running_card(
     assert "@keyframes lvdcp-pulse" in response.text
     # Inline animation still declared on the dot.
     assert "animation:lvdcp-pulse 1.5s infinite ease-in-out" in response.text
+
+
+# -------- v0.8.18: a11y parity on the wiki_refresh progress bar ----
+
+
+@pytest.mark.asyncio
+async def test_progress_bar_carries_track_class_hook(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The progress bar track ships with ``class="lvdcp-progress-track"``.
+
+    Without the class hook the inline ``background:#bbdefb`` on the outer
+    track div has no way to accept scoped forced-colors overrides. Locks
+    in the template contract so a refactor can't silently strip it.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    _seed_running_lock(project)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(f"/project/{_slug(project)}")
+
+    assert response.status_code == 200
+    # Sanity: Running card + progress bar actually rendered.
+    assert "Running" in response.text
+    assert "2 / 5 modules" in response.text
+    assert 'class="lvdcp-progress-track"' in response.text
+
+
+@pytest.mark.asyncio
+async def test_progress_bar_carries_fill_class_hook(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The progress bar fill ships with ``class="lvdcp-progress-fill"``.
+
+    Parallel to the track hook: the inline ``background:#1976d2`` on the
+    inner fill div needs a class hook for the forced-colors override and
+    the ``transition:width 0.3s`` needs one for prefers-reduced-motion.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    _seed_running_lock(project)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(f"/project/{_slug(project)}")
+
+    assert response.status_code == 200
+    assert 'class="lvdcp-progress-fill"' in response.text
+
+
+@pytest.mark.asyncio
+async def test_progress_bar_respects_forced_colors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Progress bar ships scoped ``forced-colors: active`` rules.
+
+    In Windows high-contrast mode (and similar accessibility palettes)
+    the UA remaps both ``#bbdefb`` (track) and ``#1976d2`` (fill) to
+    system ``Canvas`` — which equals the page background, so the 6 px
+    bar becomes an invisible sliver and the module-progress signal is
+    gone. Track gets a 1 px ``CanvasText`` border (preserved under
+    forced-colors), fill is painted with ``background: CanvasText``
+    so it's a solid dense shape against the remapped track. Also
+    cancels the fill's ``transition: width 0.3s`` — consistency with
+    the v0.8.17 dot rule (when in doubt, stay static in a11y mode).
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    _seed_running_lock(project)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(f"/project/{_slug(project)}")
+
+    assert response.status_code == 200
+    assert "@media (forced-colors: active)" in response.text
+    assert (".lvdcp-progress-track { border: 1px solid CanvasText !important; }") in response.text
+    assert (
+        ".lvdcp-progress-fill { background: CanvasText !important; transition: none !important; }"
+    ) in response.text
+
+
+@pytest.mark.asyncio
+async def test_progress_bar_respects_prefers_reduced_motion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Progress bar cancels ``transition: width 0.3s`` under reduced-motion.
+
+    The fill's width is re-rendered on every HTMX poll tick (every 2 s)
+    as ``modules_done`` advances, and the inline ``transition:width 0.3s``
+    animates each jump. That's a repeating motion effect users with
+    ``prefers-reduced-motion: reduce`` have opted out of — the bar
+    should snap to its new width without the slide. Track + fill
+    remain visually identical otherwise; only the transition is killed.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    _seed_running_lock(project)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(f"/project/{_slug(project)}")
+
+    assert response.status_code == 200
+    assert "@media (prefers-reduced-motion: reduce)" in response.text
+    assert ".lvdcp-progress-fill { transition: none !important; }" in response.text
+
+
+@pytest.mark.asyncio
+async def test_no_progress_bar_dom_when_no_modules_total(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If ``modules_total`` is absent, the progress bar DOM isn't rendered.
+
+    The ``{% if wr.modules_total %}`` guard omits both the track and
+    fill divs entirely when the module count isn't known yet (early
+    "starting" phase). The ``class="..."`` attributes must not appear
+    in the DOM even though the Running card itself renders. Locks in
+    the nested-guard contract so a refactor can't leak the bar onto
+    pre-total responses (which would divide-by-zero on the Jinja
+    ``modules_done / modules_total`` expression).
+
+    Note: the a11y ``<style>`` block on the Running card still ships
+    (the selectors are inert without the matching elements) — this
+    test asserts the DOM contract, not the CSS payload.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    # Running lock, but NO modules_total — the progress bar branch is skipped.
+    lock_dir = project / ".context" / "wiki"
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    (lock_dir / ".refresh.lock").write_text(
+        json.dumps(
+            {
+                "pid": os.getpid(),
+                "started_at": time.time(),
+                "phase": "starting",
+            }
+        )
+    )
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(f"/project/{_slug(project)}")
+
+    assert response.status_code == 200
+    assert "Running" in response.text
+    # Neither class-hook element renders in the DOM.
+    assert 'class="lvdcp-progress-track"' not in response.text
+    assert 'class="lvdcp-progress-fill"' not in response.text
+
+
+@pytest.mark.asyncio
+async def test_no_progress_a11y_css_when_not_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Clean / crashed / idle responses don't ship the progress-bar classes.
+
+    The progress bar only lives inside ``{% if wr.in_progress %}`` (and
+    the nested ``{% if wr.modules_total %}``). A clean last-run response
+    has no Running card at all — so both the DOM class hooks AND the
+    progress-specific media-query rules must be absent (the whole
+    ``<style>`` block they live in is scoped to the Running branch).
+    Same discipline as the v0.8.17 pulse-dot absence test.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=0, modules_updated=2, elapsed_seconds=1.0)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(f"/project/{_slug(project)}")
+
+    assert response.status_code == 200
+    assert "Last refresh: clean" in response.text
+    assert "lvdcp-progress-track" not in response.text
+    assert "lvdcp-progress-fill" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_progress_bar_transition_still_present_for_running_card(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression guard: default ``transition:width 0.3s`` still ships.
+
+    v0.8.18 adapts the transition under prefers-reduced-motion; it does
+    NOT remove it for users without a11y preferences. Locks in that the
+    inline ``transition:width 0.3s`` stays on the fill element so the
+    smooth progress-fill slide isn't silently dropped by a future edit.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    _seed_running_lock(project)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(f"/project/{_slug(project)}")
+
+    assert response.status_code == 200
+    assert "transition:width 0.3s" in response.text
