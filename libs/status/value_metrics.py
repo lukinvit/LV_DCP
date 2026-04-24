@@ -62,6 +62,11 @@ class ValueMetrics:
     projects_real_total: int = 0
     projects_transient_active: int = 0
     projects_transient_total: int = 0
+    # Count of registered roots whose directory no longer exists on disk
+    # (tombstones — deleted worktrees, moved project folders). Surfaces
+    # v0.8.36/v0.8.37 prune candidates passively on the dashboard so users
+    # discover registry hygiene from the UI, not just the CLI.
+    projects_missing_count: int = 0
     mode_navigate: int = 0
     mode_edit: int = 0
 
@@ -80,6 +85,7 @@ def collect_value_metrics(config_path: Path) -> ValueMetrics:  # noqa: PLR0912, 
     transient_active: set[str] = set()
     real_total = 0
     transient_total = 0
+    missing_count = 0
 
     for entry in projects:
         cache_db = entry.root / ".context" / "cache.db"
@@ -90,6 +96,11 @@ def collect_value_metrics(config_path: Path) -> ValueMetrics:  # noqa: PLR0912, 
             transient_total += 1
         else:
             real_total += 1
+        # Tombstone counter is independent of real/transient classification —
+        # a gone root is gone regardless of how it was registered. Mirrors the
+        # `prune --missing` predicate (single FS check, no scan-age gate).
+        if not entry.root.exists():
+            missing_count += 1
 
         if not cache_db.exists():
             m.project_coverage.append(pc)
@@ -198,6 +209,7 @@ def collect_value_metrics(config_path: Path) -> ValueMetrics:  # noqa: PLR0912, 
     m.projects_real_active = len(real_active)
     m.projects_transient_total = transient_total
     m.projects_transient_active = len(transient_active)
+    m.projects_missing_count = missing_count
 
     # Compression ratio: how many files would you read without pack vs with pack
     if m.total_packs > 0 and m.total_pack_files_returned > 0:

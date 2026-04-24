@@ -20,11 +20,9 @@
              title="Excludes .claude/worktrees/* ship-ceremony artifacts and sample_repo test fixtures">
             <div style="font-size:28px;font-weight:bold;color:#f57c00;">{{ metrics.projects_real_active }}/{{ metrics.projects_real_total }}</div>
             <div style="font-size:12px;color:#666;">projects active</div>
-            {% if metrics.projects_transient_total > 0 %}
-            <div style="font-size:11px;color:#999;">{{ metrics.total_files_in_projects }} files indexed &middot; +{{ metrics.projects_transient_total }} transient</div>
-            {% else %}
-            <div style="font-size:11px;color:#999;">{{ metrics.total_files_in_projects }} files indexed</div>
-            {% endif %}
+            <div style="font-size:11px;color:#999;">
+                {{ metrics.total_files_in_projects }} files indexed{% if metrics.projects_transient_total > 0 %} &middot; +{{ metrics.projects_transient_total }} transient{% endif %}{% if metrics.projects_missing_count > 0 %} &middot; <span title="Registered roots whose directory no longer exists on disk. Run `ctx registry prune --missing` to clean up.">+{{ metrics.projects_missing_count }} tombstones</span>{% endif %}
+            </div>
         </div>
         <div style="background:#f8f9fa;padding:16px;border-radius:8px;text-align:center;">
             {% set total_cov = metrics.coverage_high + metrics.coverage_medium + metrics.coverage_ambiguous %}
