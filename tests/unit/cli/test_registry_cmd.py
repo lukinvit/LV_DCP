@@ -331,3 +331,96 @@ def test_registry_ls_json_carries_missing_field(cfg: Path) -> None:
         assert "missing" in row
         # All fixture paths exist on disk in the `cfg` fixture.
         assert row["missing"] is False
+
+
+# ---- prune --json (v0.8.38) ----------------------------------------------
+
+
+_PRUNE_JSON_KEYS = {"kept", "removed", "applied", "backup_path", "config_path"}
+
+
+def test_registry_prune_json_dry_run_shape(stale_cfg: Path) -> None:
+    """`prune --json` (no --yes) emits a parseable preview with applied=False
+    and backup_path=None. Schema mirrors PruneResult."""
+    original = stale_cfg.read_bytes()
+    result = CliRunner().invoke(app, ["registry", "prune", "--json"])
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert set(payload.keys()) == _PRUNE_JSON_KEYS
+    assert payload["applied"] is False
+    assert payload["backup_path"] is None
+    assert payload["config_path"] == str(stale_cfg)
+    # The fixture's stale transient worktree is the candidate.
+    assert any("v0.8.30-old" in r for r in payload["removed"])
+    # Config untouched and no backup written.
+    assert stale_cfg.read_bytes() == original
+    assert not stale_cfg.with_name(stale_cfg.name + ".bak").exists()
+
+
+def test_registry_prune_json_yes_applies_and_reports_backup(stale_cfg: Path) -> None:
+    """`prune --json --yes` mutates and returns a JSON object with
+    applied=True and backup_path populated."""
+    result = CliRunner().invoke(app, ["registry", "prune", "--json", "--yes"])
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["applied"] is True
+    assert payload["backup_path"] == str(stale_cfg.with_name(stale_cfg.name + ".bak"))
+    assert payload["config_path"] == str(stale_cfg)
+    assert len(payload["removed"]) >= 1
+    # The kept list reflects the post-mutation registry state.
+    survivors = yaml.safe_load(stale_cfg.read_text(encoding="utf-8"))["projects"]
+    assert payload["kept"] == [p["root"] for p in survivors]
+
+
+def test_registry_prune_json_nothing_to_do_returns_empty_removed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When the policy matches no candidates, `prune --json` still emits a
+    well-formed object with `removed: []` and `applied: false`."""
+    a = tmp_path / "A"
+    a.mkdir()
+    _seed_cache(a)  # has packs → not stale → no candidates under default policy
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(
+        yaml.safe_dump(
+            {"projects": [{"root": str(a), "registered_at_iso": "2026-04-25T00:00:00Z"}]}
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LVDCP_CONFIG_PATH", str(cfg_path))
+
+    result = CliRunner().invoke(app, ["registry", "prune", "--json"])
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["removed"] == []
+    assert payload["applied"] is False
+    assert payload["backup_path"] is None
+    assert payload["kept"] == [str(a)]
+
+
+def test_registry_prune_json_missing_dry_run_lists_tombstones(missing_cfg: Path) -> None:
+    """`prune --missing --json` (no --yes) returns the tombstone list as JSON
+    without mutating the config."""
+    original = missing_cfg.read_bytes()
+    result = CliRunner().invoke(app, ["registry", "prune", "--missing", "--json"])
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["applied"] is False
+    assert payload["backup_path"] is None
+    assert any("deleted-today" in r for r in payload["removed"])
+    # Untouched.
+    assert missing_cfg.read_bytes() == original
+
+
+def test_registry_prune_json_suppresses_human_hint_text(stale_cfg: Path) -> None:
+    """JSON mode emits pure data — no `dry-run` hint, no `nothing to do`,
+    no `REMOVED` header. Output must be a single parseable JSON object."""
+    result = CliRunner().invoke(app, ["registry", "prune", "--json"])
+    assert result.exit_code == 0, result.stdout
+    # Every line of stdout belongs to the JSON payload — `json.loads` would
+    # raise on any trailing hint text.
+    json.loads(result.stdout)
+    assert "dry-run" not in result.stdout
+    assert "Pass --yes" not in result.stdout
+    assert "REMOVED" not in result.stdout
+    assert "nothing to do" not in result.stdout
