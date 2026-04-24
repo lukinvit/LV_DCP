@@ -1,10 +1,11 @@
-"""`ctx registry ls` — audit registered projects.
+"""`ctx registry {ls,prune}` — audit and clean the project registry.
 
-Read-only view of `~/.lvdcp/config.yaml` enriched with per-entry activity
-signals (scanned?, packs_7d, packs_total, last_scan age). Surfaces the
-real-vs-transient split from v0.8.31 and flags stale candidates for
-future pruning — but does NOT prune anything itself (destructive actions
-need explicit user confirmation, not a CLI flag default).
+- ``ls`` is read-only: enriches `~/.lvdcp/config.yaml` entries with
+  activity signals (scanned?, packs_7d, packs_total, last_scan age) and
+  the v0.8.31 real-vs-transient classification.
+- ``prune`` is destructive but defaults to a dry-run. The user must pass
+  ``--yes`` explicitly to mutate. A sibling ``*.bak`` copy of the
+  original config is written right before any mutation.
 """
 
 from __future__ import annotations
@@ -15,8 +16,9 @@ from dataclasses import asdict
 import typer
 from libs.status.aggregator import resolve_config_path
 from libs.status.registry_audit import ProjectAudit, audit_registry, is_stale
+from libs.status.registry_prune import prune_stale
 
-app = typer.Typer(help="Audit the LV_DCP project registry (~/.lvdcp/config.yaml).")
+app = typer.Typer(help="Audit and clean the LV_DCP project registry (~/.lvdcp/config.yaml).")
 
 
 # ---- helpers ---------------------------------------------------------------
@@ -99,3 +101,71 @@ def ls_cmd(
         typer.echo(json.dumps([asdict(r) for r in rows], indent=2))
         return
     typer.echo(_render_text(rows))
+
+
+@app.command("prune")
+def prune_cmd(
+    older_than: int = typer.Option(
+        30,
+        "--older-than",
+        help="Staleness cutoff in days (default 30). Entries with zero packs_total "
+        "and a last scan older than this are eligible.",
+    ),
+    kind: str = typer.Option(
+        "transient",
+        "--kind",
+        help=(
+            "Which classification to prune: transient | real | all. "
+            "Default 'transient' — worktree artifacts and test fixtures. "
+            "Use 'real' only when you know dormant user projects should go."
+        ),
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        help=(
+            "Actually remove the entries. Without this flag, the command runs "
+            "as a dry-run: prints what would be removed and exits without "
+            "touching the config. A sibling *.bak copy of the original config "
+            "is written right before mutation."
+        ),
+    ),
+) -> None:
+    """Remove stale registry entries. Defaults to dry-run — pass --yes to apply.
+
+    Safety: the default kind is 'transient' (worktree clones, test fixtures) —
+    the population where false-positive pruning has near-zero cost. To prune
+    real user projects, pass `--kind real` explicitly.
+    """
+    if kind not in {"transient", "real", "all"}:
+        typer.echo(
+            f"error: --kind must be 'transient', 'real', or 'all', got {kind!r}",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+    if older_than <= 0:
+        typer.echo("error: --older-than must be positive", err=True)
+        raise typer.Exit(code=2)
+
+    config_path = resolve_config_path()
+    result = prune_stale(
+        config_path,
+        older_than_days=older_than,
+        kind=kind,
+        apply=yes,
+    )
+
+    if not result.removed:
+        typer.echo(
+            f"prune: no {kind} entries older than {older_than}d in {config_path} — nothing to do."
+        )
+        return
+
+    mode = "REMOVED" if result.applied else "would remove (dry-run)"
+    typer.echo(f"prune: {mode} {len(result.removed)} entries ({kind}, >{older_than}d):")
+    for root in result.removed:
+        typer.echo(f"  - {root}")
+    if result.applied and result.backup_path is not None:
+        typer.echo(f"prune: backup saved to {result.backup_path}")
+    elif not result.applied:
+        typer.echo("\nprune: dry-run — no changes written. Pass --yes to apply.")

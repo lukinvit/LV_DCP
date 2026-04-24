@@ -1,4 +1,4 @@
-"""Tests for the `ctx registry ls` CLI group (v0.8.32)."""
+"""Tests for the `ctx registry` CLI group (v0.8.32 ls, v0.8.33 prune)."""
 
 from __future__ import annotations
 
@@ -108,3 +108,80 @@ def test_registry_ls_stale_surfaces_dormant_entries(cfg: Path) -> None:
     assert "v0.8.32-abc" in names
     # X5_BM has 1 pack → NOT stale.
     assert "X5_BM" not in names
+
+
+# ---- prune (v0.8.33) -------------------------------------------------------
+
+
+@pytest.fixture
+def stale_cfg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A registry with one fresh real project and one stale transient one."""
+    real = tmp_path / "X5_BM"
+    _seed_cache(real)
+    stale_transient = tmp_path / "LV_DCP" / ".claude" / "worktrees" / "v0.8.30-old"
+    stale_transient.mkdir(parents=True)  # no cache.db → never scanned
+
+    path = tmp_path / "config.yaml"
+    # 60 days ago so it trips the 30d default cutoff on the never-scanned branch.
+    old_iso = "2026-02-23T00:00:00Z"
+    recent_iso = "2026-04-24T00:00:00Z"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "projects": [
+                    {"root": str(real), "registered_at_iso": recent_iso},
+                    {"root": str(stale_transient), "registered_at_iso": old_iso},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LVDCP_CONFIG_PATH", str(path))
+    return path
+
+
+def test_registry_prune_dry_run_is_default(stale_cfg: Path) -> None:
+    original = stale_cfg.read_bytes()
+    result = CliRunner().invoke(app, ["registry", "prune"])
+    assert result.exit_code == 0, result.stdout
+    assert "dry-run" in result.stdout
+    assert "v0.8.30-old" in result.stdout
+    # Config untouched, no backup written.
+    assert stale_cfg.read_bytes() == original
+    assert not stale_cfg.with_name(stale_cfg.name + ".bak").exists()
+
+
+def test_registry_prune_yes_applies_and_writes_backup(stale_cfg: Path) -> None:
+    original = stale_cfg.read_bytes()
+    result = CliRunner().invoke(app, ["registry", "prune", "--yes"])
+    assert result.exit_code == 0, result.stdout
+    assert "REMOVED" in result.stdout
+    assert "backup saved" in result.stdout
+
+    backup = stale_cfg.with_name(stale_cfg.name + ".bak")
+    assert backup.exists()
+    assert backup.read_bytes() == original
+
+    payload = yaml.safe_load(stale_cfg.read_text(encoding="utf-8"))
+    roots = [p["root"] for p in payload["projects"]]
+    assert len(roots) == 1
+    assert "v0.8.30-old" not in " ".join(roots)
+
+
+def test_registry_prune_rejects_bad_kind(stale_cfg: Path) -> None:
+    result = CliRunner().invoke(app, ["registry", "prune", "--kind", "bogus"])
+    assert result.exit_code == 2
+    assert "must be" in (result.stdout + (result.stderr or ""))
+
+
+def test_registry_prune_rejects_nonpositive_older_than(stale_cfg: Path) -> None:
+    result = CliRunner().invoke(app, ["registry", "prune", "--older-than", "0"])
+    assert result.exit_code == 2
+
+
+def test_registry_prune_real_kind_spares_transient(stale_cfg: Path) -> None:
+    # The stale entry in the fixture is a transient worktree. --kind real
+    # should find no candidates and report nothing to do.
+    result = CliRunner().invoke(app, ["registry", "prune", "--kind", "real"])
+    assert result.exit_code == 0
+    assert "nothing to do" in result.stdout
