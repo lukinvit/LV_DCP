@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -128,15 +127,10 @@ def test_save_config_survives_chmod_failure(tmp_path: Path) -> None:
     """chmod is best-effort — a filesystem that rejects it must not crash save."""
     path = tmp_path / "config.yaml"
 
-    real_chmod = os.chmod
+    def _chmod_fails(self: Path, mode: int) -> None:
+        raise OSError("fs does not support chmod")
 
-    def _chmod_fails(target: object, mode: int) -> None:
-        # Fail only on our config target; allow pytest's own chmod calls through.
-        if str(target).endswith("config.yaml"):
-            raise OSError("fs does not support chmod")
-        real_chmod(target, mode)
-
-    with patch("pathlib.Path.chmod", lambda self, mode: _chmod_fails(str(self), mode)):
+    with patch.object(Path, "chmod", _chmod_fails):
         save_config(path, DaemonConfig())  # must not raise
 
     assert path.exists()
