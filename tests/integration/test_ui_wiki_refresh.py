@@ -806,3 +806,102 @@ async def test_recovery_toast_absent_on_non_htmx_full_page_load(
     assert response.status_code == 200
     assert "Wiki refresh status recovered" not in response.text
     assert "recovery-toast-" not in response.text
+
+
+# -------- v0.8.12: recovery toast auto-dismiss ---------------------
+
+
+@pytest.mark.asyncio
+async def test_recovery_toast_carries_auto_dismiss_animation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recovery toast inline style includes the fadeout animation so it auto-dismisses.
+
+    Transient good news shouldn't require a manual click to clear. The
+    inline ``animation: lvdcp-toast-fadeout 8s forwards`` holds full
+    opacity for 6 s then fades over 2 s, and ``forwards`` pins the end
+    state (opacity 0 + pointer-events: none) so nothing blocks clicks
+    after it disappears. The @keyframes definition is inlined
+    alongside the toast so it's only in the DOM when the toast renders.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=0, modules_updated=3, elapsed_seconds=1.5)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={
+                "HX-Request": "true",
+                "X-LV-DCP-Was-Degraded": "true",
+            },
+        )
+
+    assert response.status_code == 200
+    # The toast itself must reference the animation.
+    assert "animation:lvdcp-toast-fadeout 8s forwards" in response.text
+    # The keyframes definition must be present so the animation resolves.
+    assert "@keyframes lvdcp-toast-fadeout" in response.text
+    # The fadeout must terminate at pointer-events: none so the invisible
+    # end-state doesn't intercept clicks on whatever is underneath.
+    assert "pointer-events: none" in response.text
+
+
+@pytest.mark.asyncio
+async def test_crash_toast_does_not_carry_auto_dismiss_animation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Crash toast stays sticky — bad news the user must acknowledge.
+
+    Auto-dismissing a 'wiki refresh failed' banner would be a UX bug: a
+    user scrolled away could miss the only signal that anything broke.
+    The recovery toast auto-dismisses, the crash toast does not; this
+    test locks in that asymmetry.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=2, modules_updated=1, elapsed_seconds=0.5)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={"HX-Request": "true"},
+        )
+
+    assert response.status_code == 200
+    # Sanity: the crash toast is actually present.
+    assert "Wiki refresh failed" in response.text
+    assert f'id="crash-toast-{_slug(project)}' in response.text
+    # Asymmetry: the fadeout animation must NOT be attached to the crash toast.
+    assert "lvdcp-toast-fadeout" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_no_fadeout_keyframes_when_no_recovery_toast_rendered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Normal idle poll without a recovery toast ships zero unused fadeout CSS.
+
+    The keyframes block is scoped to the ``{% if show_recovery_toast %}``
+    guard so a clean idle body has no ``@keyframes lvdcp-toast-fadeout``
+    definition floating around. Keeps the fragment small and avoids
+    HTMX swapping in duplicate style nodes on every poll.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=0, modules_updated=2, elapsed_seconds=1.0)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        # Steady-state normal polling — no recovery, no crash.
+        response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={"HX-Request": "true"},
+        )
+
+    assert response.status_code == 200
+    assert "Last refresh: clean" in response.text
+    # No fadeout CSS because no toast is present.
+    assert "lvdcp-toast-fadeout" not in response.text
