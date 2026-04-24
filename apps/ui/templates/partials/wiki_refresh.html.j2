@@ -1,0 +1,74 @@
+{#
+  Wiki background refresh panel.
+
+  Renders three visually distinct shapes driven by `status.wiki_refresh`:
+
+    1. Running   — blue left-border card with pulsing dot, phase, progress
+                   bar, current module, pid.
+    2. Clean/SIGTERM/Failed — green/gray/red card summarising last run.
+    3. Nothing to say — partial renders nothing (aggregator returns None
+       when there is no lock, no .refresh.last, or the copilot import
+       itself fails; we also skip when the snapshot is populated but has
+       no in-progress state AND no last-run record).
+#}
+{% set wr = status.wiki_refresh %}
+{% if wr and (wr.in_progress or wr.last_exit_code is not none) %}
+<section class="section">
+    <h2>Wiki background refresh</h2>
+    {% if wr.in_progress %}
+        <div style="display:flex;align-items:center;gap:12px;padding:12px;background:#e3f2fd;border-radius:8px;border-left:4px solid #1976d2;">
+            <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#1976d2;animation:lvdcp-pulse 1.5s infinite ease-in-out;flex-shrink:0;"></span>
+            <div style="flex:1;min-width:0;">
+                <div style="font-weight:bold;">Running &middot; phase: {{ wr.phase or "starting" }}</div>
+                <div style="font-size:13px;color:#555;margin-top:4px;">
+                    {% if wr.modules_total %}
+                        {{ wr.modules_done }} / {{ wr.modules_total }} modules
+                    {% else %}
+                        {{ wr.modules_done }} modules
+                    {% endif %}
+                    {% if wr.current_module %} &middot; <code>{{ wr.current_module }}</code>{% endif %}
+                    {% if wr.pid %} &middot; pid {{ wr.pid }}{% endif %}
+                </div>
+                {% if wr.modules_total %}
+                <div style="background:#bbdefb;height:6px;border-radius:3px;margin-top:8px;overflow:hidden;">
+                    <div style="background:#1976d2;height:100%;width:{{ (wr.modules_done / wr.modules_total * 100) | round(0, 'floor') }}%;transition:width 0.3s;"></div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        <style>@keyframes lvdcp-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }</style>
+    {% elif wr.last_exit_code == 0 %}
+        <div style="padding:12px;background:#e8f5e9;border-radius:8px;border-left:4px solid #2e7d32;">
+            <div style="font-weight:bold;color:#2e7d32;">&#x2713; Last refresh: clean</div>
+            <div style="font-size:13px;color:#555;margin-top:4px;">
+                {% if wr.last_modules_updated is not none %}{{ wr.last_modules_updated }} module{{ "s" if wr.last_modules_updated != 1 else "" }} updated{% endif %}
+                {% if wr.last_elapsed_seconds is not none %} &middot; {{ "%.1f"|format(wr.last_elapsed_seconds) }}s{% endif %}
+            </div>
+        </div>
+    {% elif wr.last_exit_code == 143 %}
+        <div style="padding:12px;background:#fafafa;border-radius:8px;border-left:4px solid #9e9e9e;">
+            <div style="font-weight:bold;color:#616161;">Last refresh: cancelled (SIGTERM)</div>
+            <div style="font-size:13px;color:#555;margin-top:4px;">
+                exit 143
+                {% if wr.last_modules_updated is not none %} &middot; {{ wr.last_modules_updated }} module{{ "s" if wr.last_modules_updated != 1 else "" }} before cancellation{% endif %}
+                {% if wr.last_elapsed_seconds is not none %} &middot; {{ "%.1f"|format(wr.last_elapsed_seconds) }}s{% endif %}
+            </div>
+        </div>
+    {% else %}
+        <div style="padding:12px;background:#ffebee;border-radius:8px;border-left:4px solid #d32f2f;">
+            <div style="font-weight:bold;color:#d32f2f;">&#x2717; Last refresh: FAILED (exit {{ wr.last_exit_code }})</div>
+            <div style="font-size:13px;color:#555;margin-top:4px;">
+                {% if wr.last_modules_updated is not none %}{{ wr.last_modules_updated }} module{{ "s" if wr.last_modules_updated != 1 else "" }} updated before crash{% endif %}
+                {% if wr.last_elapsed_seconds is not none %} &middot; {{ "%.1f"|format(wr.last_elapsed_seconds) }}s{% endif %}
+            </div>
+            {% if wr.last_log_tail %}
+            <details style="margin-top:8px;">
+                <summary style="cursor:pointer;font-size:13px;color:#2a5caa;">Log tail ({{ wr.last_log_tail|length }} line{{ "s" if wr.last_log_tail|length != 1 else "" }})</summary>
+                <pre style="background:#1e1e1e;color:#eee;padding:8px;border-radius:4px;font-size:11px;overflow-x:auto;margin-top:4px;white-space:pre-wrap;word-break:break-all;">{% for line in wr.last_log_tail %}{{ line }}
+{% endfor %}</pre>
+            </details>
+            {% endif %}
+        </div>
+    {% endif %}
+</section>
+{% endif %}
