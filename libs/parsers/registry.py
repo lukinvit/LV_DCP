@@ -8,6 +8,7 @@ from libs.parsers.java import JavaParser
 from libs.parsers.kotlin import KotlinParser
 from libs.parsers.python import PythonParser
 from libs.parsers.rust import RustParser
+from libs.parsers.swift import SwiftParser
 from libs.parsers.text_parsers import JsonParser, MarkdownParser, TomlParser, YamlParser
 from libs.parsers.typescript import TypeScriptParser
 
@@ -30,6 +31,7 @@ EXTENSION_TO_LANGUAGE: dict[str, str] = {
     ".java": "java",
     ".kt": "kotlin",
     ".kts": "kotlin",
+    ".swift": "swift",
 }
 
 
@@ -59,6 +61,7 @@ _PARSERS: dict[str, FileParser] = {
     "rust": RustParser(),
     "java": JavaParser(),
     "kotlin": KotlinParser(),
+    "swift": SwiftParser(),
 }
 
 
