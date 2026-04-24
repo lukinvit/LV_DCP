@@ -119,3 +119,64 @@ def test_collect_value_metrics_zero_transient_when_none_registered(tmp_path: Pat
     assert m.projects_transient_active == 0
     assert m.projects_real_total == 2
     assert m.projects_real_active == 1
+
+
+# v0.8.39: tombstone counter — registered roots whose directory is gone.
+# Surfaces prune --missing candidates as a passive nudge on the dashboard.
+
+
+def test_collect_value_metrics_zero_missing_when_all_roots_present(tmp_path: Path) -> None:
+    """No directories deleted → counter is 0, default-safe field stays at 0."""
+    real_one = tmp_path / "project_a"
+    real_two = tmp_path / "project_b"
+    _seed_project(real_one, packs=1)
+    _seed_project(real_two, packs=0)
+
+    config = _write_config(tmp_path, [real_one, real_two])
+    m = collect_value_metrics(config)
+
+    assert m.projects_missing_count == 0
+
+
+def test_collect_value_metrics_counts_missing_root(tmp_path: Path) -> None:
+    """A registered root that no longer exists on disk increments the counter."""
+    real_present = tmp_path / "X5_BM"
+    real_gone = tmp_path / "deleted_project"  # never created on disk
+    _seed_project(real_present, packs=1)
+    # Note: do NOT create real_gone — it's the tombstone
+
+    config = _write_config(tmp_path, [real_present, real_gone])
+    m = collect_value_metrics(config)
+
+    assert m.projects_missing_count == 1
+    # Other counters still honest — the gone root is counted as real (kind is
+    # path-shape, not existence-derived) but contributes no files/packs.
+    assert m.projects_real_total == 2
+    assert m.projects_real_active == 1
+
+
+def test_collect_value_metrics_counts_missing_regardless_of_kind(tmp_path: Path) -> None:
+    """Tombstones are independent of real/transient classification — a gone
+    transient worktree still counts as a missing root."""
+    real_present = tmp_path / "X5_BM"
+    transient_gone = tmp_path / "LV_DCP" / ".claude" / "worktrees" / "v0.8.40-shipped"
+    real_gone = tmp_path / "moved_project"
+    _seed_project(real_present, packs=1)
+    # Do NOT create transient_gone or real_gone — both are tombstones
+
+    config = _write_config(tmp_path, [real_present, transient_gone, real_gone])
+    m = collect_value_metrics(config)
+
+    assert m.projects_missing_count == 2
+    assert m.projects_transient_total == 1
+    assert m.projects_real_total == 2
+
+
+def test_collect_value_metrics_empty_registry_has_zero_missing(tmp_path: Path) -> None:
+    """Empty registry → no counters spike. Guards against divide-by-zero or
+    sentinel surprises in the dashboard."""
+    config = _write_config(tmp_path, [])
+    m = collect_value_metrics(config)
+
+    assert m.projects_missing_count == 0
+    assert m.projects_total == 0
