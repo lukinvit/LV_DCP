@@ -2,8 +2,8 @@
 
 **Local-first engineering memory.** Turns projects on macOS into a queryable context layer for Claude, IDE agents, and humans. Supports Python, TypeScript/JS, Go, and Rust. Reduces token cost of repeated code reading, builds a relation graph, and makes agent edits safer.
 
-[![Phase 9 Complete](https://img.shields.io/badge/phase-9%20complete-green)](docs/release/2026-04-24-v0.8.6-mcp-bg-refresh.md)
-[![Version 0.8.6](https://img.shields.io/badge/version-0.8.6-blue)](pyproject.toml)
+[![Phase 9 Complete](https://img.shields.io/badge/phase-9%20complete-green)](docs/release/2026-04-24-v0.8.7-dashboard-bg-refresh.md)
+[![Version 0.8.7](https://img.shields.io/badge/version-0.8.7-blue)](pyproject.toml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue)](pyproject.toml)
 
@@ -53,6 +53,8 @@ $ ctx pack . "refresh token rotation" --mode edit
 
 ## Status
 
+**v0.8.7 (2026-04-24)** — Dashboard renders `wiki_refresh` panel. The FastAPI/HTMX per-project page (`/project/<slug>`) now draws a new "Wiki background refresh" section between scan coverage and the dependency graph: blue "Running" card with phase + progress bar + current module + pid when a refresh is in flight, green "clean", gray "cancelled (SIGTERM)", or red "FAILED" card (with collapsible log tail) otherwise. Hidden for projects that have never run a refresh. Closes the #1 known gap from v0.8.6: data model was ready, just needed rendering. No route change — `ProjectStatus.wiki_refresh` from v0.8.6 was already passed to the template; v0.8.7 adds one `{% include %}` plus a partial.
+
 **v0.8.6 (2026-04-24)** — MCP `lvdcp_status` surfaces bg refresh state. `ProjectStatus` gains `wiki_refresh: WikiBackgroundRefresh | None` — a nested block that mirrors `CopilotCheckReport.wiki_refresh_*` / `wiki_last_refresh_*` (live progress + last-run outcome + crash tail). Agents calling `lvdcp_status(path=…)` now see the same bg-refresh state `ctx project check` shows on the CLI, so they can decide "refresh or pack" without shelling out. Lazy import of `libs.copilot` keeps non-wiki consumers from paying the cost. No new deps.
 
 **v0.8.5 (2026-04-24)** — Error log tail. On a non-clean, non-SIGTERM exit the runner seeks past its startup offset in `.refresh.log` and persists the current run's last ~20 lines as `log_tail` in `.refresh.last`. `ctx project check` renders them as an indented `log tail:` block under the `FAILED exit=…` last-run hint, so diagnosing a crashed refresh no longer requires a second `cat .refresh.log` step. Suppressed on clean / SIGTERM exits and while a refresh is in progress. Closes the *"No error-tail surface"* gap from v0.8.4. No new deps.
@@ -78,6 +80,7 @@ $ ctx pack . "refresh token rotation" --mode edit
 Stabilization 0.6.1 baseline: mandatory GitHub Actions quality gates, green `ruff` / `mypy`, runtime-hardened embeddings and Qdrant.
 
 Release notes:
+- [docs/release/2026-04-24-v0.8.7-dashboard-bg-refresh.md](docs/release/2026-04-24-v0.8.7-dashboard-bg-refresh.md) (v0.8.7 — Dashboard renders `wiki_refresh` panel)
 - [docs/release/2026-04-24-v0.8.6-mcp-bg-refresh.md](docs/release/2026-04-24-v0.8.6-mcp-bg-refresh.md) (v0.8.6 — MCP `lvdcp_status` surfaces bg refresh state)
 - [docs/release/2026-04-24-v0.8.5-log-tail.md](docs/release/2026-04-24-v0.8.5-log-tail.md) (v0.8.5 — Error log tail)
 - [docs/release/2026-04-24-v0.8.4-last-refresh.md](docs/release/2026-04-24-v0.8.4-last-refresh.md) (v0.8.4 — `.refresh.last` outcome record)
@@ -438,6 +441,7 @@ The daemon uses `watchdog.observers.Observer` which auto-selects `FSEventsObserv
 - **v0.8.4** (done) — `.refresh.last` outcome record: the runner writes `{completed_at, exit_code, modules_updated, elapsed_seconds}` in its `finally` block (clean / SIGTERM / crash all covered), and `ctx project check` renders `bg_refresh=false (last: ok 12 modules 47s, 3 min ago)` or `FAILED exit=1 … — see .refresh.log`. Closes the "no transition-to-error surface" gap from v0.8.3. No new deps, no new process.
 - **v0.8.5** (done) — Error log tail: on a non-clean, non-SIGTERM exit the runner captures the current run's last ~20 lines of `.refresh.log` into `.refresh.last.log_tail`, and `ctx project check` renders them as an indented block under the `FAILED exit=…` last-run hint — so diagnosing a crashed refresh no longer needs a second `cat .refresh.log`. Closes the "no error-tail surface" gap from v0.8.4. No new deps.
 - **v0.8.6** (done) — MCP `lvdcp_status` surfaces bg refresh state. `ProjectStatus.wiki_refresh` (nested) mirrors the `CopilotCheckReport.wiki_refresh_*` / `wiki_last_refresh_*` fields so agents and dashboards see the same bg-refresh snapshot the CLI shows (live progress, last-run outcome, crash tail). Lazy import of `libs.copilot` keeps non-wiki consumers cost-free. No new deps.
+- **v0.8.7** (done) — Dashboard renders `wiki_refresh` panel. New partial `apps/ui/templates/partials/wiki_refresh.html.j2` draws the v0.8.6 `ProjectStatus.wiki_refresh` field in four visually distinct shapes (running / clean / SIGTERM / FAILED-with-log-tail) on `/project/<slug>`. Hidden for projects that never ran a refresh. Closes the #1 known gap from v0.8.6 (data model ready, no UI). One `{% include %}`, no route change, no new deps.
 - **Phase 10** (next) — Java/Kotlin/Swift parsers, VS Code marketplace, Obsidian nightly sync.
 
 ## Contributing
