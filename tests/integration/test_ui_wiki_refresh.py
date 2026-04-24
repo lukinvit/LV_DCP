@@ -491,3 +491,158 @@ async def test_crash_toast_absent_on_manual_curl_without_htmx_header(
     assert response.status_code == 200
     assert "FAILED (exit 2)" in response.text
     assert "hx-swap-oob" not in response.text
+
+
+# -------- v0.8.10: degraded shell on internal error (error backoff) --
+
+
+@pytest.mark.asyncio
+async def test_fragment_returns_degraded_shell_on_workspace_status_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """build_workspace_status raising → 200 with degraded yellow card + slow polling.
+
+    Predates the contract: a 500 mid-poll had HTMX hammering the endpoint
+    at 2 s forever. v0.8.10 catches any internal exception, logs it, and
+    serves a ``degraded=True`` partial so polling self-heals at 30 s.
+    """
+    _seed_project(tmp_path, monkeypatch)
+
+    # Patch the symbol at its imported location in the route module so the
+    # route sees the failing impl, not the library original.
+    import apps.ui.routes.project as project_route
+
+    def _boom() -> object:
+        raise RuntimeError("transient config-db hiccup")
+
+    monkeypatch.setattr(project_route, "build_workspace_status", _boom)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        # Use any slug — the endpoint fails before slug resolution anyway.
+        response = await client.get(
+            "/api/project/anything/wiki-refresh",
+            headers={"HX-Request": "true"},
+        )
+
+    # Must NOT 500 — that would keep HTMX hammering at 2 s.
+    assert response.status_code == 200
+    # Degraded yellow card is present.
+    assert "Refresh status unavailable" in response.text
+    assert "Retrying every 30s" in response.text
+    # Wrapper must keep hx-get so the panel self-heals when infra recovers.
+    assert 'hx-get="/api/project/anything/wiki-refresh"' in response.text
+    # Critically: polling is THROTTLED to 30 s, not 2 s.
+    assert 'hx-trigger="every 30s"' in response.text
+    assert 'hx-trigger="every 2s"' not in response.text
+    # No crash toast — an infra blip is not a wiki-refresh crash.
+    assert "hx-swap-oob" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_fragment_returns_degraded_shell_on_build_wiki_refresh_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """build_wiki_refresh raising (vs returning None) → degraded shell, 30s polling."""
+    project = _seed_project(tmp_path, monkeypatch)
+
+    import apps.ui.routes.project as project_route
+
+    def _boom(_root: Path) -> object:
+        raise OSError("disk went sideways")
+
+    monkeypatch.setattr(project_route, "build_wiki_refresh", _boom)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={"HX-Request": "true"},
+        )
+
+    assert response.status_code == 200
+    assert "Refresh status unavailable" in response.text
+    assert 'hx-trigger="every 30s"' in response.text
+
+
+@pytest.mark.asyncio
+async def test_fragment_404_for_unknown_slug_still_surfaces_on_degradable_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unknown slug must still return 404 — don't swallow it into the degraded shell.
+
+    A genuine client-side bug (typo, stale bookmark) should surface as
+    404 rather than being masked by endless 30 s polling of a slug that
+    will never resolve.
+    """
+    _seed_project(tmp_path, monkeypatch)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            "/api/project/totally-made-up/wiki-refresh",
+            headers={"HX-Request": "true"},
+        )
+
+    assert response.status_code == 404
+    # Sanity: the degraded card must not appear in a 404 body.
+    assert "Refresh status unavailable" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_fragment_happy_path_untouched_by_degraded_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Clean idle project renders the normal 'clean' card with NO degraded markers."""
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=0, modules_updated=2, elapsed_seconds=1.0)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={"HX-Request": "true"},
+        )
+
+    assert response.status_code == 200
+    assert "Last refresh: clean" in response.text
+    # The degraded-only markers must not leak into the normal card.
+    assert "Refresh status unavailable" not in response.text
+    assert 'hx-trigger="every 30s"' not in response.text
+    # Idle = polling stopped, so no hx-get either.
+    panel_slice = response.text.split('id="wiki-refresh-panel"', 1)[1].split(">", 1)[0]
+    assert "hx-get=" not in panel_slice
+
+
+@pytest.mark.asyncio
+async def test_project_detail_full_page_still_500s_on_internal_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The degraded-shell contract is fragment-only; full /project/<slug> keeps normal error flow.
+
+    Important to verify because the degraded branch lives in the partial,
+    not the page. Serving a degraded panel inside a full page load would
+    be user-visible noise on what's probably a hard-broken deploy.
+    """
+    _seed_project(tmp_path, monkeypatch)
+
+    import apps.ui.routes.project as project_route
+
+    def _boom() -> object:
+        raise RuntimeError("status pipeline down")
+
+    monkeypatch.setattr(project_route, "build_workspace_status", _boom)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/project/anything")
+
+    # FastAPI surfaces unhandled exceptions as 500.
+    assert response.status_code == 500
+    # The degraded card must not leak into the error body.
+    assert "Refresh status unavailable" not in response.text

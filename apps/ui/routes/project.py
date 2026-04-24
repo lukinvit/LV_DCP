@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -20,6 +21,8 @@ from libs.status.budget import compute_budget_status
 from libs.status.models import WikiBackgroundRefresh, WorkspaceStatus
 from libs.summaries.store import SummaryStore, resolve_default_store_path
 from starlette.templating import _TemplateResponse
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -128,14 +131,48 @@ def wiki_refresh_fragment(slug: str, request: Request) -> _TemplateResponse:
     ``#toast-region`` drop zone from ``base.html.j2``. See
     :func:`_should_flash_crash_toast` for the freshness guard that
     keeps the toast from re-firing on subsequent fetches.
-    """
-    ws = build_workspace_status()
-    root = _find_project_root_by_slug(ws, slug)
-    if root is None:
-        raise HTTPException(status_code=404, detail=f"project not found: {slug}")
 
-    wr = build_wiki_refresh(Path(root))
+    **Error-backoff contract (v0.8.10+):** if anything in the
+    status-assembly path raises (config read failure, transient file
+    I/O, ``build_workspace_status`` hiccup, etc.), the endpoint returns
+    a 200 response carrying the partial in **degraded mode** — a
+    yellow "refresh status unavailable" card and a slowed ``hx-trigger
+    ="every 30s"`` polling attribute. This avoids two bad outcomes
+    that predated the contract: (a) a 500 during polling caused HTMX
+    to hammer the endpoint at the original 2 s cadence, and (b) a
+    ``build_wiki_refresh`` returning ``None`` silently stripped
+    ``hx-get`` from the wrapper, stopping polling forever for a
+    transient failure. Explicit 404 for unknown slug is preserved so
+    genuine client-side bugs still surface.
+    """
     templates = request.app.state.templates
+    try:
+        ws = build_workspace_status()
+        root = _find_project_root_by_slug(ws, slug)
+        if root is None:
+            raise HTTPException(status_code=404, detail=f"project not found: {slug}")
+        wr = build_wiki_refresh(Path(root))
+    except HTTPException:
+        # 404 is an intentional client signal — don't swallow it into the
+        # degraded shell, or the dashboard would keep polling a slug that
+        # will never resolve.
+        raise
+    except Exception:  # any backend hiccup must degrade gracefully
+        log.warning(
+            "wiki_refresh_fragment failed for slug=%s; serving degraded shell",
+            slug,
+            exc_info=True,
+        )
+        return templates.TemplateResponse(  # type: ignore[no-any-return]
+            request=request,
+            name="partials/wiki_refresh.html.j2",
+            context={
+                "wr": None,
+                "slug": slug,
+                "show_crash_toast": False,
+                "degraded": True,
+            },
+        )
     return templates.TemplateResponse(  # type: ignore[no-any-return]
         request=request,
         name="partials/wiki_refresh.html.j2",

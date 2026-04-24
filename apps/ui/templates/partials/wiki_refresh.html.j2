@@ -14,28 +14,55 @@
       appends a one-shot ``hx-swap-oob`` flash into ``#toast-region``
       from ``base.html.j2``. Absent on full page loads so a user who
       navigates after a long-past crash doesn't get re-flashed.
+    - ``degraded``         : bool (optional, v0.8.10+) — set by the
+      fragment endpoint when an internal exception prevented building
+      a real ``WikiBackgroundRefresh`` snapshot. The partial renders a
+      yellow "connection issue" notice and keeps polling at a slower
+      cadence (``every 30s``) so the panel self-heals the moment the
+      underlying infra recovers. Without this flag a transient error
+      would either 500 (HTMX keeps hammering at 2 s) or silently drop
+      ``hx-get`` (polling stops forever).
 
   Shapes (rendered inside a stable outer wrapper so HTMX can swap the
   whole element via ``hx-swap=outerHTML`` every ~2 s during a live
-  refresh):
+  refresh — or every ~30 s in degraded mode):
 
-    1. nothing to render (wr is None, or populated but idle with no
-       last-run record) → outer wrapper is emitted empty, with no
-       ``hx-get`` so HTMX is silent.
+    1. nothing to render (wr is None, degraded is False, or wr is
+       populated but idle with no last-run record) → outer wrapper is
+       emitted empty, no ``hx-get`` so HTMX is silent.
     2. Running   → blue left-border card with pulsing dot, phase,
        progress bar, current module, pid. Outer wrapper carries
        ``hx-get`` + ``hx-trigger="every 2s"`` + ``hx-swap="outerHTML"``
        so the client polls ``/api/project/<slug>/wiki-refresh``.
     3. Clean / SIGTERM / Failed → green/gray/red static card. Outer
        wrapper has no ``hx-get`` so polling stops.
+    4. Degraded  → yellow "connection issue" card. Outer wrapper keeps
+       ``hx-get`` but at ``every 30s`` instead of ``every 2s`` so the
+       panel recovers when the infra does, without hammering.
 
   Transition "running → done" works because HTMX swaps the full outer
   element: the new DOM has no ``hx-get`` → no further timers fire. The
   crash toast rides alongside that final swap as an OOB sibling so it
-  appears exactly once per crash event.
+  appears exactly once per crash event. Transition "degraded → normal"
+  works the same way: a degraded response carries slow polling, and
+  the next successful response swaps back to the real card (with or
+  without fast polling depending on whether a refresh is live).
 #}
-<div id="wiki-refresh-panel"{% if wr and wr.in_progress and slug %} hx-get="/api/project/{{ slug }}/wiki-refresh" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
-{% if wr and (wr.in_progress or wr.last_exit_code is not none) %}
+<div id="wiki-refresh-panel"
+  {%- if degraded and slug %} hx-get="/api/project/{{ slug }}/wiki-refresh" hx-trigger="every 30s" hx-swap="outerHTML"
+  {%- elif wr and wr.in_progress and slug %} hx-get="/api/project/{{ slug }}/wiki-refresh" hx-trigger="every 2s" hx-swap="outerHTML"
+  {%- endif %}>
+{% if degraded %}
+<section class="section">
+    <h2>Wiki background refresh</h2>
+    <div style="padding:12px;background:#fff8e1;border-radius:8px;border-left:4px solid #f9a825;">
+        <div style="font-weight:bold;color:#795548;">&#9888; Refresh status unavailable</div>
+        <div style="font-size:13px;color:#555;margin-top:4px;">
+            Temporarily unable to read refresh state. Retrying every 30s&hellip;
+        </div>
+    </div>
+</section>
+{% elif wr and (wr.in_progress or wr.last_exit_code is not none) %}
 <section class="section">
     <h2>Wiki background refresh</h2>
     {% if wr.in_progress %}
