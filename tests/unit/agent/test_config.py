@@ -104,3 +104,62 @@ def test_update_last_scan_noop_for_unknown_project(tmp_path: Path) -> None:
 
     projects = list_projects(config_path)
     assert projects == []
+
+
+# ---- v0.8.35: transient path filter on auto-registration -----------------
+
+
+def test_add_project_skips_worktree_paths_by_default(tmp_path: Path) -> None:
+    """Implicit auto-register (e.g. `ctx scan` inside a ship worktree) must
+    not grow the registry with paths that vanish as soon as the worktree is
+    removed. The classifier lives in ``libs.core.projects_config.is_transient``.
+    """
+    config_path = tmp_path / "config.yaml"
+    worktree = tmp_path / ".claude" / "worktrees" / "v0.8.35-abc"
+    worktree.mkdir(parents=True)
+
+    add_project(config_path, worktree)  # allow_transient defaults to False
+
+    assert list_projects(config_path) == []
+
+
+def test_add_project_skips_sample_repo_fixture(tmp_path: Path) -> None:
+    """The shared pytest ``sample_repo`` fixture must not accumulate in the
+    user's real registry when unit tests happen to auto-register it.
+    """
+    config_path = tmp_path / "config.yaml"
+    fixture = tmp_path / "tests" / "fixtures" / "sample_repo"
+    fixture.mkdir(parents=True)
+
+    add_project(config_path, fixture)
+
+    assert list_projects(config_path) == []
+
+
+def test_add_project_registers_transient_when_explicit(tmp_path: Path) -> None:
+    """``ctx watch add`` is explicit user intent — it passes
+    ``allow_transient=True`` so the user can legitimately target a worktree
+    or fixture if they really want to.
+    """
+    config_path = tmp_path / "config.yaml"
+    worktree = tmp_path / ".claude" / "worktrees" / "v0.8.35-abc"
+    worktree.mkdir(parents=True)
+
+    add_project(config_path, worktree, allow_transient=True)
+
+    projects = list_projects(config_path)
+    assert len(projects) == 1
+    assert str(projects[0].root).endswith("v0.8.35-abc")
+
+
+def test_add_project_registers_real_project_without_flag(tmp_path: Path) -> None:
+    """Regression guard: the transient filter must not reject normal paths."""
+    config_path = tmp_path / "config.yaml"
+    real = tmp_path / "Nextcloud" / "projects" / "MyApp"
+    real.mkdir(parents=True)
+
+    add_project(config_path, real)
+
+    projects = list_projects(config_path)
+    assert len(projects) == 1
+    assert str(projects[0].root).endswith("MyApp")

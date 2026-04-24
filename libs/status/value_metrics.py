@@ -11,33 +11,16 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from libs.core.projects_config import list_projects
+from libs.core.projects_config import is_transient, list_projects
 
 _SRC_LANGS = ("python", "typescript", "javascript", "go", "rust", "java", "kotlin", "swift")
 
-# Marker segments that identify transient / non-user projects in the registry:
-# - `.claude/worktrees/*` entries are spawned by ship-ceremony worktrees
-# - `sample_repo` is the reused test fixture scanned during unit tests
-_TRANSIENT_WORKTREE_MARKER = (".claude", "worktrees")
-_TRANSIENT_FIXTURE_NAMES = frozenset({"sample_repo"})
-
-
-def _is_transient(root: Path) -> bool:
-    """Return True if ``root`` is a worktree artifact or a test fixture.
-
-    These projects get registered when LV_DCP indexes itself from a worktree
-    during ship-ceremony, or when unit tests scan the `sample_repo` fixture.
-    They dilute the "projects active" signal on the dashboard, so we want
-    to count them separately from real user projects.
-    """
-    parts = root.parts
-    for i in range(len(parts) - 1):
-        if (
-            parts[i] == _TRANSIENT_WORKTREE_MARKER[0]
-            and parts[i + 1] == _TRANSIENT_WORKTREE_MARKER[1]
-        ):
-            return True
-    return root.name in _TRANSIENT_FIXTURE_NAMES
+# Backward-compat alias: ``is_transient`` was promoted to the canonical name
+# in v0.8.35 and now lives in ``libs.core.projects_config`` so the write
+# path (``add_project``) and the read paths (audit, metrics) share one
+# definition. The leading-underscore export remains for tests and any
+# downstream importers that still reference the old symbol.
+_is_transient = is_transient
 
 
 @dataclass
@@ -102,8 +85,8 @@ def collect_value_metrics(config_path: Path) -> ValueMetrics:  # noqa: PLR0912, 
         cache_db = entry.root / ".context" / "cache.db"
         name = entry.root.name
         pc = ProjectCoverage(name=name, root=str(entry.root))
-        is_transient = _is_transient(entry.root)
-        if is_transient:
+        transient = is_transient(entry.root)
+        if transient:
             transient_total += 1
         else:
             real_total += 1
@@ -179,7 +162,7 @@ def collect_value_metrics(config_path: Path) -> ValueMetrics:  # noqa: PLR0912, 
                 if ts >= seven_days_ago:
                     m.packs_7d += 1
                 active_projects.add(str(entry.root))
-                if is_transient:
+                if transient:
                     transient_active.add(str(entry.root))
                 else:
                     real_active.add(str(entry.root))

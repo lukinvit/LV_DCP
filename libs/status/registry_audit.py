@@ -4,7 +4,7 @@ Read-side view used by `ctx registry ls`. Each `ProjectAudit` row
 combines:
 
 - static info from the registry entry (name, root, last_scan_at_iso)
-- derived classification (real vs transient via `_is_transient`)
+- derived classification (real vs transient via `is_transient`)
 - live presence check (`.context/cache.db` on disk?)
 - activity signal (packs served in the last 7 days)
 
@@ -22,8 +22,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from libs.core.projects_config import list_projects
-from libs.status.value_metrics import _is_transient
+from libs.core.projects_config import is_transient, list_projects
 
 
 @dataclass
@@ -99,7 +98,7 @@ def audit_registry(
             ProjectAudit(
                 name=entry.root.name,
                 root=str(entry.root),
-                kind="transient" if _is_transient(entry.root) else "real",
+                kind="transient" if is_transient(entry.root) else "real",
                 scanned=scanned,
                 packs_7d=recent,
                 packs_total=total,

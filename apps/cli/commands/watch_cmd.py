@@ -34,8 +34,15 @@ def add(
         resolve_path=True,
     ),
 ) -> None:
-    """Register a project to be watched by the daemon."""
-    add_project(DEFAULT_CONFIG_PATH, path)
+    """Register a project to be watched by the daemon.
+
+    ``ctx watch add`` is an explicit user intent, so we pass
+    ``allow_transient=True`` — the user may legitimately want the daemon to
+    follow a ship-ceremony worktree or the ``sample_repo`` fixture. Only
+    implicit auto-registration (``ctx scan`` on an unregistered path) filters
+    transient roots; explicit invocation wins.
+    """
+    add_project(DEFAULT_CONFIG_PATH, path, allow_transient=True)
     typer.echo(f"added {path}")
 
 

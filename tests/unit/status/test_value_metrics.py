@@ -13,28 +13,29 @@ import time
 from pathlib import Path
 
 import yaml
-from libs.status.value_metrics import _is_transient, collect_value_metrics
+from libs.core.projects_config import is_transient
+from libs.status.value_metrics import collect_value_metrics
 
 
-def test_is_transient_detects_worktree_segments(tmp_path: Path) -> None:
+def testis_transient_detects_worktree_segments(tmp_path: Path) -> None:
     root = tmp_path / "repo" / ".claude" / "worktrees" / "v0.8.31-abc"
-    assert _is_transient(root) is True
+    assert is_transient(root) is True
 
 
-def test_is_transient_detects_sample_repo_fixture(tmp_path: Path) -> None:
+def testis_transient_detects_sample_repo_fixture(tmp_path: Path) -> None:
     root = tmp_path / "tests" / "fixtures" / "sample_repo"
-    assert _is_transient(root) is True
+    assert is_transient(root) is True
 
 
-def test_is_transient_rejects_normal_project(tmp_path: Path) -> None:
+def testis_transient_rejects_normal_project(tmp_path: Path) -> None:
     root = tmp_path / "Nextcloud" / "projects" / "X5_BM"
-    assert _is_transient(root) is False
+    assert is_transient(root) is False
 
 
-def test_is_transient_rejects_unrelated_claude_path(tmp_path: Path) -> None:
+def testis_transient_rejects_unrelated_claude_path(tmp_path: Path) -> None:
     # `.claude/` without a following `worktrees/` segment is just a config dir.
     root = tmp_path / "project" / ".claude" / "hooks"
-    assert _is_transient(root) is False
+    assert is_transient(root) is False
 
 
 def _seed_project(root: Path, *, packs: int = 0, transient: bool = False) -> Path:
