@@ -1,15 +1,44 @@
 {
     "name": "lv-dcp",
     "displayName": "LV_DCP — Developer Context Platform",
-    "description": "Context packs and impact analysis for your codebase",
-    "version": "0.8.25",
+    "description": "Local-first context packs and impact analysis for your codebase. Query your project in plain language; LV_DCP returns the 2–5 most relevant files via a ranked retrieval pipeline.",
+    "version": "0.8.26",
     "publisher": "lv-dcp",
+    "license": "Apache-2.0",
+    "homepage": "https://github.com/lukinvit/LV_DCP#readme",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/lukinvit/LV_DCP.git",
+        "directory": "apps/vscode"
+    },
+    "bugs": {
+        "url": "https://github.com/lukinvit/LV_DCP/issues"
+    },
     "engines": {
         "vscode": "^1.85.0"
     },
     "categories": [
+        "Programming Languages",
+        "Machine Learning",
         "Other"
     ],
+    "keywords": [
+        "context",
+        "retrieval",
+        "rag",
+        "claude",
+        "cursor",
+        "codebase",
+        "impact-analysis",
+        "local-first",
+        "ai",
+        "graph"
+    ],
+    "galleryBanner": {
+        "color": "#1e1e1e",
+        "theme": "dark"
+    },
+    "qna": "https://github.com/lukinvit/LV_DCP/discussions",
     "activationEvents": [
         "onStartupFinished"
     ],
@@ -45,7 +74,9 @@
     },
     "scripts": {
         "compile": "tsc -p ./",
-        "package": "npx @vscode/vsce package --no-dependencies"
+        "vscode:prepublish": "npm run compile",
+        "package": "npx @vscode/vsce package --no-dependencies",
+        "publish": "npx @vscode/vsce publish --no-dependencies"
     },
     "devDependencies": {
         "@types/vscode": "^1.85.0",
