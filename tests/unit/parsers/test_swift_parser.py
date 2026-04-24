@@ -410,3 +410,172 @@ class TestRegistryWiring:
 
     def test_swift_parser_language_attr(self) -> None:
         assert SwiftParser().language == "swift"
+
+
+# ---------------------------------------------------------------------------
+# INHERITS edges (v0.8.25)
+# ---------------------------------------------------------------------------
+
+
+INHERITS_CODE = b"""\
+// Single base class
+class Dog: Animal {}
+
+// One extends + multiple protocol conformances
+class Cat: Animal, Feline, Cuddly {}
+
+// Struct conforming to a single protocol
+struct User: CustomStringConvertible {}
+
+// Protocol inheriting multiple protocols
+protocol MyList: Collection, Iterable {}
+
+// Enum with raw-value type + protocol
+enum Color: Int, Serializable { case red }
+
+// Actor conformance
+actor Counter: Sendable {}
+
+// Extension adds conformances -- src is the extended type
+extension User: Equatable, Hashable {}
+
+// Generics must be stripped
+class Box<T>: Container<String>, Comparable<Box<T>> {}
+
+// Scoped base path preserved, generics still stripped
+class Outer { class Inner: pkg.lib.Deep<String> {} }
+
+// Where-clause must not leak conformances
+class Constrained<T>: Base where T: Hashable {}
+
+// Plain class -- no heritage
+class Plain {}
+"""
+
+
+class TestInheritsEdges:
+    """Locks INHERITS edge emission for Swift's ``:`` heritage syntax."""
+
+    def _inherits(self, code: bytes, path: str) -> list[tuple[str, str]]:
+        parser = SwiftParser()
+        result = parser.parse(file_path=path, data=code)
+        return [
+            (rel.src_ref, rel.dst_ref)
+            for rel in result.relations
+            if rel.relation_type == RelationType.INHERITS
+        ]
+
+    def test_single_base_class(self) -> None:
+        edges = self._inherits(INHERITS_CODE, "Sources/MyLib/S.swift")
+        assert ("S.Dog", "Animal") in edges
+
+    def test_class_with_multi_protocol_conformance(self) -> None:
+        edges = self._inherits(INHERITS_CODE, "Sources/MyLib/S.swift")
+        assert ("S.Cat", "Animal") in edges
+        assert ("S.Cat", "Feline") in edges
+        assert ("S.Cat", "Cuddly") in edges
+
+    def test_struct_protocol_conformance(self) -> None:
+        edges = self._inherits(INHERITS_CODE, "Sources/MyLib/S.swift")
+        assert ("S.User", "CustomStringConvertible") in edges
+
+    def test_protocol_inherits_multi(self) -> None:
+        edges = self._inherits(INHERITS_CODE, "Sources/MyLib/S.swift")
+        assert ("S.MyList", "Collection") in edges
+        assert ("S.MyList", "Iterable") in edges
+
+    def test_enum_raw_value_plus_protocol(self) -> None:
+        edges = self._inherits(INHERITS_CODE, "Sources/MyLib/S.swift")
+        assert ("S.Color", "Int") in edges
+        assert ("S.Color", "Serializable") in edges
+
+    def test_actor_conformance(self) -> None:
+        edges = self._inherits(INHERITS_CODE, "Sources/MyLib/S.swift")
+        assert ("S.Counter", "Sendable") in edges
+
+    def test_extension_conformance_uses_extended_type(self) -> None:
+        """`extension User: P` emits `User INHERITS P`, not a new node."""
+        edges = self._inherits(INHERITS_CODE, "Sources/MyLib/S.swift")
+        assert ("S.User", "Equatable") in edges
+        assert ("S.User", "Hashable") in edges
+
+    def test_generic_type_arguments_stripped(self) -> None:
+        """`Container<String>` must emit ``Container``, never ``String``."""
+        edges = self._inherits(INHERITS_CODE, "Sources/MyLib/S.swift")
+        box_edges = [edge for edge in edges if edge[0] == "S.Box"]
+        assert ("S.Box", "Container") in box_edges
+        assert ("S.Box", "Comparable") in box_edges
+        dst_refs = {dst for _, dst in edges}
+        assert "String" not in dst_refs
+        # Type argument is literally ``Box<T>`` -- must not leak as ``Box``
+        # surfacing an edge onto itself; guard: ``Box`` only appears as a source.
+        for src, dst in edges:
+            assert src != dst
+
+    def test_scoped_base_preserves_full_path(self) -> None:
+        """`pkg.lib.Deep<String>` must emit ``pkg.lib.Deep``."""
+        edges = self._inherits(INHERITS_CODE, "Sources/MyLib/S.swift")
+        assert ("S.Outer.Inner", "pkg.lib.Deep") in edges
+
+    def test_nested_class_uses_outer_fq(self) -> None:
+        edges = self._inherits(INHERITS_CODE, "Sources/MyLib/S.swift")
+        assert any(src == "S.Outer.Inner" for src, _ in edges)
+
+    def test_where_clause_does_not_leak(self) -> None:
+        """`where T: Hashable` must not emit ``Constrained INHERITS Hashable``."""
+        edges = self._inherits(INHERITS_CODE, "Sources/MyLib/S.swift")
+        assert ("S.Constrained", "Base") in edges
+        constrained_dsts = {dst for src, dst in edges if src == "S.Constrained"}
+        assert "Hashable" not in constrained_dsts
+
+    def test_plain_class_has_no_inherits(self) -> None:
+        edges = self._inherits(INHERITS_CODE, "Sources/MyLib/S.swift")
+        assert not any(src == "S.Plain" for src, _ in edges)
+
+    def test_inherits_src_ref_matches_symbol_fq(self) -> None:
+        """Every INHERITS ``src_ref`` must resolve to a symbol fq in the same file."""
+        parser = SwiftParser()
+        result = parser.parse(file_path="Sources/MyLib/S.swift", data=INHERITS_CODE)
+        symbol_fqs = {s.fq_name for s in result.symbols}
+        inherits_srcs = {
+            rel.src_ref for rel in result.relations if rel.relation_type == RelationType.INHERITS
+        }
+        missing = inherits_srcs - symbol_fqs
+        assert missing == set(), f"INHERITS src_refs without matching symbol: {missing}"
+
+    def test_inherits_relation_shape(self) -> None:
+        """Relations are shaped ``src_type=symbol``, ``dst_type=symbol``."""
+        parser = SwiftParser()
+        result = parser.parse(file_path="Sources/MyLib/S.swift", data=INHERITS_CODE)
+        inherits = [rel for rel in result.relations if rel.relation_type == RelationType.INHERITS]
+        assert inherits, "fixture expected to emit INHERITS edges"
+        for rel in inherits:
+            assert rel.src_type == "symbol"
+            assert rel.dst_type == "symbol"
+
+    def test_spm_module_fq_respected(self) -> None:
+        """Non-flat SPM paths drop ``Sources/<Target>/`` in the fq."""
+        code = b"""class Widget: Base {}
+"""
+        edges = self._inherits(code, "Sources/Widgets/Shape/Widget.swift")
+        assert ("Shape.Widget.Widget", "Base") in edges
+
+    def test_empty_file_no_inherits(self) -> None:
+        edges = self._inherits(EMPTY_SWIFT, "Sources/MyLib/Empty.swift")
+        assert edges == []
+
+    def test_pre_v0_8_25_fixture_emits_expected_inherits(self) -> None:
+        """Baseline: the v0.8.22 SWIFT_CODE fixture should now produce a
+        defined set of INHERITS edges and no stray ones."""
+        parser = SwiftParser()
+        result = parser.parse(file_path="Sources/MyLib/App.swift", data=SWIFT_CODE)
+        inherits = [rel for rel in result.relations if rel.relation_type == RelationType.INHERITS]
+        edges = {(rel.src_ref, rel.dst_ref) for rel in inherits}
+        # ViewController: UIViewController, User: CustomStringConvertible (extension)
+        assert ("App.ViewController", "UIViewController") in edges
+        assert ("App.User", "CustomStringConvertible") in edges
+        # Every src must resolve to a Symbol
+        symbol_fqs = {s.fq_name for s in result.symbols}
+        for src, _ in edges:
+            assert src in symbol_fqs, f"{src} not in symbols"
+        _ = SymbolType.CLASS  # keep import used by other tests

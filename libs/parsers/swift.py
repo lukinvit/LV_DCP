@@ -65,11 +65,28 @@ Design notes for v1:
   anywhere in the path, not just at the start — parity with Java's
   handling of nested Gradle `modules/foo/src/main/java/...`.
 
+In addition to the base symbol + import + role + fq scaffolding, this
+parser emits :data:`RelationType.INHERITS` edges for Swift's single
+heritage colon (``:``), which unifies class inheritance, protocol
+conformance, enum raw-value types, actor conformance, and extension
+conformance under one syntactic shape. Unlike Java (`super_interfaces`
+wrapper) and Kotlin (`delegation_specifiers` wrapper), Swift places
+each `inheritance_specifier` as a *direct* sibling of the type name
+inside `class_declaration` / `protocol_declaration`, separated by
+`,` tokens. The extractor walks those direct children to collect the
+heritage list, skipping unrelated siblings such as `type_parameters`
+(generic parameters on the source) and `type_constraints` (the `where`
+clause — its nested `user_type` children are not inheritance edges
+and must not leak). Extensions flow through the same path: the base
+walker emits a CLASS symbol named after the *extended* type, so the
+heritage edge for `extension User: Equatable` correctly surfaces as
+`<module>.User INHERITS Equatable` — answering "does this file add a
+conformance to User?" without any extension-specific special case.
+
+Call-graph edges are still out of v1 scope — matching the Go / Rust /
+Java / Kotlin shape.
+
 Explicit non-goals (v1):
-- No `INHERITS` edges for `class Foo: Bar` / `struct User: CustomStringConvertible`
-  / `protocol P: Q` — the `inheritance_specifier` node is visible in the
-  AST but emitting graph edges requires a dedicated walker. Java and
-  Kotlin have the same v1 gap.
 - No `SAME_FILE_CALLS` edges — matches Go / Rust / Java / Kotlin shape;
   only the Python parser emits call-graph edges today.
 - No separate symbols for `enum_case_declaration`. Cases live inside
@@ -80,9 +97,10 @@ Explicit non-goals (v1):
 from __future__ import annotations
 
 import tree_sitter_swift as tsswift
-from tree_sitter import Language, Node
+from tree_sitter import Language, Node, Parser
 
-from libs.core.entities import SymbolType
+from libs.core.entities import Relation, RelationType, SymbolType
+from libs.parsers.base import ParseResult
 from libs.parsers.treesitter_base import TreeSitterParser
 
 # SPM source roots to strip in `_module_fq`. Non-SPM layouts (Xcode, bare
@@ -102,6 +120,26 @@ _SWIFT_TEST_DIR_FRAGMENTS: tuple[str, ...] = (
 )
 
 _SWIFT_TEST_DIR_PREFIXES: tuple[str, ...] = ("Tests/", "tests/", "Test/", "test/")
+
+# AST node kinds whose heritage clause emits :data:`RelationType.INHERITS`
+# edges and whose :class:`libs.core.entities.Symbol` is produced by the base
+# walker — so the edge's ``src_ref`` resolves to an actual symbol fq_name
+# in the same file.
+#
+# Notes on what is *not* on this list:
+#
+# - `typealias_declaration` and `associatedtype_declaration` are distinct
+#   node kinds that can carry a `= Type` or `: P` clause respectively; they
+#   are not in :meth:`SwiftParser._symbol_type_map`, so emitting INHERITS
+#   with them as source would violate the ``src_ref → symbol.fq_name``
+#   invariant. Future sub-increment.
+# - `enum_case_declaration` does not carry heritage and has no symbol.
+_TYPE_DECLARATION_NODES: frozenset[str] = frozenset(
+    {
+        "class_declaration",
+        "protocol_declaration",
+    }
+)
 
 
 class SwiftParser(TreeSitterParser):
@@ -185,3 +223,152 @@ class SwiftParser(TreeSitterParser):
             posix = tail[slash + 1 :] if slash >= 0 else tail
             break
         return posix.replace("/", ".")
+
+    # ------------------------------------------------------------------
+    # Extended parse: emit INHERITS edges for the Swift `:` heritage clause
+    # ------------------------------------------------------------------
+
+    def parse(self, *, file_path: str, data: bytes) -> ParseResult:
+        """Parse, then supplement the base result with INHERITS edges."""
+        result = super().parse(file_path=file_path, data=data)
+
+        parser = Parser(self._get_ts_language())
+        tree = parser.parse(data)
+        root = tree.root_node
+
+        module_fq = self._module_fq(file_path)
+        inherits = self._extract_inherits(root, module_fq)
+        if not inherits:
+            return result
+        return ParseResult(
+            file_path=result.file_path,
+            language=result.language,
+            role=result.role,
+            symbols=result.symbols,
+            relations=result.relations + tuple(inherits),
+            errors=result.errors,
+        )
+
+    @classmethod
+    def _extract_inherits(cls, root: Node, module_fq: str) -> list[Relation]:
+        """Emit INHERITS edges for every Swift heritage clause.
+
+        Walks the CST scope-aware so nested types correctly qualify their
+        edge source: ``class Outer { class Inner: Base {} }`` produces
+        ``<module>.Outer.Inner INHERITS Base``, matching the nested
+        symbol's ``fq_name`` in the symbol table (locked by
+        ``test_inherits_src_ref_matches_symbol_fq``).
+
+        Covers:
+
+        - ``class Dog: Animal`` (class inheritance)
+        - ``class Cat: Animal, Feline, Cuddly`` (class + protocol conformance)
+        - ``struct User: CustomStringConvertible`` (struct protocol conformance)
+        - ``protocol P: Q, R`` (protocol-to-protocol composition)
+        - ``enum Color: Int, Serializable`` (raw-value type + protocol)
+        - ``actor Counter: Sendable`` (actor conformance)
+        - ``extension User: Equatable, Hashable`` (extension adds conformances —
+          edge source is the *extended* type, which is the CLASS symbol the
+          base walker emits for the extension)
+        - Generics stripped: ``: Container<String>`` → ``Container``
+        - Scoped paths preserved: ``: pkg.Deep<T>`` → ``pkg.Deep``
+        - Where-clause ignored: ``class Foo<T>: Base where T: Hashable`` emits
+          only ``Foo INHERITS Base``, never ``Foo INHERITS Hashable``.
+        """
+        relations: list[Relation] = []
+        # (node, enclosing_fq) — enclosing_fq is what the base symbol
+        # walker uses as ``parent_fq_name`` for this node's children, so
+        # nested types get the same fq the symbol table holds.
+        stack: list[tuple[Node, str]] = [(root, module_fq)]
+        while stack:
+            node, scope = stack.pop()
+            next_scope = scope
+            if node.type in _TYPE_DECLARATION_NODES:
+                name_node = node.child_by_field_name("name")
+                if name_node is not None and name_node.text:
+                    type_name = name_node.text.decode("utf-8", errors="replace")
+                    type_fq = f"{scope}.{type_name}"
+                    next_scope = type_fq
+                    for base in cls._collect_heritage(node):
+                        relations.append(
+                            Relation(
+                                src_type="symbol",
+                                src_ref=type_fq,
+                                dst_type="symbol",
+                                dst_ref=base,
+                                relation_type=RelationType.INHERITS,
+                            )
+                        )
+            for child in node.children:
+                stack.append((child, next_scope))
+        return relations
+
+    @classmethod
+    def _collect_heritage(cls, type_node: Node) -> list[str]:
+        """Return base type names for one `class_declaration` / `protocol_declaration`.
+
+        Unlike Java (`super_interfaces` wrapper) and Kotlin
+        (`delegation_specifiers` wrapper), Swift places each
+        `inheritance_specifier` node as a **direct** sibling of the
+        type name — so we iterate ``type_node.children`` directly and
+        pick out the specifier kind. Non-heritage siblings such as
+        `type_parameters` (generic parameters on the source),
+        `type_constraints` (`where` clauses), the `class_body` /
+        `enum_class_body` / `protocol_body`, and the `:` / `,`
+        punctuation tokens are all skipped by the type-filter.
+        """
+        bases: list[str] = []
+        for child in type_node.children:
+            if child.type != "inheritance_specifier":
+                continue
+            name = cls._inheritance_specifier_name(child)
+            if name is not None:
+                bases.append(name)
+        return bases
+
+    @classmethod
+    def _inheritance_specifier_name(cls, specifier: Node) -> str | None:
+        """Extract the base type name from one `inheritance_specifier` node.
+
+        The specifier wraps a single `user_type` child that carries the
+        dotted path (and optional generic arguments). Delegate to
+        :meth:`_user_type_name` to flatten it; ignore stray tokens.
+        """
+        for child in specifier.children:
+            if child.type == "user_type":
+                return cls._user_type_name(child)
+        return None
+
+    @classmethod
+    def _user_type_name(cls, node: Node) -> str | None:
+        """Flatten a Swift ``user_type`` node to a dotted name.
+
+        The Swift grammar represents a scoped type as a flat sequence
+        of ``type_identifier`` + ``.`` tokens under the ``user_type``
+        node (e.g. ``pkg.Outer.Inner`` → three ``type_identifier``
+        children interleaved with ``.`` tokens). An optional
+        ``type_arguments`` child carries the generic arguments and
+        must be ignored so ``Container<String>`` emits ``Container``,
+        not ``Container<…>`` nor ``String``.
+
+        Nested ``user_type`` children inside ``type_arguments`` are
+        also implicitly ignored because only direct ``type_identifier``
+        siblings are collected — the edge tracks the outer base, never
+        the type-argument substitution.
+
+        (The Kotlin parser uses ``identifier`` here; Swift's grammar
+        names the same role ``type_identifier``.)
+        """
+        parts: list[str] = []
+        for child in node.children:
+            if child.type == "type_identifier" and child.text:
+                parts.append(child.text.decode("utf-8", errors="replace"))
+            # Skip:
+            # - ``.`` tokens (punctuation)
+            # - ``type_arguments`` (strips generic parameters)
+            # - nested ``user_type`` under ``type_arguments`` (unreachable
+            #   via a direct-child iteration that only collects
+            #   ``type_identifier``)
+        if not parts:
+            return None
+        return ".".join(parts)
