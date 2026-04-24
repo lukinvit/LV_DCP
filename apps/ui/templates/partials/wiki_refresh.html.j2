@@ -181,8 +181,31 @@
    during the same crash would replace the existing toast rather than
    duplicating it — but in practice the outer-wrapper swap stops polling
    after this first post-crash response, so only one toast is ever
-   emitted per crash event. #}
+   emitted per crash event.
+
+   **Forced-colors adaptation (v0.8.16+).** The ``lvdcp-crash-toast``
+   class hook hangs a ``@media (forced-colors: active)`` override so
+   Windows high-contrast mode (and similar accessibility palettes on
+   macOS/Linux) doesn't render the banner invisible. Without the
+   override the UA remaps ``background:#d32f2f`` to system ``Canvas``
+   and ``color:#fff`` to ``CanvasText`` — which contrast correctly
+   against each other, but the ``box-shadow`` disappears (shadows are
+   dropped in forced-colors by spec) and the banner loses its visual
+   "container" edge against the page background (also ``Canvas``).
+   The fix: add ``border: 1px solid CanvasText`` so the banner is a
+   clearly delimited block, and cap ``box-shadow: none`` to silence
+   the UA "blur filter" substitution on some browsers. The ``<code>``
+   slug chip gets the same border treatment so it stays distinguishable
+   from the body text. The dismiss button's ``opacity:0.8`` is pinned
+   to 1 — opacity reductions can read as "disabled" in high-contrast
+   and reduce legibility. #}
+<style>@media (forced-colors: active) {
+    .lvdcp-crash-toast { border: 1px solid CanvasText !important; box-shadow: none !important; }
+    .lvdcp-crash-toast code { border: 1px solid CanvasText !important; }
+    .lvdcp-crash-toast button { opacity: 1 !important; }
+}</style>
 <div id="crash-toast-{{ slug }}-{{ wr.last_completed_at|int }}"
+     class="lvdcp-crash-toast"
      hx-swap-oob="beforeend:#toast-region"
      style="pointer-events:auto;background:#d32f2f;color:#fff;padding:12px 16px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.18);display:flex;align-items:flex-start;gap:12px;font-size:13px;line-height:1.4;">
     <div style="flex:1;min-width:0;">
@@ -249,7 +272,24 @@
    The ``!important`` on both rules exists because the inline ``animation``
    shorthand on the element has higher specificity than a class rule.
    Breaking the shorthand into longhand would avoid ``!important`` but
-   cost far more template weight than the three tokens save. #}
+   cost far more template weight than the three tokens save.
+
+   **Forced-colors adaptation (v0.8.16+).** A third a11y rule hangs off
+   the same class: ``@media (forced-colors: active)`` covers Windows
+   high-contrast mode and similar OS-level accessibility palettes.
+   Without it the UA remaps ``background:#2e7d32`` to system ``Canvas``
+   and ``color:#fff`` to ``CanvasText`` — so the banner blends visually
+   into the page, and the ``box-shadow`` (which would have given it a
+   "container" edge) is forcibly disabled by the forced-colors spec.
+   The override adds ``border: 1px solid CanvasText`` so the banner
+   keeps a visible frame, pins ``box-shadow: none`` to match, and
+   (crucially) cancels the v0.8.12 fade — a user with high-contrast
+   turned on is almost certainly an accessibility user, and banners
+   vanishing on a timer are hostile to screen-reader and low-vision
+   workflows. Consistent with the ``prefers-reduced-motion`` fallback:
+   when in doubt, stay sticky. The ``<code>`` slug chip and dismiss
+   button get the same border + full-opacity treatment as the crash
+   toast for the same reasons. #}
 <style>@keyframes lvdcp-toast-fadeout {
     0%, 75% { opacity: 1; }
     100% { opacity: 0; pointer-events: none; }
@@ -257,6 +297,11 @@
 .lvdcp-recovery-toast:hover { animation-play-state: paused !important; }
 @media (prefers-reduced-motion: reduce) {
     .lvdcp-recovery-toast { animation: none !important; opacity: 1 !important; pointer-events: auto !important; }
+}
+@media (forced-colors: active) {
+    .lvdcp-recovery-toast { animation: none !important; opacity: 1 !important; pointer-events: auto !important; border: 1px solid CanvasText !important; box-shadow: none !important; }
+    .lvdcp-recovery-toast code { border: 1px solid CanvasText !important; }
+    .lvdcp-recovery-toast button { opacity: 1 !important; }
 }</style>
 <div id="recovery-toast-{{ slug }}"
      class="lvdcp-recovery-toast"
