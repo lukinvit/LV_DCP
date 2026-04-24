@@ -174,7 +174,9 @@ class TestSymbolExtraction:
         ]
         assert len(is_active) == 1
         # And the parent_fq_name should carry the enum declaration.
-        assert is_active[0].parent_fq_name.endswith("Status")
+        parent = is_active[0].parent_fq_name
+        assert parent is not None
+        assert parent.endswith("Status")
 
 
 # ---------------------------------------------------------------------------
