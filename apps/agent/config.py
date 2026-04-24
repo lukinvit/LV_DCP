@@ -1,19 +1,23 @@
-"""Daemon configuration — write helpers. Read side lives in libs/core/projects_config."""
+"""Daemon-side registry mutation helpers.
+
+Read side and the atomic ``save_config`` primitive both live in
+``libs.core.projects_config`` so every writer (daemon, UI, CLI, prune)
+shares one crash-safe code path. This module adds the domain helpers
+that mutate specific fields — ``add_project``, ``remove_project``,
+``update_last_scan`` — then defer to the shared writer.
+"""
 
 from __future__ import annotations
 
-import contextlib
 from datetime import UTC, datetime
 from pathlib import Path
 
-import yaml
-
-# Re-export read side for backwards compatibility
 from libs.core.projects_config import (
     DaemonConfig,
     ProjectEntry,
     list_projects,
     load_config,
+    save_config,
 )
 
 __all__ = [
@@ -26,14 +30,6 @@ __all__ = [
     "save_config",
     "update_last_scan",
 ]
-
-
-def save_config(path: Path, cfg: DaemonConfig) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = cfg.model_dump(mode="json")
-    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
-    with contextlib.suppress(OSError):
-        path.chmod(0o600)
 
 
 def add_project(config_path: Path, root: Path) -> None:

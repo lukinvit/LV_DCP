@@ -177,11 +177,17 @@ def save_config(path: Path, config: DaemonConfig) -> None:
 
     Writes to a sibling ``*.tmp`` file, fsyncs, then ``rename()`` onto the
     target. On any failure the original file remains intact — the temp file
-    is never partially visible at the final path.
+    is never partially visible at the final path. Applies ``chmod 0o600``
+    post-rename so the registry is owner-read-only (best-effort; silently
+    skipped on filesystems that don't support POSIX perms, e.g. FAT mounts).
 
-    Used by destructive operations like ``ctx registry prune --yes``. Any
-    caller that needs an undo handle should take a ``*.bak`` copy before
-    invoking — this function focuses on write atomicity, not history.
+    This is the single write path for ``~/.lvdcp/config.yaml``. Every caller
+    — ``ctx registry prune --yes``, daemon scan completion, UI settings
+    form, CLI setup wizard, project add/remove — goes through here so a
+    crash mid-write never leaves a half-written registry.
+
+    Callers that need an undo handle should take a ``*.bak`` copy before
+    invoking; this function focuses on write atomicity, not history.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = yaml.safe_dump(
@@ -202,3 +208,9 @@ def save_config(path: Path, config: DaemonConfig) -> None:
             with contextlib.suppress(OSError):
                 tmp.unlink()
         raise
+    # Owner-only perms are defense-in-depth: the file holds project paths
+    # (mildly privacy-relevant) and env-var names, not keys themselves, but
+    # there's no reason to widen the audience. Best-effort on POSIX; a no-op
+    # on filesystems without chmod support.
+    with contextlib.suppress(OSError):
+        path.chmod(0o600)
