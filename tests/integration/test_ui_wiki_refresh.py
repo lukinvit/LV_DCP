@@ -1336,3 +1336,180 @@ async def test_retry_button_carries_retry_source_header(
     # Only the button should have the retry-source marker; the polling
     # wrapper must not (its absence is the "trigger=poll" signal).
     assert response.text.count('"X-LV-DCP-Retry-Source": "manual"') == 1
+
+
+# -------- v0.8.16: forced-colors adaptation on both toasts -----------
+
+
+@pytest.mark.asyncio
+async def test_crash_toast_carries_forced_colors_rule(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Crash toast ships a ``@media (forced-colors: active)`` override.
+
+    Windows high-contrast mode and similar accessibility palettes drop
+    ``box-shadow`` and remap solid colors to system ``Canvas`` /
+    ``CanvasText``, so a banner with only a colored background blends
+    into the page. The v0.8.16 override adds a ``border: 1px solid
+    CanvasText`` (visible frame) and pins ``box-shadow: none`` so the
+    banner stays visually distinct regardless of UA shadow-drop policy.
+    The ``<code>`` slug chip gets the same border treatment; the
+    dismiss button's opacity is pinned to 1 so it doesn't look disabled
+    in high-contrast.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=1, modules_updated=2, elapsed_seconds=1.5)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={"HX-Request": "true"},
+        )
+
+    assert response.status_code == 200
+    # Sanity: crash toast must actually render so the rule is attached
+    # to a visible element.
+    assert "Wiki refresh failed" in response.text
+    # Class hook for the rule selector.
+    assert 'class="lvdcp-crash-toast"' in response.text
+    # The media query must be present.
+    assert "@media (forced-colors: active)" in response.text
+    # Border + shadow rule on the banner itself.
+    assert ".lvdcp-crash-toast { border: 1px solid CanvasText !important;" in response.text
+    assert "box-shadow: none !important" in response.text
+    # Code chip + button overrides.
+    assert ".lvdcp-crash-toast code { border: 1px solid CanvasText !important; }" in response.text
+    assert ".lvdcp-crash-toast button { opacity: 1 !important; }" in response.text
+
+
+@pytest.mark.asyncio
+async def test_recovery_toast_carries_forced_colors_rule(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recovery toast ships the same forced-colors override + cancels fade.
+
+    Parallel to the crash-toast treatment, plus an extra guarantee: the
+    v0.8.12 fadeout animation is cancelled in forced-colors mode. A user
+    with OS-level high-contrast turned on is almost certainly an
+    accessibility user; banners that vanish on a timer are hostile to
+    screen-reader and low-vision workflows. Same reasoning as
+    ``prefers-reduced-motion`` (v0.8.13): when in doubt, stay sticky.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=0, modules_updated=2, elapsed_seconds=1.0)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={
+                "HX-Request": "true",
+                "X-LV-DCP-Was-Degraded": "true",
+            },
+        )
+
+    assert response.status_code == 200
+    assert "Wiki refresh status recovered" in response.text
+    assert 'class="lvdcp-recovery-toast"' in response.text
+    # The media query must be present (alongside the existing
+    # prefers-reduced-motion block).
+    assert "@media (forced-colors: active)" in response.text
+    # Border + shadow + animation-cancel rule on the banner itself.
+    assert "border: 1px solid CanvasText !important" in response.text
+    assert "box-shadow: none !important" in response.text
+    # Same fadeout-kill semantics as prefers-reduced-motion: stay
+    # sticky with full opacity.
+    assert (
+        ".lvdcp-recovery-toast { animation: none !important; opacity: 1 !important;"
+        in response.text
+    )
+    # Code chip + button overrides scoped to the class.
+    assert (
+        ".lvdcp-recovery-toast code { border: 1px solid CanvasText !important; }" in response.text
+    )
+    assert ".lvdcp-recovery-toast button { opacity: 1 !important; }" in response.text
+
+
+@pytest.mark.asyncio
+async def test_no_forced_colors_rule_when_no_toast_rendered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Clean idle poll ships zero forced-colors CSS.
+
+    Parallel to ``test_no_a11y_css_when_no_recovery_toast_rendered``:
+    the forced-colors rules live inside the ``{% if show_crash_toast %}``
+    and ``{% if show_recovery_toast %}`` guards respectively, so a
+    healthy idle response must not carry either. Prevents accidentally
+    leaving the media query in a non-toast response.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=0, modules_updated=2, elapsed_seconds=1.0)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={"HX-Request": "true"},
+        )
+
+    assert response.status_code == 200
+    assert "Last refresh: clean" in response.text
+    assert "forced-colors" not in response.text
+    assert "CanvasText" not in response.text
+    assert "lvdcp-crash-toast" not in response.text
+    assert "lvdcp-recovery-toast" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_forced_colors_rule_scoped_to_each_toast_class(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Crash rule doesn't bleed into recovery render and vice versa.
+
+    The two style blocks live inside their own ``{% if %}`` guards, so
+    a crash-only render must NOT carry ``.lvdcp-recovery-toast`` rules,
+    and a recovery-only render must NOT carry ``.lvdcp-crash-toast``
+    rules. Prevents a future refactor from accidentally promoting
+    either rule to a shared global scope — they'd then render on idle
+    polls.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+
+    # Crash-only render.
+    write_last_refresh(project, exit_code=1, modules_updated=1, elapsed_seconds=1.5)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        crash_response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={"HX-Request": "true"},
+        )
+
+    assert crash_response.status_code == 200
+    assert "Wiki refresh failed" in crash_response.text
+    assert "lvdcp-crash-toast" in crash_response.text
+    # Recovery rule must not appear on a crash-only render.
+    assert "lvdcp-recovery-toast" not in crash_response.text
+
+    # Recovery-only render (reseed with a clean run).
+    write_last_refresh(project, exit_code=0, modules_updated=2, elapsed_seconds=1.0)
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        recovery_response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={
+                "HX-Request": "true",
+                "X-LV-DCP-Was-Degraded": "true",
+            },
+        )
+
+    assert recovery_response.status_code == 200
+    assert "Wiki refresh status recovered" in recovery_response.text
+    assert "lvdcp-recovery-toast" in recovery_response.text
+    # Crash rule must not appear on a recovery-only render.
+    assert "lvdcp-crash-toast" not in recovery_response.text
