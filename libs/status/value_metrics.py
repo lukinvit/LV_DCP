@@ -15,6 +15,30 @@ from libs.core.projects_config import list_projects
 
 _SRC_LANGS = ("python", "typescript", "javascript", "go", "rust", "java", "kotlin", "swift")
 
+# Marker segments that identify transient / non-user projects in the registry:
+# - `.claude/worktrees/*` entries are spawned by ship-ceremony worktrees
+# - `sample_repo` is the reused test fixture scanned during unit tests
+_TRANSIENT_WORKTREE_MARKER = (".claude", "worktrees")
+_TRANSIENT_FIXTURE_NAMES = frozenset({"sample_repo"})
+
+
+def _is_transient(root: Path) -> bool:
+    """Return True if ``root`` is a worktree artifact or a test fixture.
+
+    These projects get registered when LV_DCP indexes itself from a worktree
+    during ship-ceremony, or when unit tests scan the `sample_repo` fixture.
+    They dilute the "projects active" signal on the dashboard, so we want
+    to count them separately from real user projects.
+    """
+    parts = root.parts
+    for i in range(len(parts) - 1):
+        if (
+            parts[i] == _TRANSIENT_WORKTREE_MARKER[0]
+            and parts[i + 1] == _TRANSIENT_WORKTREE_MARKER[1]
+        ):
+            return True
+    return root.name in _TRANSIENT_FIXTURE_NAMES
+
 
 @dataclass
 class ProjectCoverage:
@@ -49,6 +73,12 @@ class ValueMetrics:
     # Adoption
     projects_active: int = 0
     projects_total: int = 0
+    # Excludes `.claude/worktrees/*` ship-ceremony artifacts and `sample_repo`
+    # test fixtures — the honest "real user project" count for the dashboard.
+    projects_real_active: int = 0
+    projects_real_total: int = 0
+    projects_transient_active: int = 0
+    projects_transient_total: int = 0
     mode_navigate: int = 0
     mode_edit: int = 0
 
@@ -63,11 +93,20 @@ def collect_value_metrics(config_path: Path) -> ValueMetrics:  # noqa: PLR0912, 
     now = time.time()
     seven_days_ago = now - 7 * 86400
     active_projects: set[str] = set()
+    real_active: set[str] = set()
+    transient_active: set[str] = set()
+    real_total = 0
+    transient_total = 0
 
     for entry in projects:
         cache_db = entry.root / ".context" / "cache.db"
         name = entry.root.name
         pc = ProjectCoverage(name=name, root=str(entry.root))
+        is_transient = _is_transient(entry.root)
+        if is_transient:
+            transient_total += 1
+        else:
+            real_total += 1
 
         if not cache_db.exists():
             m.project_coverage.append(pc)
@@ -140,6 +179,10 @@ def collect_value_metrics(config_path: Path) -> ValueMetrics:  # noqa: PLR0912, 
                 if ts >= seven_days_ago:
                     m.packs_7d += 1
                 active_projects.add(str(entry.root))
+                if is_transient:
+                    transient_active.add(str(entry.root))
+                else:
+                    real_active.add(str(entry.root))
 
                 if coverage == "high":
                     m.coverage_high += 1
@@ -168,6 +211,10 @@ def collect_value_metrics(config_path: Path) -> ValueMetrics:  # noqa: PLR0912, 
         m.project_coverage.append(pc)
 
     m.projects_active = len(active_projects)
+    m.projects_real_total = real_total
+    m.projects_real_active = len(real_active)
+    m.projects_transient_total = transient_total
+    m.projects_transient_active = len(transient_active)
 
     # Compression ratio: how many files would you read without pack vs with pack
     if m.total_packs > 0 and m.total_pack_files_returned > 0:
