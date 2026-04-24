@@ -116,7 +116,7 @@
     <h2>Wiki background refresh</h2>
     {% if wr.in_progress %}
         <div style="display:flex;align-items:center;gap:12px;padding:12px;background:#e3f2fd;border-radius:8px;border-left:4px solid #1976d2;">
-            <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#1976d2;animation:lvdcp-pulse 1.5s infinite ease-in-out;flex-shrink:0;"></span>
+            <span class="lvdcp-pulse-dot" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#1976d2;animation:lvdcp-pulse 1.5s infinite ease-in-out;flex-shrink:0;"></span>
             <div style="flex:1;min-width:0;">
                 <div style="font-weight:bold;">Running &middot; phase: {{ wr.phase or "starting" }}</div>
                 <div style="font-size:13px;color:#555;margin-top:4px;">
@@ -135,7 +135,39 @@
                 {% endif %}
             </div>
         </div>
-        <style>@keyframes lvdcp-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }</style>
+        {# v0.8.17+: a11y adaptation for the pulsing "Running" status dot.
+           Closes the last known-gap from v0.8.16 — the dot's
+           ``animation:lvdcp-pulse 1.5s infinite`` animated unconditionally,
+           ignoring both ``prefers-reduced-motion`` (vestibular / screen-
+           reader users) and ``forced-colors: active`` (Windows high-
+           contrast mode, where the inline ``background:#1976d2`` gets
+           remapped to ``Canvas`` — making the dot invisible against the
+           page background).
+
+             1. ``prefers-reduced-motion: reduce`` — cancels the animation
+                and pins opacity to 1 so the dot becomes a static visible
+                indicator. The word "Running" still appears next to it,
+                so the UX signal ("is a refresh in progress?") is
+                preserved for motion-reduced users.
+             2. ``forced-colors: active`` — cancels the animation (same
+                reasoning as v0.8.13/v0.8.16: a11y-mode users shouldn't
+                be paying a motion tax for a decorative animation) AND
+                pins ``background: CanvasText`` so the dot is a solid,
+                visible shape against the remapped ``Canvas`` page. The
+                ``CanvasText`` system-color token is preserved in
+                forced-colors mode (author RGB values are remapped,
+                system tokens aren't), so this is the reliable fix.
+
+           ``!important`` needed on all three rules because the inline
+           ``animation`` / ``opacity`` / ``background`` shorthand on the
+           element has specificity 1000 and a plain class rule has 10. #}
+        <style>@keyframes lvdcp-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+@media (prefers-reduced-motion: reduce) {
+    .lvdcp-pulse-dot { animation: none !important; opacity: 1 !important; }
+}
+@media (forced-colors: active) {
+    .lvdcp-pulse-dot { animation: none !important; opacity: 1 !important; background: CanvasText !important; }
+}</style>
     {% elif wr.last_exit_code == 0 %}
         <div style="padding:12px;background:#e8f5e9;border-radius:8px;border-left:4px solid #2e7d32;">
             <div style="font-weight:bold;color:#2e7d32;">&#x2713; Last refresh: clean</div>
