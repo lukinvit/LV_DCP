@@ -756,7 +756,7 @@ wheels = [
 
 [[package]]
 name = "lv-dcp"
-version = "0.8.23"
+version = "0.8.24"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
