@@ -32,7 +32,10 @@
       ``hx-swap-oob="beforeend:#toast-region"`` banner so scrolled-
       away users notice the self-heal. The new successful wrapper
       does NOT re-emit the marker, so the toast fires exactly once
-      per recovery event.
+      per recovery event. **v0.8.12+:** the recovery toast carries
+      an inline ``animation: lvdcp-toast-fadeout 8s forwards`` so it
+      auto-dismisses after ~8 s (6 s visible + 2 s fade) — unlike
+      the crash toast which stays sticky until manually dismissed.
 
   Shapes (rendered inside a stable outer wrapper so HTMX can swap the
   whole element via ``hx-swap=outerHTML`` every ~2 s during a live
@@ -175,10 +178,28 @@
    (no HTMX session state survives), so a user who navigates after an
    old recovery won't get re-flashed. ID is deterministic per-slug so
    a pathological double-fetch during the same recovery replaces the
-   same toast instead of stacking duplicates. #}
+   same toast instead of stacking duplicates.
+
+   **Auto-dismiss (v0.8.12+).** Unlike the crash toast — which is bad
+   news the user needs to acknowledge and therefore stays sticky until
+   manually dismissed — the recovery toast is transient good news.
+   Requiring a manual click to clear a "we recovered" message is
+   actively annoying (the user has already moved on). The inline
+   ``animation: lvdcp-toast-fadeout 8s forwards`` holds the toast at
+   full opacity for 6 s (enough for a glance), fades over 2 s, and the
+   ``forwards`` fill-mode pins the end state so the toast stays
+   invisible AND ``pointer-events: none`` so it can't block clicks on
+   anything underneath. Dismiss button still works during the visible
+   window for users who want to clear it immediately. The keyframes
+   are inlined next to the toast so they're only present in the DOM
+   when the toast actually renders (no unused CSS on normal polls). #}
+<style>@keyframes lvdcp-toast-fadeout {
+    0%, 75% { opacity: 1; }
+    100% { opacity: 0; pointer-events: none; }
+}</style>
 <div id="recovery-toast-{{ slug }}"
      hx-swap-oob="beforeend:#toast-region"
-     style="pointer-events:auto;background:#2e7d32;color:#fff;padding:12px 16px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.18);display:flex;align-items:flex-start;gap:12px;font-size:13px;line-height:1.4;">
+     style="pointer-events:auto;background:#2e7d32;color:#fff;padding:12px 16px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.18);display:flex;align-items:flex-start;gap:12px;font-size:13px;line-height:1.4;animation:lvdcp-toast-fadeout 8s forwards;">
     <div style="flex:1;min-width:0;">
         <div style="font-weight:bold;margin-bottom:2px;">
             &#x2713; Wiki refresh status recovered
