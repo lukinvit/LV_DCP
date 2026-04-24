@@ -1,11 +1,15 @@
-"""`ctx obsidian sync` and `ctx obsidian status` subcommands."""
+"""`ctx obsidian sync`, `status`, and `sync-all` subcommands."""
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import time
 from collections import defaultdict
 from pathlib import Path
 
 import typer
+from libs.core.projects_config import load_config
 from libs.obsidian.models import (
     ObsidianFileInfo,
     ObsidianGitInfo,
@@ -18,6 +22,10 @@ from libs.obsidian.publisher import ObsidianPublisher
 from libs.storage.sqlite_cache import SqliteCache
 
 app = typer.Typer(name="obsidian", help="Obsidian vault sync commands")
+
+DEFAULT_CONFIG_PATH = Path.home() / ".lvdcp" / "config.yaml"
+_OBSIDIAN_MARKER = "obsidian_last_sync"
+_SYNC_ALL_DEFAULT_TIMEOUT_SECONDS = 300
 
 
 def _build_modules(
@@ -166,6 +174,182 @@ def sync(
         typer.echo(f"  Errors ({len(report.errors)}):")
         for err in report.errors:
             typer.echo(f"    - {err}")
+
+
+def _read_last_sync(project_root: Path) -> float | None:
+    """Return the last-sync epoch from `.context/obsidian_last_sync`, or None.
+
+    None means "never synced" or "marker corrupt" — both surface as stale.
+    """
+    marker = project_root / ".context" / _OBSIDIAN_MARKER
+    if not marker.exists():
+        return None
+    try:
+        return float(marker.read_text(encoding="utf-8").strip())
+    except (ValueError, OSError):
+        return None
+
+
+def _is_stale(project_root: Path, stale_seconds: float, now: float) -> bool:
+    """True if this project should be synced now under the stale-hours gate.
+
+    A missing or unreadable marker counts as stale — a project registered
+    but never synced is the most common "please sync this" case.
+    ``stale_seconds <= 0`` forces-stale regardless of marker age, so
+    ``--stale-hours 0`` acts as a "sync everything" override without
+    needing a separate flag.
+    """
+    if stale_seconds <= 0:
+        return True
+    last = _read_last_sync(project_root)
+    if last is None:
+        return True
+    return (now - last) >= stale_seconds
+
+
+def _plan_reason(root: Path, stale_seconds: float, now: float) -> str:
+    """Classify one project into ``"sync"`` / ``"skip: ..."``.
+
+    Extracted so ``sync_all`` stays under the ruff PLR0912/PLR0915 budgets.
+    """
+    if not root.exists() or not (root / ".context" / "cache.db").exists():
+        return "skip: no cache.db"
+    if _is_stale(root, stale_seconds, now):
+        return "sync"
+    last = _read_last_sync(root)
+    age_hours = (now - last) / 3600.0 if last is not None else float("inf")
+    return f"skip: fresh ({age_hours:.1f}h old)"
+
+
+def _invoke_sync(root: Path, vault_path: str, timeout_seconds: int) -> str | None:
+    """Shell to ``ctx obsidian sync`` for one project; return error detail or None."""
+    try:
+        subprocess.run(  # noqa: S603  # controlled invocation of our own CLI
+            [
+                sys.executable,
+                "-m",
+                "apps.cli.main",
+                "obsidian",
+                "sync",
+                str(root),
+                "--vault",
+                vault_path,
+            ],
+            check=True,
+            capture_output=True,
+            timeout=timeout_seconds,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+        stderr = getattr(exc, "stderr", b"") or b""
+        detail = stderr.decode("utf-8", errors="replace").strip().splitlines()[-1:] or ["?"]
+        return detail[0]
+    return None
+
+
+def _run_plan(
+    plan: list[tuple[Path, str]], vault_path: str, timeout_seconds: int
+) -> tuple[int, int, list[Path]]:
+    """Execute the plan; return ``(synced, skipped, failed)`` counters."""
+    synced = 0
+    skipped = 0
+    failed: list[Path] = []
+    for root, reason in plan:
+        if reason != "sync":
+            typer.echo(f"[skip] {root}: {reason.removeprefix('skip: ')}")
+            skipped += 1
+            continue
+        typer.echo(f"[sync] {root} …")
+        err = _invoke_sync(root, vault_path, timeout_seconds)
+        if err is not None:
+            typer.echo(f"[fail] {root}: {err}", err=True)
+            failed.append(root)
+            continue
+        # Advance the shared debounce marker so the daemon's auto-sync
+        # respects this successful nightly run and doesn't re-fire on the
+        # next scan event within the debounce window.
+        marker = root / ".context" / _OBSIDIAN_MARKER
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(str(time.time()), encoding="utf-8")
+        synced += 1
+    return synced, skipped, failed
+
+
+@app.command("sync-all")
+def sync_all(
+    stale_hours: float = typer.Option(
+        24.0,
+        "--stale-hours",
+        help=(
+            "Sync only projects whose last Obsidian sync is older than N hours "
+            "(or never synced). Pass 0 to force-sync every registered project."
+        ),
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Print the sync plan without invoking `ctx obsidian sync`.",
+    ),
+    config_path: Path = typer.Option(  # noqa: B008
+        DEFAULT_CONFIG_PATH,
+        "--config",
+        help="Path to daemon config YAML (defaults to ~/.lvdcp/config.yaml).",
+    ),
+    timeout_seconds: int = typer.Option(
+        _SYNC_ALL_DEFAULT_TIMEOUT_SECONDS,
+        "--timeout",
+        min=1,
+        help="Per-project sync timeout in seconds.",
+    ),
+) -> None:
+    """Iterate all registered projects and sync stale ones to the Obsidian vault.
+
+    Designed for nightly scheduling via user-level ``cron`` / ``launchd`` —
+    LV_DCP does not install scheduler entries itself. Idempotent: safe to
+    run every 5 minutes or every week; the ``--stale-hours`` gate plus the
+    per-project ``obsidian_last_sync`` marker ensure each project only syncs
+    once per window regardless of invocation frequency.
+
+    Exits 0 when every candidate project synced cleanly (or was skipped as
+    fresh). Exits 1 if any invoked sync failed — the rest still run, so a
+    single flaky project doesn't block the others.
+    """
+    if not config_path.exists():
+        typer.echo(f"error: config not found at {config_path}", err=True)
+        raise typer.Exit(code=1)
+
+    daemon_cfg = load_config(config_path)
+    obsidian_cfg = daemon_cfg.obsidian
+
+    if not obsidian_cfg.enabled:
+        typer.echo("Obsidian sync is disabled (obsidian.enabled=false). Nothing to do.")
+        raise typer.Exit(code=0)
+    if not obsidian_cfg.vault_path:
+        typer.echo("error: obsidian.vault_path is empty in config.", err=True)
+        raise typer.Exit(code=1)
+
+    projects = daemon_cfg.projects
+    if not projects:
+        typer.echo("No registered projects. Run `ctx scan <path>` first.")
+        raise typer.Exit(code=0)
+
+    stale_seconds = stale_hours * 3600.0
+    now = time.time()
+    plan: list[tuple[Path, str]] = [
+        (entry.root, _plan_reason(entry.root, stale_seconds, now)) for entry in projects
+    ]
+
+    if dry_run:
+        typer.echo(f"Sync plan (dry-run, stale-hours={stale_hours}):")
+        for root, reason in plan:
+            typer.echo(f"  {reason:<30} {root}")
+        raise typer.Exit(code=0)
+
+    synced, skipped, failed = _run_plan(plan, obsidian_cfg.vault_path, timeout_seconds)
+
+    typer.echo("")
+    typer.echo(f"Done. Synced: {synced}, skipped: {skipped}, failed: {len(failed)}")
+    if failed:
+        raise typer.Exit(code=1)
 
 
 @app.command("status")
