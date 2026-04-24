@@ -2,8 +2,8 @@
 
 **Local-first engineering memory.** Turns projects on macOS into a queryable context layer for Claude, IDE agents, and humans. Supports Python, TypeScript/JS, Go, and Rust. Reduces token cost of repeated code reading, builds a relation graph, and makes agent edits safer.
 
-[![Phase 9 Complete](https://img.shields.io/badge/phase-9%20complete-green)](docs/release/2026-04-24-v0.8.10-error-backoff.md)
-[![Version 0.8.10](https://img.shields.io/badge/version-0.8.10-blue)](pyproject.toml)
+[![Phase 9 Complete](https://img.shields.io/badge/phase-9%20complete-green)](docs/release/2026-04-24-v0.8.11-recovery-toast.md)
+[![Version 0.8.11](https://img.shields.io/badge/version-0.8.11-blue)](pyproject.toml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue)](pyproject.toml)
 
@@ -53,6 +53,8 @@ $ ctx pack . "refresh token rotation" --mode edit
 
 ## Status
 
+**v0.8.11 (2026-04-24)** — Recovery toast on the `wiki_refresh` degraded → normal transition. Symmetric to v0.8.9's red crash toast: on the exact polling tick that flips the panel out of degraded mode (v0.8.10), the fragment response also carries a green `hx-swap-oob` banner into `#toast-region` so scrolled-away users notice the self-heal. Detection is pure-HTMX: the degraded wrapper echoes `hx-headers='{"X-LV-DCP-Was-Degraded": "true"}'`, HTMX sends the marker on the next poll, the route sees the header on a now-successful assembly and flips a one-shot toast on. The new successful wrapper omits the marker so the toast fires exactly once per recovery event. No cookies, no session store, no JS state. Closes the top known gap from v0.8.10 (silent self-heal).
+
 **v0.8.10 (2026-04-24)** — Error-backoff shell on the `wiki_refresh` polling endpoint. The `/api/project/{slug}/wiki-refresh` route now wraps its status-assembly path in a try/except: on any internal failure it returns a 200 response carrying the partial in degraded mode — a yellow "refresh status unavailable" card with `hx-trigger="every 30s"` instead of `every 2s`. Closes two failure modes that predated the contract: (a) a 500 during polling caused HTMX to hammer the endpoint at the original 2 s cadence; (b) a `build_wiki_refresh` returning `None` silently stripped `hx-get` from the wrapper, freezing the panel until a full page reload. The 404-for-unknown-slug contract is preserved via `except HTTPException: raise`, and full-page `/project/<slug>` still 500s on genuine errors — the degraded shell is scoped to the polling endpoint only. Closes the first operational known gap from v0.8.8.
 
 **v0.8.9 (2026-04-24)** — One-shot crash toast on the `wiki_refresh` panel. The HTMX polling tick that flips the panel from *running* → *FAILED* now also carries an `hx-swap-oob` flash banner that HTMX appends into a new fixed-position `#toast-region` drop zone added to `base.html.j2`. Four predicates gate the emission — `HX-Request` header, refresh finished and non-live, `last_exit_code` a real crash (not `0`/`143`), `last_completed_at` within 15 s of now — so the toast fires exactly once per crash event, never on full page reload, never on SIGTERM cancellation, never on a manual `curl`. No new JS, no new deps, no route changes — fragment endpoint just adds a `show_crash_toast` flag to the template context. Closes the second known gap from v0.8.8 (no transition notification).
@@ -86,6 +88,7 @@ $ ctx pack . "refresh token rotation" --mode edit
 Stabilization 0.6.1 baseline: mandatory GitHub Actions quality gates, green `ruff` / `mypy`, runtime-hardened embeddings and Qdrant.
 
 Release notes:
+- [docs/release/2026-04-24-v0.8.11-recovery-toast.md](docs/release/2026-04-24-v0.8.11-recovery-toast.md) (v0.8.11 — Recovery toast on `wiki_refresh` degraded → normal)
 - [docs/release/2026-04-24-v0.8.10-error-backoff.md](docs/release/2026-04-24-v0.8.10-error-backoff.md) (v0.8.10 — Error-backoff shell on `wiki_refresh` polling endpoint)
 - [docs/release/2026-04-24-v0.8.9-crash-toast.md](docs/release/2026-04-24-v0.8.9-crash-toast.md) (v0.8.9 — One-shot crash toast on `wiki_refresh` panel)
 - [docs/release/2026-04-24-v0.8.8-wiki-refresh-htmx.md](docs/release/2026-04-24-v0.8.8-wiki-refresh-htmx.md) (v0.8.8 — HTMX live-polling on the `wiki_refresh` panel)
@@ -454,6 +457,7 @@ The daemon uses `watchdog.observers.Observer` which auto-selects `FSEventsObserv
 - **v0.8.8** (done) — HTMX live-polling on the `wiki_refresh` panel. New public helper `libs.status.aggregator.build_wiki_refresh` + new fragment route `GET /api/project/<slug>/wiki-refresh` let the panel update in place every ~2 s while a refresh runs. Outer wrapper's `hx-get` absence after completion self-cancels polling — no JS, no SSE, no `hx-swap-oob`. Cadence matches `ctx project check --watch` (v0.8.3). Closes the #1 known gap from v0.8.7.
 - **v0.8.9** (done) — One-shot crash toast on the `wiki_refresh` panel. New fixed-position `#toast-region` drop zone in `base.html.j2`; the polling fragment endpoint emits an `hx-swap-oob="beforeend:#toast-region"` red flash banner on the exact tick that flips the panel to `FAILED`. Gated by four predicates (`HX-Request` + non-live + real-crash exit + `last_completed_at` within 15 s) so the toast fires exactly once per crash event and stays silent on full page reload, SIGTERM cancel, clean completion, and manual `curl`. Closes the second known gap from v0.8.8.
 - **v0.8.10** (done) — Error-backoff shell on the `wiki_refresh` polling endpoint. `/api/project/{slug}/wiki-refresh` now wraps its status-assembly path in try/except: on any internal exception it returns 200 with the partial in degraded mode (yellow "refresh status unavailable" card + `hx-trigger="every 30s"` instead of `every 2s`). `except HTTPException: raise` preserves the 404-for-unknown-slug contract. Full-page `/project/<slug>` still 500s on real errors, so the degraded shell is scoped to continuous polling only. Closes the first operational known gap from v0.8.8 (500 mid-poll → HTMX hammers at 2 s; silent `None` → polling stops forever).
+- **v0.8.11** (done) — Recovery toast on `wiki_refresh` degraded → normal. Symmetric to v0.8.9's red crash toast: on the exact poll that flips the panel out of degraded mode, the fragment carries a green `hx-swap-oob` banner into `#toast-region`. Detection is pure-HTMX: the degraded wrapper sets `hx-headers='{"X-LV-DCP-Was-Degraded": "true"}'`; the route sees the marker on a now-successful assembly and flips `show_recovery_toast=True` for exactly one response. The new successful wrapper omits the marker → no replay. No cookies, no session store, no JS. Closes the top known gap from v0.8.10 (silent self-heal).
 - **Phase 10** (next) — Java/Kotlin/Swift parsers, VS Code marketplace, Obsidian nightly sync.
 
 ## Contributing

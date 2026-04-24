@@ -646,3 +646,163 @@ async def test_project_detail_full_page_still_500s_on_internal_error(
     assert response.status_code == 500
     # The degraded card must not leak into the error body.
     assert "Refresh status unavailable" not in response.text
+
+
+# -------- v0.8.11: recovery toast on degraded → normal transition ----
+
+
+@pytest.mark.asyncio
+async def test_degraded_wrapper_carries_was_degraded_marker_header(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Degraded shell emits ``hx-headers`` so the next HTMX poll round-trips the marker.
+
+    Without the marker the server would have no way to tell a
+    degraded→normal transition from a plain steady-state normal poll,
+    and the recovery toast could never fire.
+    """
+    _seed_project(tmp_path, monkeypatch)
+
+    import apps.ui.routes.project as project_route
+
+    def _boom() -> object:
+        raise RuntimeError("transient hiccup")
+
+    monkeypatch.setattr(project_route, "build_workspace_status", _boom)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            "/api/project/anything/wiki-refresh",
+            headers={"HX-Request": "true"},
+        )
+
+    assert response.status_code == 200
+    # The hx-headers attribute carries the marker as JSON — HTMX echoes
+    # each key in the JSON object as a request header on the next fetch.
+    assert "hx-headers=" in response.text
+    assert "X-LV-DCP-Was-Degraded" in response.text
+    assert '"true"' in response.text
+
+
+@pytest.mark.asyncio
+async def test_recovery_toast_emitted_when_was_degraded_header_present_and_now_recovered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """HX-Request + X-LV-DCP-Was-Degraded marker + successful assembly → green recovery toast."""
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=0, modules_updated=3, elapsed_seconds=1.5)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={
+                "HX-Request": "true",
+                "X-LV-DCP-Was-Degraded": "true",
+            },
+        )
+
+    assert response.status_code == 200
+    # Green recovery toast must be present with the OOB swap target.
+    assert f'id="recovery-toast-{_slug(project)}"' in response.text
+    assert 'hx-swap-oob="beforeend:#toast-region"' in response.text
+    assert "Wiki refresh status recovered" in response.text
+    # Normal clean card is still present — the panel swapped back to normal.
+    assert "Last refresh: clean" in response.text
+    # The new wrapper MUST NOT re-emit the marker, or the next poll would
+    # replay the toast on every tick. Confirm by slicing just the wrapper.
+    panel_slice = response.text.split('id="wiki-refresh-panel"', 1)[1].split(">", 1)[0]
+    assert "hx-headers" not in panel_slice
+
+
+@pytest.mark.asyncio
+async def test_recovery_toast_absent_without_was_degraded_header(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Steady-state normal polling never emits a recovery toast."""
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=0, modules_updated=2, elapsed_seconds=1.0)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={"HX-Request": "true"},
+        )
+
+    assert response.status_code == 200
+    assert "Wiki refresh status recovered" not in response.text
+    assert "recovery-toast-" not in response.text
+    # Sanity: the normal clean card is still there.
+    assert "Last refresh: clean" in response.text
+
+
+@pytest.mark.asyncio
+async def test_recovery_toast_absent_when_still_degraded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Infra still broken → response stays degraded, no recovery toast even with the marker.
+
+    A degraded-to-degraded transition is still "broken", not "recovered".
+    The marker re-echoes on the next poll (still a degraded wrapper), so
+    when the infra eventually comes back the toast fires then.
+    """
+    _seed_project(tmp_path, monkeypatch)
+
+    import apps.ui.routes.project as project_route
+
+    def _boom() -> object:
+        raise RuntimeError("still broken")
+
+    monkeypatch.setattr(project_route, "build_workspace_status", _boom)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            "/api/project/anything/wiki-refresh",
+            headers={
+                "HX-Request": "true",
+                "X-LV-DCP-Was-Degraded": "true",
+            },
+        )
+
+    assert response.status_code == 200
+    # Still degraded.
+    assert "Refresh status unavailable" in response.text
+    # No recovery toast.
+    assert "Wiki refresh status recovered" not in response.text
+    assert "recovery-toast-" not in response.text
+    # Marker STILL on the wrapper so the next poll can try again.
+    assert "X-LV-DCP-Was-Degraded" in response.text
+
+
+@pytest.mark.asyncio
+async def test_recovery_toast_absent_on_non_htmx_full_page_load(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A user navigating to /project/<slug> after an old recovery never sees the toast.
+
+    The full page path renders the partial with ``show_recovery_toast``
+    absent from the template context entirely, so even if a user
+    manually spoofed the marker header the page wouldn't flash.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=0, modules_updated=2, elapsed_seconds=1.0)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        # Full page load — note NO HX-Request header, despite the spoofed marker.
+        response = await client.get(
+            f"/project/{_slug(project)}",
+            headers={"X-LV-DCP-Was-Degraded": "true"},
+        )
+
+    assert response.status_code == 200
+    assert "Wiki refresh status recovered" not in response.text
+    assert "recovery-toast-" not in response.text

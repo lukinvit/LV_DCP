@@ -39,6 +39,15 @@ _CRASH_TOAST_FRESH_SECONDS = 15.0
 #: an unexpected crash and does trigger the toast.
 _NON_CRASH_EXIT_CODES: frozenset[int] = frozenset({0, 143})
 
+#: Request header the v0.8.10 degraded wrapper echoes on its next
+#: HTMX poll. When a subsequent fetch reaches this route *without* an
+#: internal exception, the presence of this header tells us we just
+#: transitioned degraded → normal, so the response emits a green
+#: recovery toast alongside the fresh panel. The degraded wrapper
+#: sets it via ``hx-headers='{"X-LV-DCP-Was-Degraded": "true"}'`` —
+#: pure HTMX, no cookies, no server-side session state.
+_WAS_DEGRADED_HEADER = "X-LV-DCP-Was-Degraded"
+
 
 def _find_project_root_by_slug(workspace: WorkspaceStatus, slug: str) -> str | None:
     for card in workspace.projects:
@@ -114,6 +123,34 @@ def _should_flash_crash_toast(wr: WikiBackgroundRefresh | None, request: Request
     return (time.time() - wr.last_completed_at) <= _CRASH_TOAST_FRESH_SECONDS
 
 
+def _should_flash_recovery_toast(request: Request) -> bool:
+    """Decide whether the fragment response carries a one-shot recovery toast.
+
+    Fires on the exact polling tick that flips ``degraded → normal`` —
+    i.e. the first successful status assembly after one or more
+    consecutive degraded responses. Two conditions must hold:
+
+    1. ``HX-Request: true`` header is present — rules out full page
+       loads and manual ``curl`` hits. A user navigating to
+       ``/project/<slug>`` after a long-past recovery never sees the
+       flash.
+    2. The request carries the :data:`_WAS_DEGRADED_HEADER` marker —
+       set by HTMX on polls fired from a degraded wrapper (via the
+       ``hx-headers`` attribute added in the partial). Absent on any
+       poll fired from a normal / running / idle wrapper, so the
+       toast fires exactly once per recovery event.
+
+    The marker is a pure-HTMX round trip: no cookie, no session, no
+    memory. That makes worker restarts, multiple browser tabs, and
+    curl-based testing trivially correct — each element tracks its
+    own degraded/normal state via the HTML attribute HTMX rewrites on
+    every swap.
+    """
+    if request.headers.get("HX-Request", "").lower() != "true":
+        return False
+    return request.headers.get(_WAS_DEGRADED_HEADER, "").lower() == "true"
+
+
 @router.get("/api/project/{slug}/wiki-refresh", response_class=HTMLResponse)
 def wiki_refresh_fragment(slug: str, request: Request) -> _TemplateResponse:
     """HTMX polling endpoint: render just the wiki_refresh partial.
@@ -144,6 +181,15 @@ def wiki_refresh_fragment(slug: str, request: Request) -> _TemplateResponse:
     ``hx-get`` from the wrapper, stopping polling forever for a
     transient failure. Explicit 404 for unknown slug is preserved so
     genuine client-side bugs still surface.
+
+    **Recovery toast (v0.8.11+):** the degraded wrapper carries
+    ``hx-headers='{"X-LV-DCP-Was-Degraded": "true"}'`` so its next
+    HTMX poll echoes the marker back. When we see the marker on a
+    now-successful assembly it means we just self-healed — the
+    response adds a green OOB toast alongside the fresh panel so
+    scrolled-away users notice the recovery. The new successful
+    wrapper does NOT re-emit the marker, so subsequent polls don't
+    replay the toast. See :func:`_should_flash_recovery_toast`.
     """
     templates = request.app.state.templates
     try:
@@ -180,6 +226,7 @@ def wiki_refresh_fragment(slug: str, request: Request) -> _TemplateResponse:
             "wr": wr,
             "slug": slug,
             "show_crash_toast": _should_flash_crash_toast(wr, request),
+            "show_recovery_toast": _should_flash_recovery_toast(request),
         },
     )
 

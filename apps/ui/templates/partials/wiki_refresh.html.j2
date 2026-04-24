@@ -22,6 +22,17 @@
       underlying infra recovers. Without this flag a transient error
       would either 500 (HTMX keeps hammering at 2 s) or silently drop
       ``hx-get`` (polling stops forever).
+    - ``show_recovery_toast`` : bool (optional, v0.8.11+) — set by the
+      fragment endpoint on the exact tick that flips degraded → normal.
+      Detection is pure-HTMX: the degraded wrapper carries an
+      ``hx-headers='{"X-LV-DCP-Was-Degraded": "true"}'`` marker that
+      HTMX echoes on the next fetch from that element; the route sees
+      the header on a now-successful assembly and flips this flag on
+      for the one response. The partial then emits a green
+      ``hx-swap-oob="beforeend:#toast-region"`` banner so scrolled-
+      away users notice the self-heal. The new successful wrapper
+      does NOT re-emit the marker, so the toast fires exactly once
+      per recovery event.
 
   Shapes (rendered inside a stable outer wrapper so HTMX can swap the
   whole element via ``hx-swap=outerHTML`` every ~2 s during a live
@@ -49,7 +60,7 @@
   without fast polling depending on whether a refresh is live).
 #}
 <div id="wiki-refresh-panel"
-  {%- if degraded and slug %} hx-get="/api/project/{{ slug }}/wiki-refresh" hx-trigger="every 30s" hx-swap="outerHTML"
+  {%- if degraded and slug %} hx-get="/api/project/{{ slug }}/wiki-refresh" hx-trigger="every 30s" hx-swap="outerHTML" hx-headers='{"X-LV-DCP-Was-Degraded": "true"}'
   {%- elif wr and wr.in_progress and slug %} hx-get="/api/project/{{ slug }}/wiki-refresh" hx-trigger="every 2s" hx-swap="outerHTML"
   {%- endif %}>
 {% if degraded %}
@@ -145,6 +156,36 @@
             exited {{ wr.last_exit_code }}
             {% if wr.last_modules_updated is not none %} after {{ wr.last_modules_updated }} module{{ "s" if wr.last_modules_updated != 1 else "" }}{% endif %}.
             See the panel below for the log tail.
+        </div>
+    </div>
+    <button type="button"
+            onclick="this.parentElement.remove()"
+            aria-label="Dismiss"
+            style="background:transparent;border:0;color:#fff;opacity:0.8;cursor:pointer;font-size:18px;line-height:1;padding:0 2px;">&times;</button>
+</div>
+{% endif %}
+{% if show_recovery_toast and slug %}
+{# OOB flash banner for the degraded → normal transition (v0.8.11+). The
+   degraded wrapper carries ``hx-headers='{"X-LV-DCP-Was-Degraded":
+   "true"}'`` so the next HTMX poll round-trips the marker to the route.
+   When the route sees the marker on a now-successful assembly it sets
+   ``show_recovery_toast=True``. The new successful wrapper does NOT
+   emit the marker, so subsequent polls don't replay the toast. On a
+   full page reload the freshly rendered partial also omits the marker
+   (no HTMX session state survives), so a user who navigates after an
+   old recovery won't get re-flashed. ID is deterministic per-slug so
+   a pathological double-fetch during the same recovery replaces the
+   same toast instead of stacking duplicates. #}
+<div id="recovery-toast-{{ slug }}"
+     hx-swap-oob="beforeend:#toast-region"
+     style="pointer-events:auto;background:#2e7d32;color:#fff;padding:12px 16px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.18);display:flex;align-items:flex-start;gap:12px;font-size:13px;line-height:1.4;">
+    <div style="flex:1;min-width:0;">
+        <div style="font-weight:bold;margin-bottom:2px;">
+            &#x2713; Wiki refresh status recovered
+        </div>
+        <div style="opacity:0.92;">
+            <code style="background:rgba(255,255,255,0.15);padding:1px 5px;border-radius:3px;color:#fff;">{{ slug }}</code>
+            is reachable again. Resuming normal polling.
         </div>
     </div>
     <button type="button"
