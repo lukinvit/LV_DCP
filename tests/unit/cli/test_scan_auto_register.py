@@ -38,3 +38,26 @@ def test_auto_register_idempotent(tmp_path: Path) -> None:
 
     cfg = load_config(config_path)
     assert len(cfg.projects) == 1
+
+
+def test_auto_register_skips_worktree_paths(tmp_path: Path) -> None:
+    """Regression guard for v0.8.35: ``ctx scan`` running inside a
+    ship-ceremony worktree (``.claude/worktrees/<branch>/``) must NOT
+    auto-register the worktree into the user's real ``~/.lvdcp/config.yaml``.
+    The worktree disappears the moment it is cleaned up; registering it
+    just accumulates audit noise that ``ctx registry prune`` then has to
+    chase down.
+    """
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("version: 1\nprojects: []\n")
+    worktree = tmp_path / ".claude" / "worktrees" / "v0.8.35-abc"
+    worktree.mkdir(parents=True)
+    (worktree / ".git").mkdir()  # marker present
+    (worktree / "pyproject.toml").write_text("[project]\nname='wt'\n")
+
+    _auto_register(config_path, worktree)
+
+    from libs.core.projects_config import load_config
+
+    cfg = load_config(config_path)
+    assert cfg.projects == []

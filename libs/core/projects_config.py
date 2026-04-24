@@ -21,6 +21,40 @@ class ProjectEntry(BaseModel):
     last_scan_status: str = "pending"
 
 
+# Marker segments that identify transient / non-user projects in the registry:
+# - ``.claude/worktrees/*`` entries are spawned by ship-ceremony worktrees.
+# - ``sample_repo`` is the reused test fixture scanned during unit tests.
+#
+# Kept in ``libs/core`` (stdlib + pydantic only) so both the write path
+# (``apps/agent/config.add_project``) and the audit/metrics readers
+# (``libs/status/*``) share one definition.
+_TRANSIENT_WORKTREE_MARKER = (".claude", "worktrees")
+_TRANSIENT_FIXTURE_NAMES = frozenset({"sample_repo"})
+
+
+def is_transient(root: Path) -> bool:
+    """Return ``True`` if ``root`` looks like a throw-away project path.
+
+    A path is transient when it either
+    - contains a ``.claude/worktrees/`` segment pair (ship-ceremony worktrees), or
+    - ends in ``sample_repo`` (the shared pytest fixture).
+
+    Transient paths pollute the "projects active" dashboard signal and show up
+    as audit noise because they vanish as soon as the worktree/test tears down.
+    Writers that auto-register (``ctx scan``) should skip them by default;
+    explicit user intent (``ctx watch add``) may still register them by passing
+    ``allow_transient=True`` to ``add_project``.
+    """
+    parts = root.parts
+    for i in range(len(parts) - 1):
+        if (
+            parts[i] == _TRANSIENT_WORKTREE_MARKER[0]
+            and parts[i + 1] == _TRANSIENT_WORKTREE_MARKER[1]
+        ):
+            return True
+    return root.name in _TRANSIENT_FIXTURE_NAMES
+
+
 def _validate_env_var_name(v: str) -> str:
     """Ensure the field contains an env var NAME, not an actual secret."""
     if v.startswith(("sk-", "key-", "token-", "ghp_", "ghs_", "AKIA")):

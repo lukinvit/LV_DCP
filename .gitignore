@@ -59,6 +59,7 @@ coverage.xml
 data/
 dist/
 env/
+eval-results/
 htmlcov/
 logs/
 pgdata/

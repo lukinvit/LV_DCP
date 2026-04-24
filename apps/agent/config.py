@@ -15,6 +15,7 @@ from pathlib import Path
 from libs.core.projects_config import (
     DaemonConfig,
     ProjectEntry,
+    is_transient,
     list_projects,
     load_config,
     save_config,
@@ -24,6 +25,7 @@ __all__ = [
     "DaemonConfig",
     "ProjectEntry",
     "add_project",
+    "is_transient",
     "list_projects",
     "load_config",
     "remove_project",
@@ -32,9 +34,24 @@ __all__ = [
 ]
 
 
-def add_project(config_path: Path, root: Path) -> None:
+def add_project(
+    config_path: Path,
+    root: Path,
+    *,
+    allow_transient: bool = False,
+) -> None:
+    """Register ``root`` in ``~/.lvdcp/config.yaml``.
+
+    Transient paths (ship-ceremony worktrees under ``.claude/worktrees/`` and
+    the ``sample_repo`` test fixture) are skipped silently by default — they
+    only pile up audit noise that ``ctx registry prune`` would later have to
+    clean. Pass ``allow_transient=True`` for explicit user intent (e.g.
+    ``ctx watch add <path>`` deliberately targeting a worktree).
+    """
     cfg = load_config(config_path)
     root_resolved = root.resolve()
+    if not allow_transient and is_transient(root_resolved):
+        return
     if any(p.root == root_resolved for p in cfg.projects):
         return
     cfg.projects.append(
