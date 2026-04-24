@@ -1182,7 +1182,10 @@ async def test_crash_toast_render_emits_telemetry_event(
     assert getattr(record, "slug", None) == _slug(project)
     assert getattr(record, "kind", None) == "crash"
     # Crash path never carries a "trigger" field — only recovery does.
-    assert not hasattr(record, "trigger") or record.trigger is None  # type: ignore[attr-defined]
+    # ``getattr`` instead of attr access: ``LogRecord`` has no declared
+    # ``trigger`` attribute, so a direct ``record.trigger`` would fail
+    # mypy even guarded by ``hasattr``.
+    assert not hasattr(record, "trigger") or getattr(record, "trigger", None) is None
 
 
 @pytest.mark.asyncio
