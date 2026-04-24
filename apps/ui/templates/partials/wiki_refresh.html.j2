@@ -192,12 +192,39 @@
    anything underneath. Dismiss button still works during the visible
    window for users who want to clear it immediately. The keyframes
    are inlined next to the toast so they're only present in the DOM
-   when the toast actually renders (no unused CSS on normal polls). #}
+   when the toast actually renders (no unused CSS on normal polls).
+
+   **Accessibility & hover polish (v0.8.13+).** The ``.lvdcp-recovery-
+   toast`` class hangs two small rules off the toast:
+
+     1. ``:hover { animation-play-state: paused !important; }`` — if
+        the user is actively reading the toast when the fade starts,
+        moving the cursor over it pauses the animation for as long as
+        they hover. Moving off resumes the fade from the current point
+        (not from zero). Answers the "I'm mid-glance, don't take this
+        away yet" case without adding a pause button.
+     2. ``@media (prefers-reduced-motion: reduce)`` kills the animation
+        entirely for users who've opted out of OS-level motion (screen
+        reader, vestibular sensitivity, etc.). The toast then stays
+        sticky like the crash toast — manual dismiss only — which is
+        the correct fallback: a user who explicitly disabled motion
+        won't miss a static banner, and we don't need JS to force a
+        delayed dismiss.
+
+   The ``!important`` on both rules exists because the inline ``animation``
+   shorthand on the element has higher specificity than a class rule.
+   Breaking the shorthand into longhand would avoid ``!important`` but
+   cost far more template weight than the three tokens save. #}
 <style>@keyframes lvdcp-toast-fadeout {
     0%, 75% { opacity: 1; }
     100% { opacity: 0; pointer-events: none; }
+}
+.lvdcp-recovery-toast:hover { animation-play-state: paused !important; }
+@media (prefers-reduced-motion: reduce) {
+    .lvdcp-recovery-toast { animation: none !important; opacity: 1 !important; pointer-events: auto !important; }
 }</style>
 <div id="recovery-toast-{{ slug }}"
+     class="lvdcp-recovery-toast"
      hx-swap-oob="beforeend:#toast-region"
      style="pointer-events:auto;background:#2e7d32;color:#fff;padding:12px 16px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.18);display:flex;align-items:flex-start;gap:12px;font-size:13px;line-height:1.4;animation:lvdcp-toast-fadeout 8s forwards;">
     <div style="flex:1;min-width:0;">

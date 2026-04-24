@@ -905,3 +905,111 @@ async def test_no_fadeout_keyframes_when_no_recovery_toast_rendered(
     assert "Last refresh: clean" in response.text
     # No fadeout CSS because no toast is present.
     assert "lvdcp-toast-fadeout" not in response.text
+
+
+# -------- v0.8.13: accessibility + hover polish on the fadeout -------
+
+
+@pytest.mark.asyncio
+async def test_recovery_toast_respects_prefers_reduced_motion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recovery toast carries a ``prefers-reduced-motion`` media query.
+
+    Users who've opted out of OS-level motion (screen reader, vestibular
+    sensitivity, etc.) should not see the fade — the toast stays sticky
+    like the crash toast instead. The rule is ``animation: none``,
+    ``opacity: 1``, ``pointer-events: auto`` (all ``!important`` to
+    override the inline ``animation`` shorthand). The ``.lvdcp-recovery-
+    toast`` class must be attached to the toast div so the rule has a
+    target to hit.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=0, modules_updated=3, elapsed_seconds=1.5)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={
+                "HX-Request": "true",
+                "X-LV-DCP-Was-Degraded": "true",
+            },
+        )
+
+    assert response.status_code == 200
+    # The class hook must be present on the toast div.
+    assert 'class="lvdcp-recovery-toast"' in response.text
+    # The reduced-motion media query must be present.
+    assert "@media (prefers-reduced-motion: reduce)" in response.text
+    # Inside it, the animation must be cancelled and full opacity pinned.
+    assert "animation: none !important" in response.text
+    assert "opacity: 1 !important" in response.text
+    # And the toast must remain interactive (dismiss button stays clickable).
+    assert "pointer-events: auto !important" in response.text
+
+
+@pytest.mark.asyncio
+async def test_recovery_toast_pauses_on_hover(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recovery toast CSS pauses the fade animation while the cursor is over it.
+
+    If a user is mid-glance when the fade starts, moving the cursor onto
+    the toast freezes it at the current opacity. Moving off resumes.
+    Implemented as ``.lvdcp-recovery-toast:hover { animation-play-state:
+    paused !important; }`` — ``!important`` is needed to override the
+    inline ``animation`` shorthand which resets play-state to ``running``.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=0, modules_updated=3, elapsed_seconds=1.5)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={
+                "HX-Request": "true",
+                "X-LV-DCP-Was-Degraded": "true",
+            },
+        )
+
+    assert response.status_code == 200
+    # Class selector for hover is present.
+    assert ".lvdcp-recovery-toast:hover" in response.text
+    # Paused state is applied with !important to beat the inline shorthand.
+    assert "animation-play-state: paused !important" in response.text
+
+
+@pytest.mark.asyncio
+async def test_no_a11y_css_when_no_recovery_toast_rendered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Normal idle poll without a recovery toast ships zero a11y CSS.
+
+    Parallel to ``test_no_fadeout_keyframes_when_no_recovery_toast_
+    rendered``: the hover rule and the ``prefers-reduced-motion`` media
+    query live inside the same ``{% if show_recovery_toast %}`` guard as
+    the keyframes, so a clean idle response must not carry them either.
+    Prevents accidentally leaving a11y rules in a non-toast response.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=0, modules_updated=2, elapsed_seconds=1.0)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={"HX-Request": "true"},
+        )
+
+    assert response.status_code == 200
+    assert "Last refresh: clean" in response.text
+    # Neither the media query nor the hover selector nor the class hook
+    # should be present when no toast renders.
+    assert "prefers-reduced-motion" not in response.text
+    assert ".lvdcp-recovery-toast:hover" not in response.text
+    assert "lvdcp-recovery-toast" not in response.text
