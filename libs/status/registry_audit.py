@@ -35,6 +35,7 @@ class ProjectAudit:
     packs_total: int
     last_scan_at_iso: str | None
     last_scan_age_hours: float | None
+    missing: bool = False  # root directory absent on disk? (v0.8.37)
 
 
 def _parse_iso(ts: str | None) -> float | None:
@@ -85,8 +86,12 @@ def audit_registry(
     seven_days_ago = current - 7 * 86400
     rows: list[ProjectAudit] = []
     for entry in list_projects(config_path):
+        # Compute root-presence and cache-presence independently:
+        # a tombstone (root gone from disk) has `missing=True` regardless of
+        # whether `.context/cache.db` would exist if the root still did.
+        missing = not entry.root.exists()
         cache_db = entry.root / ".context" / "cache.db"
-        scanned = cache_db.exists()
+        scanned = (not missing) and cache_db.exists()
         total, recent = (
             _count_packs(cache_db, now=current, seven_days_ago=seven_days_ago)
             if scanned
@@ -104,6 +109,7 @@ def audit_registry(
                 packs_total=total,
                 last_scan_at_iso=entry.last_scan_at_iso,
                 last_scan_age_hours=age_hours,
+                missing=missing,
             )
         )
     return rows
@@ -121,6 +127,16 @@ def is_stale(row: ProjectAudit, *, older_than_days: int = 30) -> bool:
         # Never scanned — treat as stale so it shows up in --stale listings.
         return True
     return row.last_scan_age_hours >= older_than_days * 24
+
+
+def is_missing(row: ProjectAudit) -> bool:
+    """Row's registered root directory is absent on disk.
+
+    Companion to ``is_stale``: surfaces tombstones (deleted worktrees,
+    moved folders) that the staleness gate would take 30 days to notice.
+    Independent of ``kind`` and scan age. Pure read — no mutation.
+    """
+    return row.missing
 
 
 def iso_utc(ts: float) -> str:

@@ -277,3 +277,57 @@ def test_registry_prune_missing_nothing_to_do(
     assert result.exit_code == 0, result.stdout
     assert "nothing to do" in result.stdout
     assert "missing root" in result.stdout
+
+
+# ---- ls --missing (v0.8.37) ----------------------------------------------
+
+
+def test_registry_ls_missing_filters_to_tombstones(missing_cfg: Path) -> None:
+    """`ctx registry ls --missing --json` returns only the deleted-root row."""
+    result = CliRunner().invoke(app, ["registry", "ls", "--missing", "--json"])
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert len(payload) == 1
+    assert "deleted-today" in payload[0]["root"]
+    assert payload[0]["missing"] is True
+
+
+def test_registry_ls_missing_text_shows_MISS_marker(missing_cfg: Path) -> None:
+    """The text table surfaces tombstones in the SCAN column as `MISS`."""
+    result = CliRunner().invoke(app, ["registry", "ls", "--missing"])
+    assert result.exit_code == 0, result.stdout
+    assert "deleted-today" in result.stdout
+    assert "MISS" in result.stdout
+
+
+def test_registry_ls_missing_composes_with_kind(missing_cfg: Path) -> None:
+    """`--missing` AND `--kind` compose: transient tombstone shows up;
+    real tombstone (if any) is filtered out when --kind transient."""
+    result = CliRunner().invoke(
+        app, ["registry", "ls", "--missing", "--kind", "transient", "--json"]
+    )
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    # The missing_cfg fixture's deleted entry lives under .claude/worktrees/ → transient.
+    assert len(payload) == 1
+    assert payload[0]["kind"] == "transient"
+    assert payload[0]["missing"] is True
+
+
+def test_registry_ls_missing_empty_when_all_roots_exist(cfg: Path) -> None:
+    """When every registered root exists, `ls --missing` returns nothing."""
+    result = CliRunner().invoke(app, ["registry", "ls", "--missing", "--json"])
+    assert result.exit_code == 0, result.stdout
+    assert json.loads(result.stdout) == []
+
+
+def test_registry_ls_json_carries_missing_field(cfg: Path) -> None:
+    """Every row in `ls --json` carries the new `missing` boolean field."""
+    result = CliRunner().invoke(app, ["registry", "ls", "--json"])
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert len(payload) == 2
+    for row in payload:
+        assert "missing" in row
+        # All fixture paths exist on disk in the `cfg` fixture.
+        assert row["missing"] is False
