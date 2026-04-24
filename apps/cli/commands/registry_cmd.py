@@ -109,7 +109,7 @@ def prune_cmd(
         30,
         "--older-than",
         help="Staleness cutoff in days (default 30). Entries with zero packs_total "
-        "and a last scan older than this are eligible.",
+        "and a last scan older than this are eligible. Ignored when --missing is set.",
     ),
     kind: str = typer.Option(
         "transient",
@@ -117,7 +117,18 @@ def prune_cmd(
         help=(
             "Which classification to prune: transient | real | all. "
             "Default 'transient' — worktree artifacts and test fixtures. "
-            "Use 'real' only when you know dormant user projects should go."
+            "Use 'real' only when you know dormant user projects should go. "
+            "Ignored when --missing is set."
+        ),
+    ),
+    missing: bool = typer.Option(
+        False,
+        "--missing",
+        help=(
+            "Prune entries whose root directory no longer exists on disk — "
+            "tombstones left by deleted worktrees or moved project folders. "
+            "Ignores --older-than and --kind: a gone root is gone regardless "
+            "of classification or scan age. Default off."
         ),
     ),
     yes: bool = typer.Option(
@@ -133,9 +144,17 @@ def prune_cmd(
 ) -> None:
     """Remove stale registry entries. Defaults to dry-run — pass --yes to apply.
 
-    Safety: the default kind is 'transient' (worktree clones, test fixtures) —
-    the population where false-positive pruning has near-zero cost. To prune
-    real user projects, pass `--kind real` explicitly.
+    Two independent eligibility modes:
+
+    - Default (staleness + kind): entries with ``packs_total=0`` and last
+      scan older than ``--older-than`` days, filtered by ``--kind``. The
+      default kind is 'transient' (worktree clones, test fixtures) — the
+      population where false-positive pruning has near-zero cost.
+    - ``--missing``: entries whose root directory no longer exists on disk.
+      Independent predicate — catches deleted worktrees and moved project
+      folders immediately, without waiting for the staleness gate.
+
+    Pass ``--kind real`` or ``--kind all`` to include real user projects.
     """
     if kind not in {"transient", "real", "all"}:
         typer.echo(
@@ -152,17 +171,26 @@ def prune_cmd(
         config_path,
         older_than_days=older_than,
         kind=kind,
+        missing_only=missing,
         apply=yes,
     )
 
     if not result.removed:
-        typer.echo(
-            f"prune: no {kind} entries older than {older_than}d in {config_path} — nothing to do."
-        )
+        if missing:
+            typer.echo(
+                f"prune: no entries with a missing root directory in {config_path} — nothing to do."
+            )
+        else:
+            typer.echo(
+                f"prune: no {kind} entries older than {older_than}d in {config_path} — nothing to do."
+            )
         return
 
     mode = "REMOVED" if result.applied else "would remove (dry-run)"
-    typer.echo(f"prune: {mode} {len(result.removed)} entries ({kind}, >{older_than}d):")
+    if missing:
+        typer.echo(f"prune: {mode} {len(result.removed)} entries (missing root):")
+    else:
+        typer.echo(f"prune: {mode} {len(result.removed)} entries ({kind}, >{older_than}d):")
     for root in result.removed:
         typer.echo(f"  - {root}")
     if result.applied and result.backup_path is not None:

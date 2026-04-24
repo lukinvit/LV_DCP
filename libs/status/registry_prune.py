@@ -41,9 +41,18 @@ def _filter_candidates(
     *,
     older_than_days: int,
     kind: str,
+    missing_only: bool = False,
 ) -> list[ProjectAudit]:
     out: list[ProjectAudit] = []
     for row in rows:
+        if missing_only:
+            # Missing-root mode ignores staleness and kind — the directory
+            # is gone, so there is nothing to recover; the registry entry
+            # is a tombstone.
+            if Path(row.root).exists():
+                continue
+            out.append(row)
+            continue
         if not is_stale(row, older_than_days=older_than_days):
             continue
         if kind not in {"all", row.kind}:
@@ -57,23 +66,31 @@ def plan_prune(
     *,
     older_than_days: int = 30,
     kind: str = "transient",
+    missing_only: bool = False,
 ) -> list[ProjectAudit]:
     """Return registry rows that WOULD be removed under the given policy.
 
     Does not mutate anything. Useful for rendering a dry-run preview.
+
+    When ``missing_only=True`` the staleness and kind filters are ignored —
+    every row whose ``root`` directory no longer exists on disk becomes a
+    candidate. This catches deleted worktrees and moved project roots
+    without waiting 30 days for the staleness gate.
     """
     return _filter_candidates(
         audit_registry(config_path),
         older_than_days=older_than_days,
         kind=kind,
+        missing_only=missing_only,
     )
 
 
-def prune_stale(
+def prune_stale(  # noqa: PLR0913 — each kwarg maps to an independent CLI flag
     config_path: Path,
     *,
     older_than_days: int = 30,
     kind: str = "transient",
+    missing_only: bool = False,
     apply: bool = False,
     backup_suffix: str = ".bak",
 ) -> PruneResult:
@@ -82,10 +99,18 @@ def prune_stale(
     Args:
       config_path: path to `~/.lvdcp/config.yaml` (or equivalent).
       older_than_days: staleness cutoff (default 30 — matches `is_stale`).
+        Ignored when ``missing_only=True``.
       kind: "transient" | "real" | "all". Default "transient" — that's the
         safe bucket (worktree artifacts, test fixtures). Passing "real"
         can remove user projects that haven't been used in a month, so
-        callers who want that must explicitly opt in.
+        callers who want that must explicitly opt in. Ignored when
+        ``missing_only=True``.
+      missing_only: when ``True``, only entries whose root directory does
+        not exist on disk are candidates. Useful for cleaning up tombstone
+        entries left by deleted worktrees or moved project folders without
+        waiting for the staleness gate. Independent of ``kind`` —
+        ship-ceremony worktrees and abandoned user projects alike get
+        caught by this predicate.
       apply: ``False`` returns a preview, ``True`` mutates the file.
         CLI defaults to False; only `--yes` sets True.
       backup_suffix: appended to `config_path.name` for the backup copy
@@ -99,7 +124,12 @@ def prune_stale(
         msg = f"kind must be 'transient', 'real', or 'all'; got {kind!r}"
         raise ValueError(msg)
 
-    candidates = plan_prune(config_path, older_than_days=older_than_days, kind=kind)
+    candidates = plan_prune(
+        config_path,
+        older_than_days=older_than_days,
+        kind=kind,
+        missing_only=missing_only,
+    )
     to_remove = {c.root for c in candidates}
 
     config = load_config(config_path)
