@@ -130,7 +130,7 @@ def build_workspace_status() -> WorkspaceStatus:
 
 
 _EXPECT_SYMBOLS_LANGUAGES = frozenset(
-    {"python", "typescript", "javascript", "go", "rust", "java", "kotlin"}
+    {"python", "typescript", "javascript", "go", "rust", "java", "kotlin", "swift"}
 )
 
 
