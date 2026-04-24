@@ -88,14 +88,22 @@
            ``hx-target`` + ``hx-swap`` point at the outer wrapper so the
            swap replaces the whole panel — identical to what the polling
            tick does. ``hx-disabled-elt="this"`` prevents a double-click
-           from firing two parallel requests. #}
+           from firing two parallel requests.
+
+           **v0.8.15+:** the button also carries ``X-LV-DCP-Retry-Source:
+           manual`` so the route can distinguish "recovery triggered by a
+           30 s poll tick" from "recovery triggered by a user click" when
+           emitting structured-log telemetry. The auto-poll wrapper does
+           NOT send this header, so the absence of the marker on an
+           incoming fetch means trigger=poll. Both paths still render the
+           identical green toast — the distinction lives in logs only. #}
         {% if slug %}
         <button type="button"
                 id="wiki-refresh-retry-{{ slug }}"
                 hx-get="/api/project/{{ slug }}/wiki-refresh"
                 hx-target="#wiki-refresh-panel"
                 hx-swap="outerHTML"
-                hx-headers='{"X-LV-DCP-Was-Degraded": "true"}'
+                hx-headers='{"X-LV-DCP-Was-Degraded": "true", "X-LV-DCP-Retry-Source": "manual"}'
                 hx-disabled-elt="this"
                 style="margin-top:10px;padding:4px 10px;background:#fff;color:#795548;border:1px solid #f9a825;border-radius:4px;font-size:12px;cursor:pointer;">
             Retry now

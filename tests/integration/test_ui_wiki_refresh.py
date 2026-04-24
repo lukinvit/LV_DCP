@@ -1129,8 +1129,207 @@ async def test_retry_now_button_carries_was_degraded_marker_for_recovery_toast(
     assert response.status_code == 200
     # Both the wrapper (for polling) AND the button (for manual click)
     # must carry the marker. Parity = identical recovery-toast UX from
-    # either trigger source.
-    assert response.text.count('hx-headers=\'{"X-LV-DCP-Was-Degraded": "true"}\'') >= 2, (
+    # either trigger source. Count the JSON key/value substring rather
+    # than the full ``hx-headers`` attribute — v0.8.15 added a second
+    # key (``X-LV-DCP-Retry-Source``) to the button's header JSON, so
+    # the exact wrapper string and the exact button string differ, but
+    # the marker pair itself still appears in both.
+    assert response.text.count('"X-LV-DCP-Was-Degraded": "true"') >= 2, (
         "Expected the X-LV-DCP-Was-Degraded marker on BOTH the polling "
         "wrapper and the Retry button."
     )
+
+
+# -------- v0.8.15: toast-render telemetry (structured logs) ----------
+
+
+@pytest.mark.asyncio
+async def test_crash_toast_render_emits_telemetry_event(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Rendering a crash toast emits a structured log event with slug + kind.
+
+    The route logs ``ui.wiki_refresh.toast.rendered`` via stdlib
+    ``logging`` with ``extra={"event": ..., "slug": ..., "kind": "crash"}``
+    when the fragment response carries a one-shot crash toast. Lets
+    observers answer "which projects flap their refresh binary and how
+    often" without having to parse the HTML response.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=1, modules_updated=3, elapsed_seconds=2.1)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    with caplog.at_level("INFO", logger="apps.ui.routes.project"):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                f"/api/project/{_slug(project)}/wiki-refresh",
+                headers={"HX-Request": "true"},
+            )
+
+    assert response.status_code == 200
+    # Sanity: the red crash toast must actually be in the response, so
+    # the telemetry is about the same render path a user would see.
+    assert "Wiki refresh failed" in response.text
+
+    rendered = [r for r in caplog.records if r.getMessage() == "ui.wiki_refresh.toast.rendered"]
+    assert len(rendered) == 1, f"Expected exactly one toast.rendered event; got {len(rendered)}"
+    record = rendered[0]
+    assert record.levelname == "INFO"
+    assert getattr(record, "event", None) == "ui.wiki_refresh.toast.rendered"
+    assert getattr(record, "slug", None) == _slug(project)
+    assert getattr(record, "kind", None) == "crash"
+    # Crash path never carries a "trigger" field — only recovery does.
+    assert not hasattr(record, "trigger") or record.trigger is None  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_recovery_toast_via_poll_emits_trigger_poll(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Auto-poll recovery (no Retry-Source header) classifies trigger=poll.
+
+    The 30 s polling wrapper carries only ``X-LV-DCP-Was-Degraded:
+    true``. When that poll lands on a now-healthy backend the route
+    flips the recovery toast and must log ``trigger=poll`` so observers
+    can separate "auto-recovery" from "user-initiated retry" dominance.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=0, modules_updated=2, elapsed_seconds=1.0)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    with caplog.at_level("INFO", logger="apps.ui.routes.project"):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                f"/api/project/{_slug(project)}/wiki-refresh",
+                headers={
+                    "HX-Request": "true",
+                    "X-LV-DCP-Was-Degraded": "true",
+                },
+            )
+
+    assert response.status_code == 200
+    # Sanity: the green recovery toast is actually in the response.
+    assert "Wiki refresh status recovered" in response.text
+
+    rendered = [r for r in caplog.records if r.getMessage() == "ui.wiki_refresh.toast.rendered"]
+    assert len(rendered) == 1
+    record = rendered[0]
+    assert getattr(record, "kind", None) == "recovery"
+    assert getattr(record, "slug", None) == _slug(project)
+    assert getattr(record, "trigger", None) == "poll"
+
+
+@pytest.mark.asyncio
+async def test_recovery_toast_via_manual_retry_emits_trigger_manual(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Retry-button recovery (X-LV-DCP-Retry-Source: manual) → trigger=manual.
+
+    The v0.8.14 Retry button carries both headers — the degraded marker
+    AND ``X-LV-DCP-Retry-Source: manual``. The route classifies this
+    as ``trigger=manual`` so a "0% of recoveries are manual" signal
+    would flag the button as invisible to users; a "90% manual" signal
+    would flag the 30 s poll cadence as too slow.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=0, modules_updated=2, elapsed_seconds=1.0)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    with caplog.at_level("INFO", logger="apps.ui.routes.project"):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                f"/api/project/{_slug(project)}/wiki-refresh",
+                headers={
+                    "HX-Request": "true",
+                    "X-LV-DCP-Was-Degraded": "true",
+                    "X-LV-DCP-Retry-Source": "manual",
+                },
+            )
+
+    assert response.status_code == 200
+    assert "Wiki refresh status recovered" in response.text
+
+    rendered = [r for r in caplog.records if r.getMessage() == "ui.wiki_refresh.toast.rendered"]
+    assert len(rendered) == 1
+    record = rendered[0]
+    assert getattr(record, "kind", None) == "recovery"
+    assert getattr(record, "trigger", None) == "manual"
+
+
+@pytest.mark.asyncio
+async def test_no_telemetry_emitted_on_idle_poll(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Clean poll with no toast path emits zero toast.rendered events.
+
+    An ordinary 2 s polling tick on a healthy running/idle panel must
+    NOT pollute logs with ``toast.rendered`` — the event name implies
+    a toast actually appeared in the user's DOM. Firing the event on
+    every clean poll would drown real signal in noise.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=0, modules_updated=2, elapsed_seconds=1.0)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    with caplog.at_level("INFO", logger="apps.ui.routes.project"):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                f"/api/project/{_slug(project)}/wiki-refresh",
+                headers={"HX-Request": "true"},
+            )
+
+    assert response.status_code == 200
+    assert "Last refresh: clean" in response.text
+
+    rendered = [r for r in caplog.records if r.getMessage() == "ui.wiki_refresh.toast.rendered"]
+    assert len(rendered) == 0
+
+
+@pytest.mark.asyncio
+async def test_retry_button_carries_retry_source_header(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The v0.8.14 Retry button declares ``X-LV-DCP-Retry-Source: manual``.
+
+    Locks in the template contract that enables trigger classification
+    on the server side. Without this header the route would classify
+    any recovery as ``trigger=poll`` regardless of source, because the
+    polling wrapper never sets the header. The button's hx-headers JSON
+    must include both keys; the wrapper's must include only the degraded
+    marker.
+    """
+    project = _seed_project(tmp_path, monkeypatch)
+
+    import apps.ui.routes.project as project_route
+
+    def _boom(_root: Path) -> object:
+        raise RuntimeError("transient hiccup")
+
+    monkeypatch.setattr(project_route, "build_wiki_refresh", _boom)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(
+            f"/api/project/{_slug(project)}/wiki-refresh",
+            headers={"HX-Request": "true"},
+        )
+
+    assert response.status_code == 200
+    # The Retry button's header JSON carries both markers.
+    assert '"X-LV-DCP-Retry-Source": "manual"' in response.text
+    # Only the button should have the retry-source marker; the polling
+    # wrapper must not (its absence is the "trigger=poll" signal).
+    assert response.text.count('"X-LV-DCP-Retry-Source": "manual"') == 1

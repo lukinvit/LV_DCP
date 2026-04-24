@@ -48,6 +48,14 @@ _NON_CRASH_EXIT_CODES: frozenset[int] = frozenset({0, 143})
 #: pure HTMX, no cookies, no server-side session state.
 _WAS_DEGRADED_HEADER = "X-LV-DCP-Was-Degraded"
 
+#: Request header the v0.8.14 "Retry now" button adds to its fetch
+#: (alongside :data:`_WAS_DEGRADED_HEADER`). Lets the route distinguish
+#: recovery triggered by a 30 s polling tick (header absent → trigger
+#: "poll") from recovery triggered by a user click (header == "manual"
+#: → trigger "manual") when emitting telemetry. Auto-poll wrappers do
+#: NOT send this header, so the absence alone classifies the trigger.
+_RETRY_SOURCE_HEADER = "X-LV-DCP-Retry-Source"
+
 
 def _find_project_root_by_slug(workspace: WorkspaceStatus, slug: str) -> str | None:
     for card in workspace.projects:
@@ -151,6 +159,28 @@ def _should_flash_recovery_toast(request: Request) -> bool:
     return request.headers.get(_WAS_DEGRADED_HEADER, "").lower() == "true"
 
 
+def _classify_recovery_trigger(request: Request) -> str:
+    """Classify a recovery-toast fetch as ``"manual"`` or ``"poll"``.
+
+    The v0.8.14 "Retry now" button carries
+    ``hx-headers='{"X-LV-DCP-Retry-Source": "manual"}'`` on its request;
+    the auto-poll wrapper carries no such header. So the presence of
+    ``manual`` in :data:`_RETRY_SOURCE_HEADER` classifies the trigger as
+    a user click; its absence (or any other value) defaults to ``poll``.
+
+    Used for telemetry only — both paths render the identical green
+    toast and take the identical code branch; we only want to distinguish
+    them in logs to answer questions like "do users actually click
+    Retry or does auto-poll dominate?". Defaulting to ``poll`` on
+    unknown values is conservative: a garbled header shouldn't inflate
+    the manual-click count.
+    """
+    value = request.headers.get(_RETRY_SOURCE_HEADER, "").lower()
+    if value == "manual":
+        return "manual"
+    return "poll"
+
+
 @router.get("/api/project/{slug}/wiki-refresh", response_class=HTMLResponse)
 def wiki_refresh_fragment(slug: str, request: Request) -> _TemplateResponse:
     """HTMX polling endpoint: render just the wiki_refresh partial.
@@ -219,14 +249,57 @@ def wiki_refresh_fragment(slug: str, request: Request) -> _TemplateResponse:
                 "degraded": True,
             },
         )
+    show_crash_toast = _should_flash_crash_toast(wr, request)
+    show_recovery_toast = _should_flash_recovery_toast(request)
+
+    # v0.8.15+: structured-log telemetry for the one-shot toast render
+    # paths. Answers two questions that have been invisible since the
+    # toasts shipped: (1) how often does a given project actually
+    # surface each kind of toast, and (2) for recovery toasts, are
+    # users clicking the v0.8.14 "Retry now" button or is the 30 s
+    # auto-poll dominating? Both questions matter for tuning — e.g. a
+    # slug that flaps crash-toasts every few hours deserves a look at
+    # the refresh binary, and a "manual" share near zero would mean
+    # the Retry button is invisible to users.
+    #
+    # We emit stdlib ``log.info`` events with keyword fields via
+    # ``extra=``; they ride through the same handler chain as every
+    # other route log, so a future structlog / OTel adapter picks them
+    # up without further plumbing. The event name is namespaced
+    # (``ui.wiki_refresh.toast.rendered``) so log aggregators can
+    # filter on it cheaply. Dismiss-side telemetry is deliberately
+    # out of scope for this release — the Dismiss button is a pure
+    # ``onclick="this.parentElement.remove()"`` DOM op and wiring up a
+    # JS beacon for it would cost more than the signal is worth at
+    # current scale.
+    if show_crash_toast:
+        log.info(
+            "ui.wiki_refresh.toast.rendered",
+            extra={
+                "event": "ui.wiki_refresh.toast.rendered",
+                "slug": slug,
+                "kind": "crash",
+            },
+        )
+    if show_recovery_toast:
+        log.info(
+            "ui.wiki_refresh.toast.rendered",
+            extra={
+                "event": "ui.wiki_refresh.toast.rendered",
+                "slug": slug,
+                "kind": "recovery",
+                "trigger": _classify_recovery_trigger(request),
+            },
+        )
+
     return templates.TemplateResponse(  # type: ignore[no-any-return]
         request=request,
         name="partials/wiki_refresh.html.j2",
         context={
             "wr": wr,
             "slug": slug,
-            "show_crash_toast": _should_flash_crash_toast(wr, request),
-            "show_recovery_toast": _should_flash_recovery_toast(request),
+            "show_crash_toast": show_crash_toast,
+            "show_recovery_toast": show_recovery_toast,
         },
     )
 
