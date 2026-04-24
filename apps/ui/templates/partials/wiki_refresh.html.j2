@@ -1,17 +1,31 @@
 {#
   Wiki background refresh panel.
 
-  Renders three visually distinct shapes driven by `status.wiki_refresh`:
+  Context parameters (set via ``{% with wr=..., slug=... %}`` at the
+  call site, so this partial is renderable both from the full
+  ``project.html.j2`` page and from the HTMX polling fragment endpoint):
 
-    1. Running   — blue left-border card with pulsing dot, phase, progress
-                   bar, current module, pid.
-    2. Clean/SIGTERM/Failed — green/gray/red card summarising last run.
-    3. Nothing to say — partial renders nothing (aggregator returns None
-       when there is no lock, no .refresh.last, or the copilot import
-       itself fails; we also skip when the snapshot is populated but has
-       no in-progress state AND no last-run record).
+    - ``wr``   : ``WikiBackgroundRefresh | None`` — the snapshot to render.
+    - ``slug`` : project slug — used for the HTMX polling URL.
+
+  Shapes (rendered inside a stable outer wrapper so HTMX can swap the
+  whole element via ``hx-swap=outerHTML`` every ~2 s during a live
+  refresh):
+
+    1. nothing to render (wr is None, or populated but idle with no
+       last-run record) → outer wrapper is emitted empty, with no
+       ``hx-get`` so HTMX is silent.
+    2. Running   → blue left-border card with pulsing dot, phase,
+       progress bar, current module, pid. Outer wrapper carries
+       ``hx-get`` + ``hx-trigger="every 2s"`` + ``hx-swap="outerHTML"``
+       so the client polls ``/api/project/<slug>/wiki-refresh``.
+    3. Clean / SIGTERM / Failed → green/gray/red static card. Outer
+       wrapper has no ``hx-get`` so polling stops.
+
+  Transition "running → done" works because HTMX swaps the full outer
+  element: the new DOM has no ``hx-get`` → no further timers fire.
 #}
-{% set wr = status.wiki_refresh %}
+<div id="wiki-refresh-panel"{% if wr and wr.in_progress and slug %} hx-get="/api/project/{{ slug }}/wiki-refresh" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
 {% if wr and (wr.in_progress or wr.last_exit_code is not none) %}
 <section class="section">
     <h2>Wiki background refresh</h2>
@@ -72,3 +86,4 @@
     {% endif %}
 </section>
 {% endif %}
+</div>

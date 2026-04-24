@@ -213,7 +213,7 @@ def build_project_status(project_root: Path) -> ProjectStatus:
 
     hotspots = _build_hotspots(root)
     coverage = _build_scan_coverage(root)
-    wiki_refresh = _build_wiki_refresh(root)
+    wiki_refresh = build_wiki_refresh(root)
 
     return ProjectStatus(
         card=card,
@@ -227,15 +227,20 @@ def build_project_status(project_root: Path) -> ProjectStatus:
     )
 
 
-def _build_wiki_refresh(root: Path) -> WikiBackgroundRefresh | None:
-    """Assemble the MCP-facing background wiki-refresh snapshot.
+def build_wiki_refresh(root: Path) -> WikiBackgroundRefresh | None:
+    """Assemble the bg wiki-refresh snapshot exposed on ``ProjectStatus``.
 
     Thin mapping over :func:`libs.copilot.wiki_background.read_status` —
     flattens the nested ``last_run`` record into ``last_*`` fields so
-    agents calling ``lvdcp_status`` don't need to know the internal
-    dataclass shape. Returns ``None`` on any read error (best-effort: a
-    missing or torn lock file shouldn't break the whole status
-    payload).
+    callers (MCP agents, HTMX fragment endpoint, CLI renderers) don't
+    need to know the internal dataclass shape. Returns ``None`` on any
+    read error (best-effort: a missing or torn lock file shouldn't
+    break the whole status payload).
+
+    Public from v0.8.8 onwards so the dashboard's HTMX polling endpoint
+    can build *just* this sliver of state without paying for the full
+    ``build_project_status`` pipeline (graph, sparklines, hotspots,
+    coverage) every ~2 s during a live refresh.
     """
     try:
         # Lazy import: ``libs.copilot`` pulls in the scanning stack, and

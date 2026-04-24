@@ -125,29 +125,31 @@ async def test_project_detail_renders_crash_with_log_tail(
     assert "RuntimeError: upstream 504" in response.text
 
 
-@pytest.mark.asyncio
-async def test_project_detail_renders_live_in_progress(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Live lock with our own PID → blue 'Running' card with phase and progress."""
-    project = _seed_project(tmp_path, monkeypatch)
+def _seed_running_lock(project: Path, *, phase: str = "generating") -> None:
+    """Write a `.refresh.lock` pointing at the test process so _pid_alive=True."""
     lock_dir = project / ".context" / "wiki"
     lock_dir.mkdir(parents=True, exist_ok=True)
-    lock = lock_dir / ".refresh.lock"
-    # Use the test process's own PID so `_pid_alive` returns True without
-    # having to monkeypatch anything.
-    lock.write_text(
+    (lock_dir / ".refresh.lock").write_text(
         json.dumps(
             {
                 "pid": os.getpid(),
                 "started_at": time.time(),
-                "phase": "generating",
+                "phase": phase,
                 "modules_total": 5,
                 "modules_done": 2,
                 "current_module": "libs/foo",
             }
         )
     )
+
+
+@pytest.mark.asyncio
+async def test_project_detail_renders_live_in_progress(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Live lock with our own PID → blue 'Running' card with phase and progress."""
+    project = _seed_project(tmp_path, monkeypatch)
+    _seed_running_lock(project)
 
     app = create_app()
     transport = httpx.ASGITransport(app=app)
@@ -160,3 +162,107 @@ async def test_project_detail_renders_live_in_progress(
     assert "phase: generating" in response.text
     assert "2 / 5 modules" in response.text
     assert "libs/foo" in response.text
+
+
+# -------- v0.8.8: HTMX polling fragment -----------------------------
+
+
+@pytest.mark.asyncio
+async def test_project_detail_adds_htmx_polling_while_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Full page render while running must emit hx-get + hx-trigger on the wrapper."""
+    project = _seed_project(tmp_path, monkeypatch)
+    _seed_running_lock(project)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(f"/project/{_slug(project)}")
+
+    assert response.status_code == 200
+    # The wrapper must carry the polling attributes so HTMX starts its
+    # timer on page load — the whole point of v0.8.8.
+    assert f'hx-get="/api/project/{_slug(project)}/wiki-refresh"' in response.text
+    assert 'hx-trigger="every 2s"' in response.text
+    assert 'hx-swap="outerHTML"' in response.text
+    assert 'id="wiki-refresh-panel"' in response.text
+
+
+@pytest.mark.asyncio
+async def test_project_detail_omits_htmx_polling_when_idle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No running refresh → wrapper has NO hx-get, so HTMX stays silent."""
+    project = _seed_project(tmp_path, monkeypatch)
+    # Seed a clean last-run record so the section renders — we want to
+    # verify the wrapper is present but without polling attributes.
+    write_last_refresh(project, exit_code=0, modules_updated=3, elapsed_seconds=2.5)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(f"/project/{_slug(project)}")
+
+    assert response.status_code == 200
+    assert 'id="wiki-refresh-panel"' in response.text
+    # Slice to just the wrapper's opening tag to be sure no hx-get on it.
+    panel_slice = response.text.split('id="wiki-refresh-panel"', 1)[1].split(">", 1)[0]
+    assert "hx-get=" not in panel_slice
+    assert "Last refresh: clean" in response.text
+
+
+@pytest.mark.asyncio
+async def test_wiki_refresh_fragment_endpoint_returns_running_shape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /api/project/<slug>/wiki-refresh during a refresh returns running HTML + polling."""
+    project = _seed_project(tmp_path, monkeypatch)
+    _seed_running_lock(project)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(f"/api/project/{_slug(project)}/wiki-refresh")
+
+    assert response.status_code == 200
+    # Fragment must include the wrapper + hx-get so HTMX keeps polling.
+    assert 'id="wiki-refresh-panel"' in response.text
+    assert f'hx-get="/api/project/{_slug(project)}/wiki-refresh"' in response.text
+    assert "Running" in response.text
+    assert "phase: generating" in response.text
+    # Fragment must NOT be a full HTML page — no <html>/<body>/<header>.
+    assert "<html" not in response.text
+    assert "<body" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_wiki_refresh_fragment_endpoint_stops_polling_when_idle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When the refresh completes, the fragment response has NO hx-get → polling halts."""
+    project = _seed_project(tmp_path, monkeypatch)
+    write_last_refresh(project, exit_code=0, modules_updated=7, elapsed_seconds=4.2)
+
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(f"/api/project/{_slug(project)}/wiki-refresh")
+
+    assert response.status_code == 200
+    assert 'id="wiki-refresh-panel"' in response.text
+    assert "hx-get=" not in response.text
+    assert "Last refresh: clean" in response.text
+
+
+@pytest.mark.asyncio
+async def test_wiki_refresh_fragment_endpoint_returns_404_for_unknown_slug(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unknown project → 404, same contract as /project/<slug>."""
+    _seed_project(tmp_path, monkeypatch)
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/project/does-not-exist/wiki-refresh")
+    assert response.status_code == 404
