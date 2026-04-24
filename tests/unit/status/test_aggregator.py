@@ -69,3 +69,135 @@ def test_build_project_status_has_four_sparklines(tmp_path: Path, isolated_env: 
     status = build_project_status(project.resolve())
     metrics = {s.metric for s in status.sparklines}
     assert {"queries", "scans", "latency_p95_ms", "coverage"} == metrics
+
+
+# ---- wiki_refresh surface (v0.8.6) ----------------------------------------
+
+
+def _seed_scan(project: Path) -> None:
+    project.mkdir(parents=True, exist_ok=True)
+    (project / "main.py").write_text("def f() -> None: return None\n", encoding="utf-8")
+    scan_project(project, mode="full")
+
+
+def test_build_project_status_wiki_refresh_idle_with_no_history(
+    tmp_path: Path, isolated_env: Path
+) -> None:
+    """Fresh project, no refresh ever run → all fields are default/empty."""
+    project = tmp_path / "proj"
+    _seed_scan(project)
+    add_project(isolated_env, project)
+
+    status = build_project_status(project.resolve())
+    assert status.wiki_refresh is not None
+    wr = status.wiki_refresh
+    assert wr.in_progress is False
+    assert wr.phase is None
+    assert wr.modules_total is None
+    assert wr.modules_done == 0
+    assert wr.pid is None
+    assert wr.last_completed_at is None
+    assert wr.last_exit_code is None
+    assert wr.last_log_tail is None
+
+
+def test_build_project_status_wiki_refresh_surfaces_last_crash(
+    tmp_path: Path, isolated_env: Path
+) -> None:
+    """A crashed refresh populates ``last_*`` including the log tail."""
+    from libs.copilot import write_last_refresh
+
+    project = tmp_path / "proj"
+    _seed_scan(project)
+    add_project(isolated_env, project)
+    (project / ".context" / "wiki").mkdir(parents=True, exist_ok=True)
+
+    tail = [
+        "Traceback (most recent call last):",
+        '  File "x.py", line 10, in _run',
+        "RuntimeError: boom",
+    ]
+    write_last_refresh(
+        project,
+        exit_code=1,
+        modules_updated=2,
+        elapsed_seconds=0.5,
+        completed_at=1_700_000_000.0,
+        log_tail=tail,
+    )
+
+    status = build_project_status(project.resolve())
+    assert status.wiki_refresh is not None
+    wr = status.wiki_refresh
+    assert wr.in_progress is False
+    assert wr.last_exit_code == 1
+    assert wr.last_modules_updated == 2
+    assert wr.last_elapsed_seconds == pytest.approx(0.5)
+    assert wr.last_completed_at == pytest.approx(1_700_000_000.0)
+    assert wr.last_log_tail == tail
+
+
+def test_build_project_status_wiki_refresh_shows_live_progress(
+    tmp_path: Path, isolated_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A live lock with progress payload populates the ``in_progress`` block."""
+    import json as _json
+    import time as _time
+
+    project = tmp_path / "proj"
+    _seed_scan(project)
+    add_project(isolated_env, project)
+
+    wiki_dir = project / ".context" / "wiki"
+    wiki_dir.mkdir(parents=True, exist_ok=True)
+    (wiki_dir / ".refresh.lock").write_text(
+        _json.dumps(
+            {
+                "pid": 42424,
+                "started_at": _time.time(),
+                "all_modules": False,
+                "phase": "generating",
+                "modules_total": 5,
+                "modules_done": 2,
+                "current_module": "libs/foo",
+            }
+        ),
+        encoding="utf-8",
+    )
+    from libs.copilot import wiki_background
+
+    monkeypatch.setattr(wiki_background, "_pid_alive", lambda _pid: True)
+
+    status = build_project_status(project.resolve())
+    assert status.wiki_refresh is not None
+    wr = status.wiki_refresh
+    assert wr.in_progress is True
+    assert wr.phase == "generating"
+    assert wr.modules_total == 5
+    assert wr.modules_done == 2
+    assert wr.current_module == "libs/foo"
+    assert wr.pid == 42424
+
+
+def test_build_project_status_wiki_refresh_clean_last_run_has_no_log_tail(
+    tmp_path: Path, isolated_env: Path
+) -> None:
+    """Clean runs intentionally leave ``last_log_tail`` empty."""
+    from libs.copilot import write_last_refresh
+
+    project = tmp_path / "proj"
+    _seed_scan(project)
+    add_project(isolated_env, project)
+    (project / ".context" / "wiki").mkdir(parents=True, exist_ok=True)
+    write_last_refresh(
+        project,
+        exit_code=0,
+        modules_updated=3,
+        elapsed_seconds=2.0,
+        completed_at=1_700_000_000.0,
+    )
+
+    status = build_project_status(project.resolve())
+    assert status.wiki_refresh is not None
+    assert status.wiki_refresh.last_exit_code == 0
+    assert status.wiki_refresh.last_log_tail is None

@@ -36,6 +36,7 @@ from libs.status.models import (
     ProjectStatus,
     SparklineSeries,
     TokenTotals,
+    WikiBackgroundRefresh,
     WorkspaceStatus,
 )
 
@@ -212,6 +213,7 @@ def build_project_status(project_root: Path) -> ProjectStatus:
 
     hotspots = _build_hotspots(root)
     coverage = _build_scan_coverage(root)
+    wiki_refresh = _build_wiki_refresh(root)
 
     return ProjectStatus(
         card=card,
@@ -221,6 +223,50 @@ def build_project_status(project_root: Path) -> ProjectStatus:
         graph=graph,
         hotspots=hotspots,
         scan_coverage=coverage,
+        wiki_refresh=wiki_refresh,
+    )
+
+
+def _build_wiki_refresh(root: Path) -> WikiBackgroundRefresh | None:
+    """Assemble the MCP-facing background wiki-refresh snapshot.
+
+    Thin mapping over :func:`libs.copilot.wiki_background.read_status` —
+    flattens the nested ``last_run`` record into ``last_*`` fields so
+    agents calling ``lvdcp_status`` don't need to know the internal
+    dataclass shape. Returns ``None`` on any read error (best-effort: a
+    missing or torn lock file shouldn't break the whole status
+    payload).
+    """
+    try:
+        # Lazy import: ``libs.copilot`` pulls in the scanning stack, and
+        # callers of ``libs.status`` that don't care about wiki refresh
+        # shouldn't pay that import cost.
+        from libs.copilot.wiki_background import read_status as _read_bg_status  # noqa: PLC0415
+    except Exception:
+        return None
+    try:
+        bg = _read_bg_status(root)
+    except Exception:
+        return None
+
+    last_run = bg.last_run
+    log_tail = (
+        list(last_run.log_tail)
+        if (last_run is not None and last_run.log_tail is not None)
+        else None
+    )
+    return WikiBackgroundRefresh(
+        in_progress=bg.in_progress,
+        phase=bg.phase,
+        modules_total=bg.modules_total,
+        modules_done=bg.modules_done,
+        current_module=bg.current_module,
+        pid=bg.pid,
+        last_completed_at=last_run.completed_at if last_run is not None else None,
+        last_exit_code=last_run.exit_code if last_run is not None else None,
+        last_modules_updated=last_run.modules_updated if last_run is not None else None,
+        last_elapsed_seconds=last_run.elapsed_seconds if last_run is not None else None,
+        last_log_tail=log_tail,
     )
 
 
