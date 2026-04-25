@@ -97,6 +97,20 @@ def accept_cmd(
         "-p",
         help="Project root (defaults to cwd).",
     ),
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help=(
+            "Emit the accepted Memory as a single JSON object instead of "
+            "the human 'accepted: <id>  <topic>' line. Same per-row schema "
+            "as v0.8.44 `memory list --json` (mirrors the `Memory` "
+            "dataclass minus `body` — recoverable via `cat $(jq -r .path)`). "
+            "Pure data on stdout. The post-mutation `status` field round-"
+            'trips as `"accepted"` so a script can confirm the state '
+            "transition landed without a follow-up `list --json` call. "
+            "Same scriptability discipline as v0.8.42-v0.8.56."
+        ),
+    ),
 ) -> None:
     """Mark a proposed memory as accepted — it will be surfaced in retrieval."""
     root = _resolve_project(project)
@@ -105,6 +119,14 @@ def accept_cmd(
     except MemoryNotFoundError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=2) from exc
+    if as_json:
+        # Single-object payload — `accept` is a single-result mutation that
+        # returns the updated entity. Reuses `_memory_to_json` (cross-surface
+        # schema lock with v0.8.44 `memory list --json`); the `status` field
+        # post-mutation is `"accepted"` (a `MemoryStatus.ACCEPTED.value`
+        # round-trip that confirms the state transition).
+        typer.echo(json.dumps(_memory_to_json(updated), indent=2))
+        return
     typer.echo(f"accepted: {updated.id}  {updated.topic}")
 
 
