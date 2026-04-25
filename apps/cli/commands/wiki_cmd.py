@@ -336,6 +336,31 @@ def lint(
         raise typer.Exit(code=1)
 
 
+def _cross_project_to_json(
+    *,
+    wiki_dir: Path,
+    config_path: Path,
+    projects_registered: int,
+    patterns_written: int,
+) -> dict[str, object]:
+    """Build the JSON payload for `ctx wiki cross-project --json`.
+
+    Pure-data summary of the cross-project generation run — pure path /
+    integer fields, no human chrome. Sister-helper to `_module_to_json`
+    (v0.8.46) and `_issue_to_json` (v0.8.47), but emits a single object
+    (not a bare array) — different shape because cross-project is a
+    generate command with a single result payload, not a per-row read.
+    `wiki_dir` and `config_path` are stringified absolute paths so
+    consumers can `find -exec` / multi-config-sweep without re-resolving.
+    """
+    return {
+        "wiki_dir": str(wiki_dir),
+        "config_path": str(config_path),
+        "projects_registered": projects_registered,
+        "patterns_written": patterns_written,
+    }
+
+
 @app.command("cross-project")
 def cross_project(
     config_path: Path = typer.Option(  # noqa: B008
@@ -343,10 +368,45 @@ def cross_project(
         "--config",
         help="Path to the global LV_DCP config.",
     ),
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help=(
+            "Emit a JSON object summarising the cross-project run "
+            "instead of the human-readable line. Schema: `wiki_dir` "
+            "(absolute path the global INDEX and pattern articles "
+            "were written to), `config_path` (absolute path to the "
+            "config that was read), `projects_registered` (count of "
+            "registered projects via `list_projects` — useful for "
+            "spotting `patterns_written < projects_registered` "
+            "degradation when Claude CLI is unavailable), "
+            "`patterns_written` (count of pattern articles written). "
+            "Single object, not an array — cross-project is a "
+            "generate command with one result payload, not a per-row "
+            "read like `wiki status` / `wiki lint`."
+        ),
+    ),
 ) -> None:
     """Generate cross-project wiki from all registered projects."""
+    from libs.core.projects_config import list_projects  # noqa: PLC0415
     from libs.wiki.cross_project import generate_cross_project_wiki  # noqa: PLC0415
 
     wiki_dir = Path.home() / ".lvdcp" / "wiki"
     count = generate_cross_project_wiki(config_path, wiki_dir)
+
+    if as_json:
+        projects_registered = len(list_projects(config_path))
+        typer.echo(
+            json.dumps(
+                _cross_project_to_json(
+                    wiki_dir=wiki_dir,
+                    config_path=config_path,
+                    projects_registered=projects_registered,
+                    patterns_written=count,
+                ),
+                indent=2,
+            )
+        )
+        return
+
     typer.echo(f"Cross-project wiki generated: {count} pattern(s) written to {wiki_dir}")

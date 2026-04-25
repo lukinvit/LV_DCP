@@ -27,6 +27,14 @@ _WIKI_STATUS_JSON_KEYS = frozenset(
 # LintIssue dataclass from libs/wiki/lint.py::LintIssue.
 _WIKI_LINT_JSON_KEYS = frozenset({"severity", "module_path", "message"})
 
+# Schema-locked surface for `ctx wiki cross-project --json`. Adding a key
+# requires bumping this set + `_cross_project_to_json` at the same time.
+# Single object (not an array) — cross-project is a generate command with
+# one result payload, not a per-row read.
+_WIKI_CROSS_PROJECT_JSON_KEYS = frozenset(
+    {"wiki_dir", "config_path", "projects_registered", "patterns_written"}
+)
+
 
 def _seed_modules(project_path: Path, modules: list[tuple[str, str, bool]]) -> None:
     """Create `.context/cache.db` and seed wiki_state with `modules`.
@@ -212,6 +220,112 @@ def test_wiki_lint_json_empty_returns_bare_list(tmp_path: Path) -> None:
     payload = json.loads(result.output)
     assert payload == []
     assert "No issues found" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# v0.8.48: `ctx wiki cross-project --json` slice
+# ---------------------------------------------------------------------------
+
+
+def _seed_minimal_config(config_path: Path, project_roots: list[Path]) -> None:
+    """Write a minimal LV_DCP config YAML listing the given project roots.
+
+    Uses the same on-disk shape that `libs.core.projects_config.load_config`
+    expects — a top-level `projects:` list of `ProjectEntry` mappings with
+    the required `registered_at_iso` field populated.
+    """
+    import yaml
+
+    payload = {
+        "projects": [
+            {
+                "root": str(root),
+                "registered_at_iso": "2026-04-25T00:00:00",
+                "last_scan_at_iso": None,
+                "last_scan_status": "pending",
+            }
+            for root in project_roots
+        ]
+    }
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+
+
+def test_wiki_cross_project_text_output_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Baseline: text path emits the legacy single-line format byte-identically."""
+    config_path = tmp_path / "config.yaml"
+    _seed_minimal_config(config_path, [])
+    monkeypatch.setattr(
+        "libs.wiki.cross_project.generate_cross_project_wiki",
+        lambda _config, _wiki: 3,
+    )
+    runner = CliRunner()
+    result = runner.invoke(app, ["wiki", "cross-project", "--config", str(config_path)])
+    assert result.exit_code == 0, result.output
+    assert "Cross-project wiki generated: 3 pattern(s) written to" in result.output
+    # Locks the legacy single-line text shape; no JSON braces leak.
+    assert not result.output.lstrip().startswith("{")
+
+
+def test_wiki_cross_project_json_emits_well_formed_object(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--json` emits a single object with the locked schema."""
+    config_path = tmp_path / "config.yaml"
+    proj_a = tmp_path / "proj_a"
+    proj_b = tmp_path / "proj_b"
+    proj_a.mkdir()
+    proj_b.mkdir()
+    _seed_minimal_config(config_path, [proj_a, proj_b])
+    monkeypatch.setattr(
+        "libs.wiki.cross_project.generate_cross_project_wiki",
+        lambda _config, _wiki: 5,
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["wiki", "cross-project", "--config", str(config_path), "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    # Single object, not an array — cross-project is a generate command
+    # with one result payload, not a per-row read.
+    assert isinstance(payload, dict)
+    assert set(payload.keys()) == _WIKI_CROSS_PROJECT_JSON_KEYS
+    assert payload["projects_registered"] == 2
+    assert payload["patterns_written"] == 5
+    assert payload["config_path"] == str(config_path)
+    # wiki_dir is the hardcoded `~/.lvdcp/wiki` — assert the suffix shape
+    # rather than the absolute path so tests run on any user's home.
+    assert payload["wiki_dir"].endswith("/.lvdcp/wiki")
+    # No human-prose markers leak into the JSON output.
+    assert "Cross-project wiki generated" not in result.output
+
+
+def test_wiki_cross_project_json_empty_registry_returns_zero_counts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Empty registry → `projects_registered=0`, `patterns_written=0` — clean default.
+
+    Locks the empty-state contract: scripts can detect "no work to do"
+    via `jq -e '.patterns_written == 0'` without a None-guard. Same
+    discipline as v0.8.46 wiki status `[]` and v0.8.47 wiki lint `[]`.
+    """
+    config_path = tmp_path / "config.yaml"
+    _seed_minimal_config(config_path, [])
+    monkeypatch.setattr(
+        "libs.wiki.cross_project.generate_cross_project_wiki",
+        lambda _config, _wiki: 0,
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["wiki", "cross-project", "--config", str(config_path), "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["projects_registered"] == 0
+    assert payload["patterns_written"] == 0
+    # Schema invariant holds even on the empty path.
+    assert set(payload.keys()) == _WIKI_CROSS_PROJECT_JSON_KEYS
 
 
 def test_wiki_lint_json_preserves_exit_code_gate_on_errors(tmp_path: Path) -> None:
