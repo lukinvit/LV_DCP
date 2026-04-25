@@ -36,6 +36,22 @@ class PruneResult:
     config_path: Path | None = None
 
 
+@dataclass
+class RestoreResult:
+    """Outcome of a restore invocation (dry-run or applied).
+
+    Mirrors the `PruneResult` shape so scripting consumers can bind to a
+    consistent surface across the prune/restore round-trip.
+    """
+
+    backup_path: Path | None = None
+    config_path: Path | None = None
+    applied: bool = False
+    backup_entry_count: int = 0
+    current_entry_count: int = 0
+    delta: int = 0  # backup_entry_count - current_entry_count
+
+
 def _filter_candidates(
     rows: list[ProjectAudit],
     *,
@@ -157,4 +173,74 @@ def prune_stale(  # noqa: PLR0913 — each kwarg maps to an independent CLI flag
 
     result.applied = True
     result.backup_path = backup_path
+    return result
+
+
+def restore_from_backup(
+    config_path: Path,
+    *,
+    apply: bool = False,
+    backup_suffix: str = ".bak",
+) -> RestoreResult:
+    """Restore the registry from the sibling `*.bak` snapshot left by prune.
+
+    The `prune_stale(..., apply=True)` call writes a `<config>.bak` sidecar
+    holding the pre-mutation bytes verbatim. This function consumes that
+    sidecar to reverse the prune (or any other manual edit since): atomic
+    write of the backup contents back into `config_path` via the same
+    `save_config` writer used everywhere else.
+
+    Args:
+      config_path: path to `~/.lvdcp/config.yaml` (or equivalent).
+      apply: ``False`` (default) returns a preview with counts but does
+        not write. ``True`` performs the atomic restore.
+      backup_suffix: appended to `config_path.name` to locate the backup
+        (default `.bak`).
+
+    Returns:
+      `RestoreResult` with `backup_entry_count` (entries in the .bak),
+      `current_entry_count` (entries in the live config that would be
+      replaced), and `delta = backup - current` (positive = restore adds
+      entries back, negative = restore removes entries the user added
+      since the prune).
+
+    Raises:
+      FileNotFoundError: when no backup exists at the expected path.
+        The CLI translates this into a non-zero exit with a hint.
+
+    Note:
+      The `*.bak` is intentionally **left in place** after a successful
+      restore. The same content now lives in both files; the user can
+      re-run `restore` if they realize they wanted the previous state
+      back, or run `prune --yes` again to overwrite the backup with a
+      fresh snapshot of the current state.
+    """
+    backup_path = config_path.with_name(config_path.name + backup_suffix)
+    if not backup_path.exists():
+        msg = (
+            f"no backup found at {backup_path} — run `ctx registry prune --yes` first to create one"
+        )
+        raise FileNotFoundError(msg)
+
+    backup_config = load_config(backup_path)
+    # `load_config` returns an empty registry for missing paths, so this
+    # call is safe even if a panicked user manually deleted the live config.
+    current_config = load_config(config_path)
+    backup_count = len(backup_config.projects)
+    current_count = len(current_config.projects)
+
+    result = RestoreResult(
+        backup_path=backup_path,
+        config_path=config_path,
+        applied=False,
+        backup_entry_count=backup_count,
+        current_entry_count=current_count,
+        delta=backup_count - current_count,
+    )
+
+    if not apply:
+        return result
+
+    save_config(config_path, backup_config)
+    result.applied = True
     return result

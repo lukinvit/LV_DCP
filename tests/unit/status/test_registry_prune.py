@@ -22,7 +22,7 @@ import pytest
 import yaml
 from libs.core.projects_config import load_config
 from libs.status.registry_audit import iso_utc
-from libs.status.registry_prune import plan_prune, prune_stale
+from libs.status.registry_prune import plan_prune, prune_stale, restore_from_backup
 
 
 def _seed_empty_cache(root: Path) -> None:
@@ -356,3 +356,131 @@ def test_prune_missing_no_candidates_is_graceful(tmp_path: Path) -> None:
     assert result.applied is False
     assert result.backup_path is None
     assert [str(e.root) for e in load_config(cfg).projects] == [str(a), str(b)]
+
+
+# ---- v0.8.40: restore_from_backup (prune undo handle) --------------------
+
+
+def test_restore_dry_run_is_pure_read(tmp_path: Path) -> None:
+    """``apply=False`` reports counts without touching either file."""
+    cfg = tmp_path / "config.yaml"
+    bak = tmp_path / "config.yaml.bak"
+    _write_cfg(
+        cfg, [{"root": str(tmp_path / "current"), "registered_at_iso": "2026-04-25T00:00:00Z"}]
+    )
+    # Backup has 3 entries — i.e. prune removed 2 between snapshot and now
+    _write_cfg(
+        bak,
+        [
+            {"root": str(tmp_path / "p1"), "registered_at_iso": "2026-04-24T00:00:00Z"},
+            {"root": str(tmp_path / "p2"), "registered_at_iso": "2026-04-24T00:00:00Z"},
+            {"root": str(tmp_path / "p3"), "registered_at_iso": "2026-04-24T00:00:00Z"},
+        ],
+    )
+    cfg_bytes = cfg.read_bytes()
+    bak_bytes = bak.read_bytes()
+
+    result = restore_from_backup(cfg, apply=False)
+
+    assert result.applied is False
+    assert result.backup_entry_count == 3
+    assert result.current_entry_count == 1
+    assert result.delta == 2
+    # Both files byte-identical to before — pure read.
+    assert cfg.read_bytes() == cfg_bytes
+    assert bak.read_bytes() == bak_bytes
+
+
+def test_restore_apply_replaces_config_with_backup(tmp_path: Path) -> None:
+    """``apply=True`` writes the backup contents into the live config and
+    leaves the .bak in place as a re-undo handle."""
+    cfg = tmp_path / "config.yaml"
+    bak = tmp_path / "config.yaml.bak"
+    _write_cfg(cfg, [])
+    backup_entries = [
+        {"root": str(tmp_path / "restored1"), "registered_at_iso": "2026-04-24T00:00:00Z"},
+        {"root": str(tmp_path / "restored2"), "registered_at_iso": "2026-04-24T00:00:00Z"},
+    ]
+    _write_cfg(bak, backup_entries)
+    bak_bytes_before = bak.read_bytes()
+
+    result = restore_from_backup(cfg, apply=True)
+
+    assert result.applied is True
+    assert result.backup_entry_count == 2
+    assert result.current_entry_count == 0
+    assert result.delta == 2
+
+    # Live config now matches backup content.
+    reloaded = load_config(cfg)
+    assert [str(e.root) for e in reloaded.projects] == [
+        str(tmp_path / "restored1"),
+        str(tmp_path / "restored2"),
+    ]
+    # Backup file persists verbatim (re-restore handle).
+    assert bak.exists()
+    assert bak.read_bytes() == bak_bytes_before
+
+
+def test_restore_no_backup_raises(tmp_path: Path) -> None:
+    """Calling restore without a sibling .bak raises FileNotFoundError —
+    the CLI translates this into a clean error exit. The live config is
+    untouched."""
+    cfg = tmp_path / "config.yaml"
+    _write_cfg(cfg, [])
+    cfg_bytes = cfg.read_bytes()
+
+    with pytest.raises(FileNotFoundError, match="no backup found"):
+        restore_from_backup(cfg, apply=True)
+
+    # Untouched.
+    assert cfg.read_bytes() == cfg_bytes
+
+
+def test_restore_handles_missing_live_config(tmp_path: Path) -> None:
+    """If the user manually deleted the live config, restore still works:
+    `load_config` returns an empty registry, current_count = 0, and apply
+    re-creates the file from the backup."""
+    cfg = tmp_path / "config.yaml"
+    bak = tmp_path / "config.yaml.bak"
+    _write_cfg(
+        bak,
+        [{"root": str(tmp_path / "saved"), "registered_at_iso": "2026-04-24T00:00:00Z"}],
+    )
+    # cfg deliberately not created.
+
+    preview = restore_from_backup(cfg, apply=False)
+    assert preview.current_entry_count == 0
+    assert preview.backup_entry_count == 1
+    assert preview.delta == 1
+    assert not cfg.exists()  # preview did not create the file
+
+    applied = restore_from_backup(cfg, apply=True)
+    assert applied.applied is True
+    assert cfg.exists()
+    assert [str(e.root) for e in load_config(cfg).projects] == [str(tmp_path / "saved")]
+
+
+def test_restore_negative_delta_when_user_added_after_prune(tmp_path: Path) -> None:
+    """If the user added projects after the prune that wrote the backup,
+    restore would *remove* them — surfaced as a negative delta in the
+    preview so the user knows what they're about to lose."""
+    cfg = tmp_path / "config.yaml"
+    bak = tmp_path / "config.yaml.bak"
+    _write_cfg(
+        cfg,
+        [
+            {"root": str(tmp_path / "p1"), "registered_at_iso": "2026-04-25T00:00:00Z"},
+            {"root": str(tmp_path / "p2"), "registered_at_iso": "2026-04-25T00:00:00Z"},
+            {"root": str(tmp_path / "p3"), "registered_at_iso": "2026-04-25T00:00:00Z"},
+        ],
+    )
+    _write_cfg(
+        bak,
+        [{"root": str(tmp_path / "p1"), "registered_at_iso": "2026-04-24T00:00:00Z"}],
+    )
+
+    result = restore_from_backup(cfg, apply=False)
+    assert result.backup_entry_count == 1
+    assert result.current_entry_count == 3
+    assert result.delta == -2  # restore would shrink the registry by 2
