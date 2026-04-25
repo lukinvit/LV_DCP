@@ -263,6 +263,21 @@ def status(
         typer.echo(f"{mod['module_path']:<40} {mod['status']:<10} {generated}")
 
 
+def _issue_to_json(issue: Any) -> dict[str, object]:
+    """Build the per-row JSON payload for `ctx wiki lint --json`.
+
+    Schema is a 1:1 mirror of :class:`libs.wiki.lint.LintIssue` — pure
+    pass-through of the dataclass fields. Sister-helper to
+    `_module_to_json` (v0.8.46) — same pattern of per-row JSON shaping
+    in the CLI shell.
+    """
+    return {
+        "severity": issue.severity,
+        "module_path": issue.module_path,
+        "message": issue.message,
+    }
+
+
 @app.command("lint")
 def lint(
     project_path: Path = typer.Argument(  # noqa: B008
@@ -273,16 +288,43 @@ def lint(
         resolve_path=True,
         help="Path to the scanned project.",
     ),
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help=(
+            "Emit a JSON array of lint issues instead of the human-"
+            "readable bullet list. Each row mirrors the `LintIssue` "
+            "dataclass: `severity` (`error` / `warning`), "
+            "`module_path`, `message`. Empty list (`[]`) when no "
+            "issues are found — never `null` and never the prose "
+            "marker. Exit-code gate carried unchanged in both modes: "
+            "any `error`-severity row exits 1 (the script gate "
+            "preserved across the render switch); warnings-only exits "
+            "0. Same v0.8.42-v0.8.46 discipline — `--json` never "
+            'swallows the error into a `{"error": "..."}` stdout '
+            "payload."
+        ),
+    ),
 ) -> None:
     """Check wiki for orphaned, missing, stale, empty articles and INDEX mismatches."""
     from libs.wiki.lint import lint_wiki  # noqa: PLC0415
 
     issues = lint_wiki(project_path)
+    errors = [i for i in issues if i.severity == "error"]
+
+    if as_json:
+        typer.echo(json.dumps([_issue_to_json(i) for i in issues], indent=2))
+        # Preserve the v0.8.42-v0.8.46 discipline: the exit-code gate is
+        # the script contract — error rows exit 1 in both modes so
+        # `set -e` users get the same behavior regardless of `--json`.
+        if errors:
+            raise typer.Exit(code=1)
+        return
+
     if not issues:
         typer.echo("No issues found.")
         return
 
-    errors = [i for i in issues if i.severity == "error"]
     warnings = [i for i in issues if i.severity == "warning"]
 
     for issue in issues:
