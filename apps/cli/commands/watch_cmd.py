@@ -240,15 +240,70 @@ def install_service(
 
 
 @app.command("uninstall-service")
-def uninstall_service() -> None:
-    """Remove LV_DCP agent launchd LaunchAgent."""
+def uninstall_service(
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help=(
+            "Emit the uninstalled launchd service descriptor as a single "
+            "JSON object: `{label, plist_path, uid, plist_existed, "
+            "plist_removed, booted_out, bootout_error}`. Pure data on "
+            "stdout — suppresses the human `note: ... / removed plist: "
+            "... / no plist at ...` lines. The two-axis success signal "
+            "(`booted_out` AND `plist_removed`) lets a script distinguish "
+            "the four real states: full uninstall (true/true), bootout "
+            "failed but plist removed (false/true — daemon may still be "
+            "running until next reboot), no-op on absent plist "
+            "(false/false — nothing was installed), or daemon-only "
+            "removal where we never touched the disk (true/false — "
+            "shouldn't happen but the schema covers it). `bootout_error` "
+            "is `null` on success and populated with the launchctl "
+            "stderr on failure (`jq -r '.bootout_error // empty'` "
+            "without a defined-key guard, same v0.8.61 results-array "
+            "discipline). Exit semantics unchanged: bootout failure is "
+            "non-fatal in both modes (preserves the v0.8.42-v0.8.62 "
+            "render-switch-not-behavior-change discipline)."
+        ),
+    ),
+) -> None:
+    """Remove LV_DCP agent launchd LaunchAgent.
+
+    With ``--json`` the payload captures both the launchd-side cleanup
+    (``booted_out``, ``bootout_error``) and the on-disk side
+    (``plist_existed``, ``plist_removed``) as independent two-axis
+    signals. This is the symmetric mirror of v0.8.62's
+    ``install-service --json`` and closes the watch daemon-service
+    surface end-to-end (alongside the pre-existing ``add`` v0.8.54,
+    ``remove`` v0.8.56, ``list`` v0.8.49 registry triplet).
+    """
     plist_path = LAUNCH_AGENT_DIR / f"{LAUNCH_AGENT_LABEL}.plist"
+    uid = os.getuid()
+    bootout_error: str | None = None
+    booted_out = True
     try:
-        bootout_agent(uid=os.getuid())
+        bootout_agent(uid=uid)
     except LaunchctlError as exc:
-        typer.echo(f"note: {exc}", err=True)
-    if plist_path.exists():
+        booted_out = False
+        bootout_error = str(exc)
+        if not as_json:
+            typer.echo(f"note: {exc}", err=True)
+    plist_existed = plist_path.exists()
+    plist_removed = False
+    if plist_existed:
         plist_path.unlink()
-        typer.echo(f"removed plist: {plist_path}")
-    else:
+        plist_removed = True
+        if not as_json:
+            typer.echo(f"removed plist: {plist_path}")
+    elif not as_json:
         typer.echo(f"no plist at {plist_path}")
+    if as_json:
+        payload: dict[str, object] = {
+            "label": LAUNCH_AGENT_LABEL,
+            "plist_path": str(plist_path),
+            "uid": uid,
+            "plist_existed": plist_existed,
+            "plist_removed": plist_removed,
+            "booted_out": booted_out,
+            "bootout_error": bootout_error,
+        }
+        typer.echo(json.dumps(payload, indent=2))

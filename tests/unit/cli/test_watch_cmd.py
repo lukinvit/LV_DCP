@@ -2,7 +2,8 @@
 v0.8.49 ``ctx watch list --json`` scriptability,
 v0.8.54 ``ctx watch add --json`` write-side scriptability,
 v0.8.56 ``ctx watch remove --json`` unregistration scriptability,
-v0.8.62 ``ctx watch install-service --json`` daemon-service scriptability)."""
+v0.8.62 ``ctx watch install-service --json`` daemon-service scriptability,
+v0.8.63 ``ctx watch uninstall-service --json`` closes daemon-service surface)."""
 
 from __future__ import annotations
 
@@ -30,6 +31,15 @@ _WATCH_REMOVE_JSON_KEYS = frozenset({"removed"})
 # reviewed schema change rather than a silent payload drift.
 _WATCH_INSTALL_SERVICE_JSON_KEYS = frozenset(
     {"label", "plist_path", "uid", "program_arguments", "log_dir", "bootstrapped"}
+)
+
+# v0.8.63 schema lock for `watch uninstall-service --json`: seven top-level
+# keys with two-axis success signal (`booted_out` AND `plist_removed`). Locks
+# the symmetric mirror of v0.8.62 install — `bootout_error` is `null` on
+# success and a string on failure (mirrors the v0.8.61 results-array
+# `error: null` pattern so consumers can `jq -r '.bootout_error // empty'`).
+_WATCH_UNINSTALL_SERVICE_JSON_KEYS = frozenset(
+    {"label", "plist_path", "uid", "plist_existed", "plist_removed", "booted_out", "bootout_error"}
 )
 
 
@@ -549,3 +559,197 @@ def test_install_service_json_launchctl_failure_exits_3_no_payload(
     # Error chrome lands on stderr per v0.8.42 structlog discipline.
     combined = (result.stdout or "") + (result.stderr or "")
     assert "launchctl bootstrap failed" in combined or "error:" in combined
+
+
+# ----------------------------------------------------------------------------
+# v0.8.63 — `ctx watch uninstall-service --json`
+# ----------------------------------------------------------------------------
+
+
+def _seed_plist(launch_agent_dir: Path) -> Path:
+    """Materialize a stub plist file at the install path so uninstall has
+    something to remove. Content is deliberately minimal — uninstall only
+    cares whether the file exists, not its XML validity."""
+    launch_agent_dir.mkdir(parents=True, exist_ok=True)
+    plist_path = launch_agent_dir / "tech.lvdcp.agent.plist"
+    plist_path.write_text("<plist></plist>", encoding="utf-8")
+    return plist_path
+
+
+def test_uninstall_service_text_output_unchanged_full_uninstall(
+    _isolated_launch_agent_paths: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Default (no `--json`) output stays bytewise stable on the canonical
+    full-uninstall path: bootout succeeds AND plist gets removed. Locks the
+    legacy `removed plist: <path>` chrome — pre-existing automation that
+    greps this line sees no diff after the v0.8.63 JSON branch lands."""
+    launch_agent_dir, _ = _isolated_launch_agent_paths
+    plist_path = _seed_plist(launch_agent_dir)
+    monkeypatch.setattr(
+        "apps.cli.commands.watch_cmd.bootout_agent",
+        lambda *, uid: None,
+    )
+
+    result = CliRunner().invoke(app, ["watch", "uninstall-service"])
+    assert result.exit_code == 0, result.stdout
+
+    # Strict equality on the rendered chrome — guards against accidental
+    # JSON leakage or rewording of the legacy line.
+    assert result.stdout.strip() == f"removed plist: {plist_path}"
+
+    # Plist is actually gone from disk — `removed plist:` would lie otherwise.
+    assert not plist_path.exists()
+
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(result.stdout)
+
+
+def test_uninstall_service_json_emits_schema_locked_descriptor_full_uninstall(
+    _isolated_launch_agent_paths: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`watch uninstall-service --json` returns a seven-key descriptor on the
+    full-uninstall path: bootout succeeded, plist existed, plist removed.
+    Locks the schema and asserts every two-axis success signal lines up:
+    `booted_out=True`, `plist_existed=True`, `plist_removed=True`,
+    `bootout_error=None`. Symmetric mirror of v0.8.62 install descriptor."""
+    import os
+
+    launch_agent_dir, _ = _isolated_launch_agent_paths
+    plist_path = _seed_plist(launch_agent_dir)
+    monkeypatch.setattr(
+        "apps.cli.commands.watch_cmd.bootout_agent",
+        lambda *, uid: None,
+    )
+
+    result = CliRunner().invoke(app, ["watch", "uninstall-service", "--json"])
+    assert result.exit_code == 0, result.stdout
+
+    payload = json.loads(result.stdout)
+    assert isinstance(payload, dict)
+    assert set(payload.keys()) == _WATCH_UNINSTALL_SERVICE_JSON_KEYS
+
+    # Field-by-field round-trip.
+    assert payload["label"] == "tech.lvdcp.agent"
+    assert payload["plist_path"] == str(plist_path)
+    assert payload["uid"] == os.getuid()
+    assert payload["plist_existed"] is True
+    assert payload["plist_removed"] is True
+    assert payload["booted_out"] is True
+    assert payload["bootout_error"] is None
+
+    # The plist is actually gone from disk.
+    assert not plist_path.exists()
+
+    # JSON path must NOT emit the human chrome lines — pure data on stdout.
+    assert "removed plist:" not in result.stdout
+    assert "no plist at" not in result.stdout
+    assert "note:" not in result.stdout
+
+
+def test_uninstall_service_json_no_op_when_nothing_installed(
+    _isolated_launch_agent_paths: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`uninstall-service --json` against a never-installed system emits the
+    no-op shape: `booted_out=False`, `bootout_error` populated (typical
+    `launchctl bootout` error against a non-existent label), `plist_existed
+    =False`, `plist_removed=False`. This is the discoverable
+    "nothing-to-uninstall" state — exit 0 (preserves the v0.8.62 'no-op is
+    success' discipline; bootout failure is non-fatal in both modes)."""
+    from libs.mcp_ops.launchd import LaunchctlError
+
+    def _raise_no_such_service(*, uid: int) -> None:
+        raise LaunchctlError("launchctl bootout failed (exit 113): No such process")
+
+    monkeypatch.setattr(
+        "apps.cli.commands.watch_cmd.bootout_agent",
+        _raise_no_such_service,
+    )
+    # Do NOT seed a plist — this is the never-installed path.
+
+    result = CliRunner().invoke(app, ["watch", "uninstall-service", "--json"])
+    assert result.exit_code == 0, result.stdout
+
+    payload = json.loads(result.stdout)
+    assert set(payload.keys()) == _WATCH_UNINSTALL_SERVICE_JSON_KEYS
+    assert payload["booted_out"] is False
+    assert isinstance(payload["bootout_error"], str)
+    assert "No such process" in payload["bootout_error"]
+    assert payload["plist_existed"] is False
+    assert payload["plist_removed"] is False
+
+
+def test_uninstall_service_json_partial_bootout_failed_plist_removed(
+    _isolated_launch_agent_paths: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The two-axis schema captures the genuinely partial state where
+    launchctl bootout fails (e.g. transient launchd-domain glitch) but the
+    on-disk plist is still cleaned up. `booted_out=False` AND `plist_removed
+    =True` is the meaningful 'daemon may still be running until next reboot,
+    but disk is clean' signal — no other shape can express this without
+    re-grepping `bootout_error` content. Locks the orthogonality of the
+    two success axes."""
+    from libs.mcp_ops.launchd import LaunchctlError
+
+    launch_agent_dir, _ = _isolated_launch_agent_paths
+    plist_path = _seed_plist(launch_agent_dir)
+
+    def _raise(*, uid: int) -> None:
+        raise LaunchctlError("launchctl bootout failed (exit 5): I/O error")
+
+    monkeypatch.setattr(
+        "apps.cli.commands.watch_cmd.bootout_agent",
+        _raise,
+    )
+
+    result = CliRunner().invoke(app, ["watch", "uninstall-service", "--json"])
+    assert result.exit_code == 0, result.stdout
+
+    payload = json.loads(result.stdout)
+    assert payload["booted_out"] is False
+    assert "I/O error" in payload["bootout_error"]
+    assert payload["plist_existed"] is True
+    assert payload["plist_removed"] is True
+
+    # Plist actually gone — disk side ran even though launchd side failed.
+    assert not plist_path.exists()
+
+
+def test_uninstall_service_json_round_trips_with_install_descriptor(
+    _isolated_launch_agent_paths: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """End-to-end install→uninstall round-trip via the JSON descriptors.
+    Verifies that v0.8.62 install's `plist_path` matches v0.8.63 uninstall's
+    `plist_path` (same on-disk artifact, no path drift between the two
+    surfaces); proves the daemon-service surface is closed bidirectionally
+    through the same launchd label and on-disk handle."""
+    monkeypatch.setattr(
+        "apps.cli.commands.watch_cmd.bootstrap_agent",
+        lambda *, plist_path, uid: None,
+    )
+    monkeypatch.setattr(
+        "apps.cli.commands.watch_cmd.bootout_agent",
+        lambda *, uid: None,
+    )
+
+    install_result = CliRunner().invoke(app, ["watch", "install-service", "--json"])
+    assert install_result.exit_code == 0, install_result.stdout
+    install_payload = json.loads(install_result.stdout)
+
+    uninstall_result = CliRunner().invoke(app, ["watch", "uninstall-service", "--json"])
+    assert uninstall_result.exit_code == 0, uninstall_result.stdout
+    uninstall_payload = json.loads(uninstall_result.stdout)
+
+    # Same artifact path round-trips through both surfaces.
+    assert install_payload["plist_path"] == uninstall_payload["plist_path"]
+    assert install_payload["label"] == uninstall_payload["label"]
+    assert install_payload["uid"] == uninstall_payload["uid"]
+
+    # Install reported success, uninstall confirms the artifact is gone.
+    assert install_payload["bootstrapped"] is True
+    assert uninstall_payload["plist_existed"] is True
+    assert uninstall_payload["plist_removed"] is True
