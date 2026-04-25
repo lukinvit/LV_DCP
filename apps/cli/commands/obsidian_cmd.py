@@ -328,22 +328,63 @@ def _invoke_sync(root: Path, vault_path: str, timeout_seconds: int) -> str | Non
 
 
 def _run_plan(
-    plan: list[tuple[Path, str]], vault_path: str, timeout_seconds: int
-) -> tuple[int, int, list[Path]]:
-    """Execute the plan; return ``(synced, skipped, failed)`` counters."""
+    plan: list[tuple[Path, str]],
+    vault_path: str,
+    timeout_seconds: int,
+    *,
+    quiet: bool = False,
+) -> tuple[int, int, list[Path], list[dict[str, object]]]:
+    """Execute the plan; return ``(synced, skipped, failed, results)``.
+
+    ``results`` is the per-project outcome list that backs the v0.8.61
+    ``--json`` payload — one entry per planned project with the keys
+    ``{project_root, outcome, reason, error}``. ``outcome`` is exactly
+    one of ``"synced"`` / ``"skipped"`` / ``"failed"``; ``reason`` is
+    populated only on the ``skipped`` outcome (mirroring the text view's
+    ``[skip] <root>: <reason>`` line); ``error`` is populated only on
+    the ``failed`` outcome (mirroring ``[fail] <root>: <err>``). Both
+    are explicit ``None`` rather than missing keys so consumers can
+    ``jq -r '.results[] | select(.outcome == "failed") | .error'``
+    without a defined-key guard.
+
+    ``quiet=True`` suppresses the ``[sync] / [skip] / [fail]`` prose so
+    the JSON path keeps stdout pure data; the structured ``results``
+    list carries the same information without the human chrome.
+    """
     synced = 0
     skipped = 0
     failed: list[Path] = []
+    results: list[dict[str, object]] = []
     for root, reason in plan:
         if reason != "sync":
-            typer.echo(f"[skip] {root}: {reason.removeprefix('skip: ')}")
+            skip_reason = reason.removeprefix("skip: ")
+            if not quiet:
+                typer.echo(f"[skip] {root}: {skip_reason}")
             skipped += 1
+            results.append(
+                {
+                    "project_root": str(root),
+                    "outcome": "skipped",
+                    "reason": skip_reason,
+                    "error": None,
+                }
+            )
             continue
-        typer.echo(f"[sync] {root} …")
+        if not quiet:
+            typer.echo(f"[sync] {root} …")
         err = _invoke_sync(root, vault_path, timeout_seconds)
         if err is not None:
-            typer.echo(f"[fail] {root}: {err}", err=True)
+            if not quiet:
+                typer.echo(f"[fail] {root}: {err}", err=True)
             failed.append(root)
+            results.append(
+                {
+                    "project_root": str(root),
+                    "outcome": "failed",
+                    "reason": None,
+                    "error": err,
+                }
+            )
             continue
         # Advance the shared debounce marker so the daemon's auto-sync
         # respects this successful nightly run and doesn't re-fire on the
@@ -352,11 +393,19 @@ def _run_plan(
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.write_text(str(time.time()), encoding="utf-8")
         synced += 1
-    return synced, skipped, failed
+        results.append(
+            {
+                "project_root": str(root),
+                "outcome": "synced",
+                "reason": None,
+                "error": None,
+            }
+        )
+    return synced, skipped, failed, results
 
 
 @app.command("sync-all")
-def sync_all(
+def sync_all(  # noqa: PLR0912
     stale_hours: float = typer.Option(
         24.0,
         "--stale-hours",
@@ -381,6 +430,27 @@ def sync_all(
         min=1,
         help="Per-project sync timeout in seconds.",
     ),
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help=(
+            "Emit a single JSON object summarising the run instead of the "
+            "human-readable lines. Schema: `{vault, stale_hours, dry_run, "
+            "synced, skipped, failed, results}` — counters round-trip the "
+            "summary line and `results` is a per-project array with "
+            "`{project_root, outcome, reason, error}` entries (`outcome` is "
+            "exactly `synced` / `skipped` / `failed`; `reason` populated "
+            "only on `skipped`; `error` populated only on `failed`; both "
+            "explicit `null` elsewhere so `jq -r` filters need no defined-"
+            "key guard). Suppresses the `[sync] / [skip] / [fail]` per-"
+            "project prose so stdout stays pure data — `structlog` is "
+            "already routed to `sys.stderr` since v0.8.42. Same exit "
+            "discipline as the text path: `obsidian.enabled=false` exits "
+            "0 with `{disabled: true, results: []}`-shape, missing config "
+            "/ empty vault path exits 1 to stderr (no JSON success-shape "
+            "payload — same v0.8.42-v0.8.60 error-vs-success boundary)."
+        ),
+    ),
 ) -> None:
     """Iterate all registered projects and sync stale ones to the Obsidian vault.
 
@@ -402,6 +472,22 @@ def sync_all(
     obsidian_cfg = daemon_cfg.obsidian
 
     if not obsidian_cfg.enabled:
+        if as_json:
+            typer.echo(
+                json.dumps(
+                    {
+                        "vault": "",
+                        "stale_hours": stale_hours,
+                        "dry_run": dry_run,
+                        "synced": 0,
+                        "skipped": 0,
+                        "failed": 0,
+                        "results": [],
+                    },
+                    indent=2,
+                )
+            )
+            return
         typer.echo("Obsidian sync is disabled (obsidian.enabled=false). Nothing to do.")
         raise typer.Exit(code=0)
     if not obsidian_cfg.vault_path:
@@ -410,6 +496,22 @@ def sync_all(
 
     projects = daemon_cfg.projects
     if not projects:
+        if as_json:
+            typer.echo(
+                json.dumps(
+                    {
+                        "vault": obsidian_cfg.vault_path,
+                        "stale_hours": stale_hours,
+                        "dry_run": dry_run,
+                        "synced": 0,
+                        "skipped": 0,
+                        "failed": 0,
+                        "results": [],
+                    },
+                    indent=2,
+                )
+            )
+            return
         typer.echo("No registered projects. Run `ctx scan <path>` first.")
         raise typer.Exit(code=0)
 
@@ -420,12 +522,79 @@ def sync_all(
     ]
 
     if dry_run:
+        if as_json:
+            # Render plan into the same `results` shape the run-mode would
+            # produce — every entry's `outcome` mirrors the planned action
+            # ("synced" → would-sync, "skipped" → would-skip-with-reason).
+            # Counters reflect the *plan*, not actual side effects (none
+            # happened — that's what dry_run means). Locked by the
+            # dry-run JSON test.
+            results: list[dict[str, object]] = []
+            synced = 0
+            skipped = 0
+            for root, reason in plan:
+                if reason == "sync":
+                    synced += 1
+                    results.append(
+                        {
+                            "project_root": str(root),
+                            "outcome": "synced",
+                            "reason": None,
+                            "error": None,
+                        }
+                    )
+                else:
+                    skipped += 1
+                    results.append(
+                        {
+                            "project_root": str(root),
+                            "outcome": "skipped",
+                            "reason": reason.removeprefix("skip: "),
+                            "error": None,
+                        }
+                    )
+            typer.echo(
+                json.dumps(
+                    {
+                        "vault": obsidian_cfg.vault_path,
+                        "stale_hours": stale_hours,
+                        "dry_run": True,
+                        "synced": synced,
+                        "skipped": skipped,
+                        "failed": 0,
+                        "results": results,
+                    },
+                    indent=2,
+                )
+            )
+            return
         typer.echo(f"Sync plan (dry-run, stale-hours={stale_hours}):")
         for root, reason in plan:
             typer.echo(f"  {reason:<30} {root}")
         raise typer.Exit(code=0)
 
-    synced, skipped, failed = _run_plan(plan, obsidian_cfg.vault_path, timeout_seconds)
+    synced, skipped, failed, results = _run_plan(
+        plan, obsidian_cfg.vault_path, timeout_seconds, quiet=as_json
+    )
+
+    if as_json:
+        typer.echo(
+            json.dumps(
+                {
+                    "vault": obsidian_cfg.vault_path,
+                    "stale_hours": stale_hours,
+                    "dry_run": False,
+                    "synced": synced,
+                    "skipped": skipped,
+                    "failed": len(failed),
+                    "results": results,
+                },
+                indent=2,
+            )
+        )
+        if failed:
+            raise typer.Exit(code=1)
+        return
 
     typer.echo("")
     typer.echo(f"Done. Synced: {synced}, skipped: {skipped}, failed: {len(failed)}")
