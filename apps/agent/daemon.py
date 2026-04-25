@@ -31,6 +31,7 @@ from libs.scan_history.store import (
     resolve_default_store_path,
 )
 from libs.scanning.scanner import scan_project
+from libs.storage.sqlite_cache import CacheCorruptError
 from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
 
@@ -41,6 +42,19 @@ from apps.agent.wiki_worker import run_wiki_update
 
 DEFAULT_CONFIG_PATH = Path.home() / ".lvdcp" / "config.yaml"
 DEFAULT_LOG_DIR = Path.home() / "Library" / "Logs" / "lvdcp-agent"
+
+# Projects that have raised ``CacheCorruptError`` are skipped for the
+# remainder of the daemon's lifetime so a single corrupt cache cannot keep
+# crashing on every edit-block. Recovery requires the user to delete the
+# project's ``.context/`` directory and restart the daemon (which clears
+# this set).
+_QUARANTINED: dict[Path, str] = {}
+
+
+def reset_quarantine() -> None:
+    """Clear the in-process project quarantine. Test-only entry point."""
+    _QUARANTINED.clear()
+
 
 PATTERNS = [
     "*.py",
@@ -73,7 +87,7 @@ class DaemonEventHandler(PatternMatchingEventHandler):
         self._buffer.add(self._project_root, rel, event.event_type)
 
 
-def process_pending_events(  # noqa: PLR0913
+def process_pending_events(  # noqa: PLR0913, PLR0912
     buffer: DebounceBuffer,
     logger: typing.Callable[[str], None] = lambda msg: None,
     *,
@@ -97,6 +111,13 @@ def process_pending_events(  # noqa: PLR0913
     pending = buffer.flush_all()
     results: dict[Path, int] = {}
     for project_root, (modified, deleted) in pending.items():
+        # Skip projects that already raised ``CacheCorruptError`` this
+        # session — the cache won't heal on its own and re-attempting
+        # only burns CPU + log noise. See _QUARANTINED comment above.
+        if project_root in _QUARANTINED:
+            logger(f"[skip] {project_root.name}: quarantined ({_QUARANTINED[project_root]})")
+            continue
+
         scan_status = "ok"
         try:
             if deleted:
@@ -127,6 +148,14 @@ def process_pending_events(  # noqa: PLR0913
                     obsidian_pool.submit(run_obsidian_sync, project_root, obsidian_config)
             else:
                 results[project_root] = 0
+        except CacheCorruptError as exc:
+            scan_status = "error"
+            _QUARANTINED[project_root] = str(exc)
+            logger(
+                f"[quarantine] {project_root.name}: cache corrupt — will skip "
+                f"until daemon restart. Recovery: delete "
+                f"{project_root}/.context/ and re-run `ctx scan`. ({exc})"
+            )
         except Exception as exc:
             scan_status = "error"
             logger(f"[error] processing failed for {project_root}: {exc}")
