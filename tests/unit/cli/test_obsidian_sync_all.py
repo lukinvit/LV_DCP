@@ -494,8 +494,10 @@ def test_sync_all_json_dry_run_emits_plan_without_subprocess(tmp_path: Path) -> 
     assert payload["synced"] == 1  # planned-to-sync count
     assert payload["skipped"] == 0
     assert payload["failed"] == 0
-    assert len(payload["results"]) == 1
-    entry = payload["results"][0]
+    results = payload["results"]
+    assert isinstance(results, list)
+    assert len(results) == 1
+    entry = results[0]
     assert set(entry.keys()) == _SYNC_ALL_RESULT_KEYS
     assert entry["project_root"] == str(proj)
     assert entry["outcome"] == "synced"
