@@ -327,3 +327,226 @@ def test_is_stale_gate(
     if marker_age_s is not None:
         _write_marker(proj, time.time() - marker_age_s)
     assert _is_stale(proj, stale_hours * 3600.0, time.time()) is should_sync
+
+
+# ---- v0.8.61: `obsidian sync-all --json` multi-project scriptability ------
+
+# Schema-locked surface for `ctx obsidian sync-all --json` (v0.8.61). The
+# top-level shape is `{vault, stale_hours, dry_run, synced, skipped, failed,
+# results}` where `results` is a per-project array with the inner four-key
+# shape locked separately. Adding a top-level key requires bumping this
+# frozenset + the `json.dumps(...)` payload in
+# `apps/cli/commands/obsidian_cmd.py::sync_all` at the same time.
+_SYNC_ALL_JSON_KEYS = frozenset(
+    {"vault", "stale_hours", "dry_run", "synced", "skipped", "failed", "results"}
+)
+# Per-project entry shape — `outcome` is exactly one of "synced" /
+# "skipped" / "failed"; `reason` populated only on "skipped"; `error`
+# populated only on "failed"; both explicit `None` elsewhere so consumers
+# can `jq -r '.results[] | .reason // empty'` without a defined-key guard.
+_SYNC_ALL_RESULT_KEYS = frozenset({"project_root", "outcome", "reason", "error"})
+
+
+def _json_payload_or_fail(stdout: str) -> dict[str, object]:
+    """Parse the sync-all JSON stdout or raise with the offending text."""
+    import json as _json
+
+    try:
+        payload = _json.loads(stdout)
+    except _json.JSONDecodeError as exc:  # pragma: no cover — diagnostic only
+        raise AssertionError(f"stdout is not valid JSON: {stdout!r}") from exc
+    assert isinstance(payload, dict), f"top-level not an object: {payload!r}"
+    return payload
+
+
+def test_sync_all_text_output_unchanged(tmp_path: Path) -> None:
+    """Default text-mode output must remain bytewise stable: the legacy
+    `[sync] / Done.` lines and the `Done. Synced: N, ...` summary footer.
+    Sanity-checks against an accidental JSON-as-default flip — would break
+    this test instead of silently breaking shell consumers grepping for
+    `Done.` or `failed:`."""
+    proj = tmp_path / "proj"
+    _seed_project(proj)
+    cfg = tmp_path / "config.yaml"
+    _write_config(cfg, vault_path=str(tmp_path / "vault"), projects=[proj])
+
+    runner = CliRunner()
+    with patch("apps.cli.commands.obsidian_cmd.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout=b"", stderr=b"")
+        result = runner.invoke(app, ["obsidian", "sync-all", "--config", str(cfg)])
+
+    assert result.exit_code == 0, result.output
+    assert "[sync]" in result.output
+    assert "Done. Synced:" in result.output
+    # Sanity: text mode must not leak JSON syntax on stdout.
+    import json as _json
+
+    with pytest.raises(_json.JSONDecodeError):
+        _json.loads(result.stdout)
+
+
+def test_sync_all_json_emits_well_formed_object_with_mixed_outcomes(tmp_path: Path) -> None:
+    """`sync-all --json` emits a single object with the schema-locked seven-key
+    set. Tests the three outcome paths (synced / skipped / failed) in one
+    payload — proves the per-entry shape is consistent across all three
+    branches and that the top-level counters match the per-entry outcomes.
+    Cross-checks vault round-trip + per-entry `error` / `reason` population."""
+    good = tmp_path / "good"
+    bad = tmp_path / "bad"
+    fresh = tmp_path / "fresh"
+    _seed_project(good)
+    _seed_project(bad)
+    _seed_project(fresh)
+    _write_marker(fresh, time.time() - 60)  # fresh under 1h gate
+    cfg = tmp_path / "config.yaml"
+    vault = tmp_path / "vault"
+    _write_config(cfg, vault_path=str(vault), projects=[good, bad, fresh])
+
+    def _fake_run(cmd: list[str], **_kw: object) -> MagicMock:
+        if str(bad) in cmd:
+            raise subprocess.CalledProcessError(
+                returncode=1, cmd=cmd, output=b"", stderr=b"boom-from-bad-project"
+            )
+        return MagicMock(returncode=0, stdout=b"", stderr=b"")
+
+    runner = CliRunner()
+    with patch("apps.cli.commands.obsidian_cmd.subprocess.run", side_effect=_fake_run):
+        result = runner.invoke(
+            app,
+            ["obsidian", "sync-all", "--config", str(cfg), "--stale-hours", "1", "--json"],
+        )
+    # Exit 1 because one project failed — JSON path preserves the exit
+    # contract (failed > 0 → exit 1) parallel to the text path.
+    assert result.exit_code == 1, result.output
+
+    payload = _json_payload_or_fail(result.stdout)
+    assert set(payload.keys()) == _SYNC_ALL_JSON_KEYS
+
+    # Top-level invariants:
+    assert payload["vault"] == str(vault)
+    assert payload["stale_hours"] == 1.0
+    assert payload["dry_run"] is False
+    assert payload["synced"] == 1
+    assert payload["skipped"] == 1
+    assert payload["failed"] == 1
+
+    # Per-entry shape lock + outcome population:
+    results = payload["results"]
+    assert isinstance(results, list)
+    assert len(results) == 3
+    by_root = {r["project_root"]: r for r in results}
+
+    good_entry = by_root[str(good)]
+    assert set(good_entry.keys()) == _SYNC_ALL_RESULT_KEYS
+    assert good_entry["outcome"] == "synced"
+    assert good_entry["reason"] is None
+    assert good_entry["error"] is None
+
+    bad_entry = by_root[str(bad)]
+    assert set(bad_entry.keys()) == _SYNC_ALL_RESULT_KEYS
+    assert bad_entry["outcome"] == "failed"
+    assert bad_entry["reason"] is None
+    assert bad_entry["error"] is not None
+    assert "boom-from-bad-project" in str(bad_entry["error"])
+
+    fresh_entry = by_root[str(fresh)]
+    assert set(fresh_entry.keys()) == _SYNC_ALL_RESULT_KEYS
+    assert fresh_entry["outcome"] == "skipped"
+    assert fresh_entry["reason"] is not None
+    assert "fresh" in str(fresh_entry["reason"])
+    assert fresh_entry["error"] is None
+
+    # Stdout/stderr split: per-project `[sync] / [fail]` chrome must NOT
+    # appear on stdout (locks the `quiet=as_json` discipline so a future
+    # refactor that reintroduces prose breaks this test).
+    assert "[sync]" not in result.stdout
+    assert "[fail]" not in result.stdout
+    # Marker still written for the success case (side effects unchanged):
+    assert (good / ".context" / _OBSIDIAN_MARKER).exists()
+    assert not (bad / ".context" / _OBSIDIAN_MARKER).exists()
+
+
+def test_sync_all_json_dry_run_emits_plan_without_subprocess(tmp_path: Path) -> None:
+    """`--dry-run --json` emits the same schema as a real run but every
+    `outcome` reflects the *plan* (would-sync / would-skip), no subprocess
+    is invoked, and `dry_run: true` round-trips so a script can distinguish
+    a plan from an execution. Locks against a regression that fired the
+    sync subprocess in dry-run mode (would defeat the dry-run safety net)."""
+    proj = tmp_path / "proj"
+    _seed_project(proj)
+    cfg = tmp_path / "config.yaml"
+    vault = tmp_path / "vault"
+    _write_config(cfg, vault_path=str(vault), projects=[proj])
+
+    runner = CliRunner()
+    with patch("apps.cli.commands.obsidian_cmd.subprocess.run") as mock_run:
+        result = runner.invoke(
+            app, ["obsidian", "sync-all", "--config", str(cfg), "--dry-run", "--json"]
+        )
+    # No subprocess fired — dry-run is the canonical "plan, don't execute" gate.
+    assert mock_run.call_count == 0
+    assert result.exit_code == 0, result.output
+
+    payload = _json_payload_or_fail(result.stdout)
+    assert set(payload.keys()) == _SYNC_ALL_JSON_KEYS
+    assert payload["dry_run"] is True
+    assert payload["vault"] == str(vault)
+    assert payload["synced"] == 1  # planned-to-sync count
+    assert payload["skipped"] == 0
+    assert payload["failed"] == 0
+    assert len(payload["results"]) == 1
+    entry = payload["results"][0]
+    assert set(entry.keys()) == _SYNC_ALL_RESULT_KEYS
+    assert entry["project_root"] == str(proj)
+    assert entry["outcome"] == "synced"
+    # No marker written — dry-run leaves on-disk state untouched.
+    assert not (proj / ".context" / _OBSIDIAN_MARKER).exists()
+
+
+def test_sync_all_json_obsidian_disabled_emits_empty_results(tmp_path: Path) -> None:
+    """When `obsidian.enabled=false` the JSON path emits the schema-locked
+    object with empty `results` and zero counters (exit 0) instead of the
+    text-mode `Nothing to do` line. Mirrors the v0.8.45/v0.8.49/v0.8.50
+    "no-work-done is still a successful run, surface the structured null
+    rather than printing prose" discipline; lets a script check
+    `jq -e '.results == []'` without parsing prose."""
+    proj = tmp_path / "proj"
+    _seed_project(proj)
+    cfg = tmp_path / "config.yaml"
+    _write_config(cfg, vault_path=str(tmp_path / "vault"), projects=[proj], enabled=False)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["obsidian", "sync-all", "--config", str(cfg), "--json"])
+    assert result.exit_code == 0, result.output
+
+    payload = _json_payload_or_fail(result.stdout)
+    assert set(payload.keys()) == _SYNC_ALL_JSON_KEYS
+    assert payload["synced"] == 0
+    assert payload["skipped"] == 0
+    assert payload["failed"] == 0
+    assert payload["results"] == []
+    assert payload["dry_run"] is False
+
+
+def test_sync_all_json_missing_config_exits_1_no_payload(tmp_path: Path) -> None:
+    """Missing config file → exit 1 in JSON mode with no JSON payload on
+    stdout — same v0.8.42-v0.8.60 discipline of "exit code is the gate,
+    structured payload is for the success path". A regression that swallows
+    the validation error into a `{"error": "..."}` stdout payload breaks
+    this test."""
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        ["obsidian", "sync-all", "--config", str(tmp_path / "missing.yaml"), "--json"],
+    )
+    assert result.exit_code == 1, result.output
+    # Stdout must NOT parse as a success-shape JSON object.
+    if result.stdout.strip():
+        import json as _json
+
+        try:
+            parsed = _json.loads(result.stdout)
+            # If something parses, it must NOT be a success-shape entry.
+            assert not (isinstance(parsed, dict) and "results" in parsed)
+        except _json.JSONDecodeError:
+            pass  # Expected — error path went to stderr, stdout has no payload.
