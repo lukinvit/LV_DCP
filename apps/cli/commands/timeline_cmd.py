@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 import typer
-from libs.symbol_timeline.reconcile import prune_events, reconcile
+from libs.symbol_timeline.reconcile import ReconcileReport, prune_events, reconcile
 from libs.symbol_timeline.store import (
     SymbolTimelineStore,
     get_scan_state,
@@ -73,6 +73,24 @@ def _event_counts(store: SymbolTimelineStore, *, project_root: str) -> dict[str,
         .fetchall()
     )
     return {r[0]: r[1] for r in rows}
+
+
+def _reconcile_report_to_json(report: ReconcileReport) -> dict[str, object]:
+    """Build the JSON payload for `ctx timeline reconcile --json`.
+
+    Schema is a 1:1 mirror of the `ReconcileReport` dataclass — adding a
+    field there is the single point that surfaces it in both text and JSON
+    paths. `orphaned_by_event_type` is alphabetically sorted (dict
+    insertion order = deterministic key ordering) so consumers can
+    `jq -r '.orphaned_by_event_type | keys[]'` without an explicit sort.
+    """
+    return {
+        "project_root": report.project_root,
+        "git_available": report.git_available,
+        "reachable_commit_count": report.reachable_commit_count,
+        "orphaned_newly_flagged": report.orphaned_newly_flagged,
+        "orphaned_by_event_type": dict(sorted(report.orphaned_by_event_type.items())),
+    }
 
 
 def _orphaned_count(store: SymbolTimelineStore, *, project_root: str) -> int:
@@ -179,6 +197,20 @@ def reconcile_cmd(
     store_path: Path | None = typer.Option(  # noqa: B008
         None, "--store", help="Timeline DB path."
     ),
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help=(
+            "Emit the `ReconcileReport` as a JSON object instead of the "
+            "human-readable summary. Schema mirrors the dataclass: "
+            "`{project_root, git_available, reachable_commit_count, "
+            "orphaned_newly_flagged, orphaned_by_event_type}`. The "
+            "`git unavailable` failure mode still surfaces on stderr "
+            "with exit 1 — JSON output is reserved for the success path "
+            "(stdout stays empty on failure, scripts gate on `set -e`). "
+            "Composes with --project and --store."
+        ),
+    ),
 ) -> None:
     """Mark events whose commit_sha is no longer in the repo as orphaned."""
     root = _resolve_project(project)
@@ -190,8 +222,17 @@ def reconcile_cmd(
         store.close()
 
     if not report.git_available:
+        # Discipline shared with v0.8.42 / v0.8.43 / v0.8.44: --json never
+        # swallows the error into a `{"error": "..."}` stdout payload.
+        # Splitting that contract — sometimes JSON, sometimes prose, both
+        # on stdout — would force every consumer to parse-then-check-keys
+        # instead of just relying on `set -e` + `gh-style` exit codes.
         typer.echo("reconcile: git unavailable — no events flagged", err=True)
         raise typer.Exit(code=1)
+
+    if as_json:
+        typer.echo(json.dumps(_reconcile_report_to_json(report), indent=2))
+        return
 
     typer.echo(f"reconcile: {report.orphaned_newly_flagged} newly flagged orphaned")
     typer.echo(f"  reachable commits: {report.reachable_commit_count}")

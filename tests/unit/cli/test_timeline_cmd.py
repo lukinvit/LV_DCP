@@ -7,7 +7,9 @@ import time
 from pathlib import Path
 
 import pytest
+from apps.cli.commands import timeline_cmd as timeline_module
 from apps.cli.main import app
+from libs.symbol_timeline.reconcile import ReconcileReport
 from libs.symbol_timeline.store import (
     SymbolTimelineStore,
     TimelineEvent,
@@ -15,6 +17,18 @@ from libs.symbol_timeline.store import (
     upsert_scan_state,
 )
 from typer.testing import CliRunner
+
+# Schema-locked surface for `ctx timeline reconcile --json`. Adding a key
+# requires bumping this set + `_reconcile_report_to_json` at the same time.
+_RECONCILE_JSON_KEYS = frozenset(
+    {
+        "project_root",
+        "git_available",
+        "reachable_commit_count",
+        "orphaned_newly_flagged",
+        "orphaned_by_event_type",
+    }
+)
 
 
 @pytest.fixture
@@ -170,6 +184,95 @@ def test_reconcile_reports_git_unavailable(
     result = runner.invoke(app, ["timeline", "reconcile", "--project", str(tmp_path)])
     assert result.exit_code == 1
     assert "git unavailable" in result.output
+
+
+def test_reconcile_json_emits_report_payload(
+    tmp_path: Path,
+    timeline_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`--json` returns a 1:1 mirror of the `ReconcileReport` dataclass."""
+    fake = ReconcileReport(
+        project_root=str(tmp_path.resolve()),
+        git_available=True,
+        reachable_commit_count=42,
+        orphaned_newly_flagged=3,
+        orphaned_by_event_type={"removed": 2, "modified": 1},
+    )
+    monkeypatch.setattr(
+        timeline_module,
+        "reconcile",
+        lambda store, *, project_root, git_root: fake,
+    )
+    runner = CliRunner()
+    result = runner.invoke(app, ["timeline", "reconcile", "--project", str(tmp_path), "--json"])
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert isinstance(payload, dict)
+    assert set(payload.keys()) == _RECONCILE_JSON_KEYS
+    assert payload["project_root"] == str(tmp_path.resolve())
+    assert payload["git_available"] is True
+    assert payload["reachable_commit_count"] == 42
+    assert payload["orphaned_newly_flagged"] == 3
+    assert payload["orphaned_by_event_type"] == {"modified": 1, "removed": 2}
+
+
+def test_reconcile_json_git_unavailable_does_not_emit_error_json(
+    tmp_path: Path, timeline_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--json` never swallows the error into a stdout JSON payload.
+
+    Same discipline as v0.8.42 / v0.8.43 / v0.8.44: scripts gate on exit
+    code (`set -e`), the human message is on stderr, stdout never carries
+    a `{"error": "..."}` payload so a `json.loads(stdout)` consumer
+    doesn't have to branch on `if .error` keys. CliRunner merges stderr
+    into `result.output` by default — we assert exit 1, the message
+    surfaces, and no JSON object is emitted (no leading `{`, no quoted
+    `"error"` key, `json.loads` raises on the merged output).
+    """
+    monkeypatch.setenv("PATH", "/nonexistent")
+    runner = CliRunner()
+    result = runner.invoke(app, ["timeline", "reconcile", "--project", str(tmp_path), "--json"])
+    assert result.exit_code == 1
+    assert "git unavailable" in result.output
+    assert '"error"' not in result.output
+    assert not result.output.lstrip().startswith("{")
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(result.output)
+
+
+def test_reconcile_json_orphaned_by_event_type_is_alphabetically_sorted(
+    tmp_path: Path,
+    timeline_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`orphaned_by_event_type` keys land alphabetically — locks the contract.
+
+    The dataclass `dict[str, int]` carries whatever insertion order the
+    SQL `GROUP BY` emits (implementation-dependent). The CLI helper
+    explicitly sorts so consumers can `jq -r '.orphaned_by_event_type | keys[]'`
+    without an explicit `sort` filter — the script-side ergonomic that
+    matches v0.8.43's `most_common()` ordering for inspect counts.
+    """
+    fake = ReconcileReport(
+        project_root=str(tmp_path.resolve()),
+        git_available=True,
+        reachable_commit_count=1,
+        orphaned_newly_flagged=4,
+        # Insertion order intentionally not alphabetical.
+        orphaned_by_event_type={"removed": 1, "added": 2, "modified": 1},
+    )
+    monkeypatch.setattr(
+        timeline_module,
+        "reconcile",
+        lambda store, *, project_root, git_root: fake,
+    )
+    runner = CliRunner()
+    result = runner.invoke(app, ["timeline", "reconcile", "--project", str(tmp_path), "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    keys = list(payload["orphaned_by_event_type"].keys())
+    assert keys == sorted(keys), keys
 
 
 def test_backfill_prints_scan_hint(tmp_path: Path, timeline_db: Path) -> None:
