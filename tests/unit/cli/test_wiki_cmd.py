@@ -22,6 +22,11 @@ _WIKI_STATUS_JSON_KEYS = frozenset(
     {"module_path", "wiki_file", "status", "last_generated_ts", "source_hash"}
 )
 
+# Schema-locked surface for `ctx wiki lint --json`. Adding a key requires
+# bumping this set + `_issue_to_json` at the same time. Mirrors the
+# LintIssue dataclass from libs/wiki/lint.py::LintIssue.
+_WIKI_LINT_JSON_KEYS = frozenset({"severity", "module_path", "message"})
+
 
 def _seed_modules(project_path: Path, modules: list[tuple[str, str, bool]]) -> None:
     """Create `.context/cache.db` and seed wiki_state with `modules`.
@@ -122,3 +127,115 @@ def test_wiki_status_no_cache_db_fails_in_both_modes(tmp_path: Path) -> None:
     assert '"error"' not in json_result.output
     with pytest.raises(json.JSONDecodeError):
         json.loads(json_result.output)
+
+
+# ---------------------------------------------------------------------------
+# v0.8.47: `ctx wiki lint --json` slice
+# ---------------------------------------------------------------------------
+
+
+def _seed_lint_fixture(project_path: Path, *, with_orphan: bool, with_empty: bool) -> None:
+    """Set up `cache.db` + wiki layout to deterministically trigger lint findings.
+
+    `with_orphan=True` leaves an article on disk with no source files in the
+    `files` table — triggers the warning-severity "Orphaned article" finding.
+    `with_empty=True` writes a sub-50-byte article — triggers the
+    error-severity "Empty article" finding (the only error code path that
+    fires the exit-1 gate).
+    """
+    db_dir = project_path / ".context"
+    db_dir.mkdir(parents=True, exist_ok=True)
+    db_path = db_dir / "cache.db"
+    with SqliteCache(db_path) as cache:
+        cache.migrate()
+        conn = cache._connect()
+        ensure_wiki_table(conn)
+        conn.commit()
+
+    wiki_dir = project_path / ".context" / "wiki"
+    modules_dir = wiki_dir / "modules"
+    modules_dir.mkdir(parents=True, exist_ok=True)
+
+    if with_orphan:
+        # Article on disk, no matching files in cache → orphaned warning.
+        # Body is 80+ bytes so it doesn't also trigger the empty-error gate.
+        (modules_dir / "ghost.mod.md").write_text(
+            "# ghost.mod\n\nA stub article whose source module is gone.\n" * 2,
+            encoding="utf-8",
+        )
+
+    if with_empty:
+        # < 50 bytes → empty error finding (severity='error').
+        (modules_dir / "stub.mod.md").write_text("tiny\n", encoding="utf-8")
+
+
+def test_wiki_lint_text_output_unchanged(tmp_path: Path) -> None:
+    """Baseline: text path emits the legacy bullet list byte-identically."""
+    _seed_lint_fixture(tmp_path, with_orphan=True, with_empty=False)
+    runner = CliRunner()
+    result = runner.invoke(app, ["wiki", "lint", str(tmp_path)])
+    # Warnings only → exit 0; format is `  [WARN] <path>: <message>`.
+    assert result.exit_code == 0, result.output
+    assert "[WARN]" in result.output
+    assert "ghost.mod" in result.output
+    assert "warning(s)" in result.output
+
+
+def test_wiki_lint_json_emits_well_formed_array_warnings_only(tmp_path: Path) -> None:
+    """`--json` returns a bare JSON array; warnings-only exits 0 (no error gate)."""
+    _seed_lint_fixture(tmp_path, with_orphan=True, with_empty=False)
+    runner = CliRunner()
+    result = runner.invoke(app, ["wiki", "lint", str(tmp_path), "--json"])
+    # Exit-code gate carried unchanged: warnings → exit 0 in both modes.
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert isinstance(payload, list)
+    assert len(payload) >= 1
+    # Schema-locked: each row mirrors LintIssue exactly.
+    for row in payload:
+        assert set(row.keys()) == _WIKI_LINT_JSON_KEYS
+        assert row["severity"] in {"warning", "error"}
+    # Orphan article surfaces as a warning-severity finding.
+    assert any(r["severity"] == "warning" and "ghost.mod" in r["module_path"] for r in payload)
+    # No prose marker leaks into JSON.
+    assert "No issues found" not in result.output
+    assert "warning(s)" not in result.output
+
+
+def test_wiki_lint_json_empty_returns_bare_list(tmp_path: Path) -> None:
+    """No issues → `[]`, never `null` and never the `No issues found.` prose."""
+    # Seed an empty cache.db with no articles → no issues fire.
+    _seed_lint_fixture(tmp_path, with_orphan=False, with_empty=False)
+    runner = CliRunner()
+    result = runner.invoke(app, ["wiki", "lint", str(tmp_path), "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload == []
+    assert "No issues found" not in result.output
+
+
+def test_wiki_lint_json_preserves_exit_code_gate_on_errors(tmp_path: Path) -> None:
+    """Error-severity row → exit 1 in both text and JSON modes — script gate.
+
+    The exit-code contract is the script's gating mechanism (`set -e`); the
+    `--json` render switch must not break it. Splitting the contract would
+    force consumers to choose between the JSON payload and the CI gate.
+    """
+    _seed_lint_fixture(tmp_path, with_orphan=False, with_empty=True)
+    runner = CliRunner()
+
+    # Text mode: error severity → exit 1.
+    text_result = runner.invoke(app, ["wiki", "lint", str(tmp_path)])
+    assert text_result.exit_code == 1
+    assert "[ERROR]" in text_result.output
+
+    # JSON mode: same exit code, payload still emits the structured row.
+    json_result = runner.invoke(app, ["wiki", "lint", str(tmp_path), "--json"])
+    assert json_result.exit_code == 1
+    payload = json.loads(json_result.output)
+    assert any(r["severity"] == "error" for r in payload)
+    # Discipline shared with v0.8.42-v0.8.46: never the `{"error": "..."}` swallow.
+    # The structured payload IS valid JSON; what we lock here is that the
+    # error-severity row carries `severity='error'` (not a wrapped error
+    # object) and the script gate (exit 1) fires.
+    assert isinstance(payload, list)
