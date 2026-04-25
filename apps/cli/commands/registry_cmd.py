@@ -16,7 +16,7 @@ from dataclasses import asdict
 import typer
 from libs.status.aggregator import resolve_config_path
 from libs.status.registry_audit import ProjectAudit, audit_registry, is_missing, is_stale
-from libs.status.registry_prune import PruneResult, prune_stale
+from libs.status.registry_prune import PruneResult, RestoreResult, prune_stale, restore_from_backup
 
 app = typer.Typer(help="Audit and clean the LV_DCP project registry (~/.lvdcp/config.yaml).")
 
@@ -75,6 +75,18 @@ def _prune_result_to_json(result: PruneResult) -> dict[str, object]:
         "applied": result.applied,
         "backup_path": str(result.backup_path) if result.backup_path is not None else None,
         "config_path": str(result.config_path) if result.config_path is not None else None,
+    }
+
+
+def _restore_result_to_json(result: RestoreResult) -> dict[str, object]:
+    """Stringify Path fields. 1:1 mirror of `RestoreResult`."""
+    return {
+        "backup_path": str(result.backup_path) if result.backup_path is not None else None,
+        "config_path": str(result.config_path) if result.config_path is not None else None,
+        "applied": result.applied,
+        "backup_entry_count": result.backup_entry_count,
+        "current_entry_count": result.current_entry_count,
+        "delta": result.delta,
     }
 
 
@@ -257,3 +269,61 @@ def prune_cmd(
         typer.echo(f"prune: backup saved to {result.backup_path}")
     elif not result.applied:
         typer.echo("\nprune: dry-run — no changes written. Pass --yes to apply.")
+
+
+@app.command("restore")
+def restore_cmd(
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        help=(
+            "Actually overwrite the live config with the backup contents. "
+            "Without this flag, the command runs as a dry-run: prints the "
+            "entry counts that would be swapped and exits without touching "
+            "anything. The *.bak file is left in place after a successful "
+            "restore so you can re-run if needed."
+        ),
+    ),
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help=(
+            "Emit the restore result as a JSON object instead of human-"
+            "readable text. Schema mirrors `RestoreResult`: backup_path, "
+            "config_path, applied, backup_entry_count, current_entry_count, "
+            "delta. Composes with --yes (live-apply JSON) and dry-run "
+            "(preview JSON). Suppresses all hint text — pure data."
+        ),
+    ),
+) -> None:
+    """Restore the registry from `~/.lvdcp/config.yaml.bak` (the prune undo handle).
+
+    `ctx registry prune --yes` writes a sibling `*.bak` snapshot before
+    every mutation. This command is the inverse: read the backup back into
+    the live config atomically. Defaults to dry-run — pass --yes to apply.
+
+    The `*.bak` file is **not** deleted after restore: same content now
+    lives in both files, leaving you a second-chance handle. Run
+    `prune --yes` again later to overwrite the backup with a fresh
+    snapshot of the current state.
+    """
+    config_path = resolve_config_path()
+    try:
+        result = restore_from_backup(config_path, apply=yes)
+    except FileNotFoundError as exc:
+        typer.echo(f"restore: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    if as_json:
+        # Pure data — no hints, no headers. Same discipline as prune --json.
+        typer.echo(json.dumps(_restore_result_to_json(result), indent=2))
+        return
+
+    mode = "RESTORED" if result.applied else "would restore (dry-run)"
+    delta_str = f"{result.delta:+d}"  # always signed: +3, -1, 0 → "+0"
+    typer.echo(f"restore: {mode} {result.backup_entry_count} entries from {result.backup_path}")
+    typer.echo(
+        f"restore: live registry has {result.current_entry_count} entries (delta: {delta_str})"
+    )
+    if not result.applied:
+        typer.echo("\nrestore: dry-run — no changes written. Pass --yes to apply.")

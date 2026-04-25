@@ -424,3 +424,157 @@ def test_registry_prune_json_suppresses_human_hint_text(stale_cfg: Path) -> None
     assert "Pass --yes" not in result.stdout
     assert "REMOVED" not in result.stdout
     assert "nothing to do" not in result.stdout
+
+
+# ---- restore (v0.8.40) ----------------------------------------------------
+
+
+@pytest.fixture
+def restore_cfg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A registry where the live config has fewer entries than the .bak —
+    simulating "user just ran prune --yes and now wants to undo."""
+    p1 = tmp_path / "p1"
+    p2 = tmp_path / "p2"
+    p3 = tmp_path / "p3"
+    for d in (p1, p2, p3):
+        d.mkdir()
+
+    cfg = tmp_path / "config.yaml"
+    bak = tmp_path / "config.yaml.bak"
+    # Live: 1 entry (post-prune state)
+    cfg.write_text(
+        yaml.safe_dump(
+            {"projects": [{"root": str(p1), "registered_at_iso": "2026-04-25T00:00:00Z"}]}
+        ),
+        encoding="utf-8",
+    )
+    # Backup: 3 entries (pre-prune state)
+    bak.write_text(
+        yaml.safe_dump(
+            {
+                "projects": [
+                    {"root": str(p1), "registered_at_iso": "2026-04-24T00:00:00Z"},
+                    {"root": str(p2), "registered_at_iso": "2026-04-24T00:00:00Z"},
+                    {"root": str(p3), "registered_at_iso": "2026-04-24T00:00:00Z"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LVDCP_CONFIG_PATH", str(cfg))
+    return cfg
+
+
+_RESTORE_JSON_KEYS = {
+    "backup_path",
+    "config_path",
+    "applied",
+    "backup_entry_count",
+    "current_entry_count",
+    "delta",
+}
+
+
+def test_registry_restore_dry_run_is_default(restore_cfg: Path) -> None:
+    """`ctx registry restore` (no --yes) previews the swap and leaves
+    both files untouched. The user sees the entry counts and the delta."""
+    bak = restore_cfg.with_name(restore_cfg.name + ".bak")
+    cfg_bytes = restore_cfg.read_bytes()
+    bak_bytes = bak.read_bytes()
+
+    result = CliRunner().invoke(app, ["registry", "restore"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "dry-run" in result.stdout
+    assert "would restore" in result.stdout
+    # Counts surfaced in human-readable form.
+    assert "3 entries" in result.stdout  # backup_entry_count
+    assert "1 entries" in result.stdout  # current_entry_count
+    assert "+2" in result.stdout  # delta sign matters for the user
+
+    # Pure read — both files byte-identical.
+    assert restore_cfg.read_bytes() == cfg_bytes
+    assert bak.read_bytes() == bak_bytes
+
+
+def test_registry_restore_yes_applies_and_keeps_backup(restore_cfg: Path) -> None:
+    """`--yes` overwrites the live config with the backup and leaves the
+    backup file in place as a re-undo handle."""
+    bak = restore_cfg.with_name(restore_cfg.name + ".bak")
+    bak_bytes = bak.read_bytes()
+
+    result = CliRunner().invoke(app, ["registry", "restore", "--yes"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "RESTORED" in result.stdout
+
+    # Live config now matches backup.
+    payload = yaml.safe_load(restore_cfg.read_text(encoding="utf-8"))
+    roots = [p["root"] for p in payload["projects"]]
+    assert len(roots) == 3
+
+    # Backup file still on disk after restore (re-undo handle).
+    assert bak.exists()
+    assert bak.read_bytes() == bak_bytes
+
+
+def test_registry_restore_no_backup_exits_nonzero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When no .bak exists, restore exits with a non-zero code and a
+    clear hint pointing at `prune --yes`. Live config is untouched."""
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(yaml.safe_dump({"projects": []}), encoding="utf-8")
+    monkeypatch.setenv("LVDCP_CONFIG_PATH", str(cfg))
+    cfg_bytes = cfg.read_bytes()
+
+    result = CliRunner().invoke(app, ["registry", "restore"])
+
+    assert result.exit_code == 1
+    combined = result.stdout + (result.stderr or "")
+    assert "no backup found" in combined
+    assert "prune --yes" in combined  # actionable hint
+    # Untouched.
+    assert cfg.read_bytes() == cfg_bytes
+
+
+def test_registry_restore_json_dry_run_shape(restore_cfg: Path) -> None:
+    """`restore --json` emits the RestoreResult shape verbatim. Stable
+    schema, suppresses hint text — single parseable object on stdout."""
+    bak = restore_cfg.with_name(restore_cfg.name + ".bak")
+    cfg_bytes = restore_cfg.read_bytes()
+
+    result = CliRunner().invoke(app, ["registry", "restore", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert set(payload.keys()) == _RESTORE_JSON_KEYS
+    assert payload["applied"] is False
+    assert payload["backup_path"] == str(bak)
+    assert payload["config_path"] == str(restore_cfg)
+    assert payload["backup_entry_count"] == 3
+    assert payload["current_entry_count"] == 1
+    assert payload["delta"] == 2
+    # No hint text — pure data.
+    assert "dry-run" not in result.stdout
+    assert "Pass --yes" not in result.stdout
+    assert "RESTORED" not in result.stdout
+    # Untouched.
+    assert restore_cfg.read_bytes() == cfg_bytes
+
+
+def test_registry_restore_json_yes_applies(restore_cfg: Path) -> None:
+    """`restore --yes --json` applies and reports `applied=true` plus the
+    same count fields. Schema is invariant across dry-run / apply."""
+    result = CliRunner().invoke(app, ["registry", "restore", "--yes", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert set(payload.keys()) == _RESTORE_JSON_KEYS
+    assert payload["applied"] is True
+    assert payload["backup_entry_count"] == 3
+    assert payload["delta"] == 2
+
+    # Live config really changed.
+    reloaded = yaml.safe_load(restore_cfg.read_text(encoding="utf-8"))
+    assert len(reloaded["projects"]) == 3
