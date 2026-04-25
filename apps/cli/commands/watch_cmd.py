@@ -35,6 +35,20 @@ def add(
         dir_okay=True,
         resolve_path=True,
     ),
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help=(
+            "Emit the registered ProjectEntry as a single JSON object "
+            "(same schema as `watch list --json` rows: root, "
+            "registered_at_iso, last_scan_at_iso, last_scan_status). "
+            "Pure data on stdout — suppresses the human 'added X' line. "
+            "Idempotent: re-adding an existing path emits the **already-"
+            "registered** entry (the consumer can compare "
+            "`registered_at_iso` against wall-clock to detect "
+            "duplicate-add)."
+        ),
+    ),
 ) -> None:
     """Register a project to be watched by the daemon.
 
@@ -45,6 +59,28 @@ def add(
     transient roots; explicit invocation wins.
     """
     add_project(DEFAULT_CONFIG_PATH, path, allow_transient=True)
+    if as_json:
+        # Read back the registered entry — same v0.8.49 schema. Two cases land
+        # here: (1) fresh registration → returns the just-written row, (2)
+        # idempotent re-add → returns the existing row. Both shapes are
+        # identical; consumers diff `registered_at_iso` vs. wall-clock to
+        # tell them apart. If the lookup misses (impossible in normal flow
+        # — `add_project` either appends or no-ops on a duplicate; the only
+        # way to miss is a concurrent `remove_project` between write and
+        # read, vanishingly rare and benign), exit 1 with a stderr message
+        # so the JSON contract never emits a malformed payload.
+        resolved = path.resolve()
+        registered = next(
+            (p for p in list_projects(DEFAULT_CONFIG_PATH) if p.root == resolved), None
+        )
+        if registered is None:
+            typer.echo(
+                f"error: registered {resolved} but cannot read it back from {DEFAULT_CONFIG_PATH}",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        typer.echo(json.dumps(_project_to_json(registered), indent=2))
+        return
     typer.echo(f"added {path}")
 
 
