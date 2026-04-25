@@ -258,6 +258,24 @@ def prune_cmd(
     store_path: Path | None = typer.Option(  # noqa: B008
         None, "--store", help="Timeline DB path."
     ),
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help=(
+            "Emit the prune result as a single JSON object instead of the "
+            "human-readable summary. Schema: `{project_root, store_path, "
+            "older_than_days, include_live, deleted}` — round-trips the "
+            "invocation parameters so a script can confirm the run actually "
+            "targeted the project / store / cutoff it intended (same "
+            "v0.8.48/v0.8.50/v0.8.52-v0.8.54 precedent), and surfaces the "
+            "raw deleted count for `jq -e '.deleted > 0'` CI gating. The "
+            "non-positive `--older-than` failure mode still surfaces on "
+            "stderr with exit 2 — JSON output is reserved for the success "
+            "path (stdout stays empty on validation failure, scripts gate "
+            "on `set -e`). Same scriptability discipline as v0.8.38 "
+            "registry prune --json."
+        ),
+    ),
 ) -> None:
     """Permanently delete old events. Defaults to orphaned-only — safer."""
     if older_than_days <= 0:
@@ -274,8 +292,35 @@ def prune_cmd(
             older_than_ts=cutoff,
             only_orphaned=not include_live,
         )
+        # Capture the resolved store path *before* close — `store.db_path`
+        # remains valid after close (it's just a Path attribute), but reading
+        # it inside the try block keeps the read inside the with-resource
+        # discipline so a future refactor that invalidates the attribute on
+        # close doesn't silently break the JSON shape.
+        resolved_store_path = str(store.db_path)
     finally:
         store.close()
+
+    if as_json:
+        # Pure data — no headers, no "deleted N events" prose. Same shape
+        # discipline as v0.8.38 registry prune --json: 1:1 mirror of "what
+        # the command actually did during this run", with invocation
+        # parameters round-tripped so the consumer can verify the call
+        # without re-deriving from argv.
+        typer.echo(
+            json.dumps(
+                {
+                    "project_root": project_root,
+                    "store_path": resolved_store_path,
+                    "older_than_days": older_than_days,
+                    "include_live": include_live,
+                    "deleted": deleted,
+                },
+                indent=2,
+            )
+        )
+        return
+
     scope = "orphaned + live" if include_live else "orphaned only"
     typer.echo(f"prune: deleted {deleted} events ({scope}, older than {older_than_days}d)")
 

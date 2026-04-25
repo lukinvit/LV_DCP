@@ -30,6 +30,16 @@ _RECONCILE_JSON_KEYS = frozenset(
     }
 )
 
+# Schema-locked surface for `ctx timeline prune --json` (v0.8.55). Round-trips
+# the invocation parameters so a script can verify the call without parsing
+# argv, then surfaces the raw `deleted` count for `jq -e '.deleted > 0'`.
+# Mirrors the v0.8.38 `registry prune --json` "1:1 of what the command did"
+# discipline. Adding a key requires bumping this frozenset + the inline dict
+# in `apps/cli/commands/timeline_cmd.py::prune_cmd` at the same time.
+_TIMELINE_PRUNE_JSON_KEYS = frozenset(
+    {"project_root", "store_path", "older_than_days", "include_live", "deleted"}
+)
+
 
 @pytest.fixture
 def timeline_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -281,3 +291,156 @@ def test_backfill_prints_scan_hint(tmp_path: Path, timeline_db: Path) -> None:
     assert result.exit_code == 0
     assert "ctx scan" in result.stdout
     assert str(tmp_path.resolve()) in result.stdout
+
+
+# ---- v0.8.55: `timeline prune --json` write-side scriptability -------------
+
+
+def _age_events(timeline_db: Path, project_root: str, days_old: int) -> None:
+    """Push every seeded event to ``days_old`` days in the past so the
+    prune cutoff catches them. Local helper because the existing
+    `test_prune_*` tests inline this block — the new `--json` tests
+    benefit from the same time-machine without copy-paste drift."""
+    now = time.time()
+    store = SymbolTimelineStore(timeline_db)
+    store._connect().execute(
+        "UPDATE symbol_timeline_events SET timestamp = ? WHERE project_root = ?",
+        (now - days_old * 86400, project_root),
+    )
+    store._connect().commit()
+    store.close()
+
+
+def test_prune_text_output_unchanged(tmp_path: Path, timeline_db: Path) -> None:
+    """Default text-mode output must remain bytewise stable: a single
+    ``prune: deleted N events (orphaned only, older than Nd)`` line.
+    Sanity-checks against an accidental JSON-as-default flip and against
+    any future regression that promotes JSON to the default render —
+    would break this test instead of silently breaking shell consumers
+    grepping for ``deleted``."""
+    project_root = str(tmp_path.resolve())
+    _seed_events(timeline_db, project_root)
+    _age_events(timeline_db, project_root, days_old=10)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        ["timeline", "prune", "--older-than", "1", "--project", str(tmp_path)],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "deleted 1 events" in result.stdout  # one orphaned in the seed
+    assert "orphaned only" in result.stdout
+    # Sanity: text mode must not leak JSON syntax.
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(result.stdout)
+
+
+def test_prune_json_emits_well_formed_object(tmp_path: Path, timeline_db: Path) -> None:
+    """`timeline prune --json` emits a single object with the schema-locked
+    five-key set. Round-trips invocation parameters so a script can confirm
+    `older_than_days`, `include_live`, `project_root`, and `store_path` —
+    same v0.8.48-v0.8.54 "round-trip the actual input to catch typos"
+    precedent. `deleted` is the canonical "did this prune do work" signal
+    matching the `jq -e '.deleted > 0'` CI gate from the helptext."""
+    project_root = str(tmp_path.resolve())
+    _seed_events(timeline_db, project_root)
+    _age_events(timeline_db, project_root, days_old=10)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "timeline",
+            "prune",
+            "--older-than",
+            "1",
+            "--project",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+
+    assert isinstance(payload, dict)
+    assert set(payload.keys()) == _TIMELINE_PRUNE_JSON_KEYS
+
+    # Locked invariants for the orphaned-only default mode:
+    assert payload["project_root"] == project_root
+    assert isinstance(payload["store_path"], str)
+    assert payload["store_path"]  # non-empty resolved path
+    assert payload["older_than_days"] == 1
+    assert payload["include_live"] is False
+    assert payload["deleted"] == 1  # one orphaned event in the seed
+
+    # Stdout must be valid JSON throughout — no leading/trailing prose.
+    json.loads(result.stdout)  # would raise if there's prose mixed in
+
+
+def test_prune_json_include_live_round_trips_flag_and_count(
+    tmp_path: Path, timeline_db: Path
+) -> None:
+    """`--include-live --json` round-trips the boolean flag (locks the
+    schema-as-source-of-truth contract — a regression that drops the flag
+    from the payload would silently lose the "this prune included live
+    events" signal that drives the destructive-vs-routine distinction in
+    audit logs) and reports the full deletion count (4 events, not just
+    the 1 orphaned). Cross-checks the v0.8.55 schema against the existing
+    `test_prune_include_live_removes_everything` text-mode invariant."""
+    project_root = str(tmp_path.resolve())
+    _seed_events(timeline_db, project_root)
+    _age_events(timeline_db, project_root, days_old=10)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "timeline",
+            "prune",
+            "--older-than",
+            "1",
+            "--include-live",
+            "--project",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+
+    assert set(payload.keys()) == _TIMELINE_PRUNE_JSON_KEYS
+    assert payload["include_live"] is True
+    assert payload["deleted"] == 4  # all four seeded events
+
+
+def test_prune_json_validation_error_exits_two_no_payload(
+    tmp_path: Path, timeline_db: Path
+) -> None:
+    """Non-positive `--older-than` must exit 2 in JSON mode with no JSON
+    payload on stdout — same v0.8.42-v0.8.54 discipline of "exit code is
+    the gate, structured payload is for the success path". A regression
+    that swallows the validation error into a `{"error": "..."}` stdout
+    payload breaks this test."""
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "timeline",
+            "prune",
+            "--older-than",
+            "0",
+            "--project",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+    assert result.exit_code == 2, result.output
+    assert "must be positive" in result.output
+    # Stdout must NOT parse as a success-shape JSON object.
+    if result.stdout.strip():
+        try:
+            parsed = json.loads(result.stdout)
+            # If something parses, it must NOT be a success-shape entry.
+            assert not (isinstance(parsed, dict) and "deleted" in parsed)
+        except json.JSONDecodeError:
+            pass  # Expected — error path went to stderr, stdout has no payload.
