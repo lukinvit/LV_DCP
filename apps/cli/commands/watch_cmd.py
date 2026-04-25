@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 import typer
 from libs.mcp_ops.launchd import (
@@ -58,10 +60,40 @@ def remove(
     typer.echo(f"removed {path}")
 
 
+def _project_to_json(project: Any) -> dict[str, object]:
+    """Mirror ``ProjectEntry`` 1:1 as a JSON-serializable dict.
+
+    Schema is intentionally locked to the dataclass shape so consumers can
+    bind to it without a separate IDL. ``root`` is stringified because
+    ``Path`` is not JSON-native; ISO timestamps stay as strings.
+    """
+    return {
+        "root": str(project.root),
+        "registered_at_iso": project.registered_at_iso,
+        "last_scan_at_iso": project.last_scan_at_iso,
+        "last_scan_status": project.last_scan_status,
+    }
+
+
 @app.command("list")
-def list_cmd() -> None:
-    """List registered projects."""
+def list_cmd(
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit registered projects as a JSON array instead of a text list.",
+    ),
+) -> None:
+    """List registered projects.
+
+    With ``--json``, emits a bare array of per-project objects mirroring
+    ``ProjectEntry`` (one row per registration). Empty registries return
+    ``[]`` so consumers can rely on the shape unconditionally — there is no
+    sentinel "no projects registered" string in JSON mode.
+    """
     projects = list_projects(DEFAULT_CONFIG_PATH)
+    if as_json:
+        typer.echo(json.dumps([_project_to_json(p) for p in projects], indent=2))
+        return
     if not projects:
         typer.echo("no projects registered")
         return
