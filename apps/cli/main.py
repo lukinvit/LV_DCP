@@ -90,9 +90,20 @@ def inspect(
         dir_okay=True,
         resolve_path=True,
     ),
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help=(
+            "Emit the inspect result as a JSON object instead of human-readable text. "
+            "Schema: `path`, `files`, `language_counts` (insertion-ordered by descending "
+            "count), `symbols`, `symbol_type_counts`, `relations`, `relation_type_counts`. "
+            "Suppresses all hint text — pure data on stdout. Errors (e.g. project not "
+            "indexed) still go to stderr with non-zero exit, regardless of this flag."
+        ),
+    ),
 ) -> None:
     """Print index stats for a scanned project."""
-    inspect_module.inspect(path)
+    inspect_module.inspect(path, as_json=as_json)
 
 
 app.command()(pack_module.pack)
