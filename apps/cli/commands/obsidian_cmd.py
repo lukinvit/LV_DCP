@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import time
@@ -352,6 +353,28 @@ def sync_all(
         raise typer.Exit(code=1)
 
 
+def _vault_status_to_json(
+    *,
+    vault: Path,
+    projects_dir: Path,
+    projects_dir_exists: bool,
+    projects: list[str],
+) -> dict[str, object]:
+    """Single-object payload describing the vault's `Projects/` state.
+
+    Why a single object (not a bare array of project names): the command has
+    a tri-state contract — Projects/ missing vs. present-but-empty vs.
+    populated — that a bare array cannot encode without a sentinel value.
+    The object cleanly distinguishes them via ``projects_dir_exists``.
+    """
+    return {
+        "vault": str(vault),
+        "projects_dir": str(projects_dir),
+        "projects_dir_exists": projects_dir_exists,
+        "projects": projects,
+    }
+
+
 @app.command("status")
 def status(
     vault: Path = typer.Option(  # noqa: B008
@@ -363,14 +386,48 @@ def status(
         resolve_path=True,
         help="Path to Obsidian vault root.",
     ),
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help=(
+            "Emit a single JSON object describing the vault state instead "
+            "of the human-readable listing. Tri-state contract: "
+            "`projects_dir_exists` distinguishes missing vs. empty vs. "
+            "populated; `projects` is always an array of sorted dir names."
+        ),
+    ),
 ) -> None:
-    """List project directories in the Obsidian vault."""
+    """List project directories in the Obsidian vault.
+
+    With ``--json``, emits a single object with the tri-state vault-state
+    contract intact. Empty / missing vault paths still exit 0 — a missing
+    ``Projects/`` directory is a valid vault configuration (no projects
+    have been synced yet), not an error.
+    """
     projects_dir = vault / "Projects"
-    if not projects_dir.exists():
+    projects_dir_exists = projects_dir.exists()
+    dirs: list[str] = (
+        sorted(p.name for p in projects_dir.iterdir() if p.is_dir()) if projects_dir_exists else []
+    )
+
+    if as_json:
+        typer.echo(
+            json.dumps(
+                _vault_status_to_json(
+                    vault=vault,
+                    projects_dir=projects_dir,
+                    projects_dir_exists=projects_dir_exists,
+                    projects=dirs,
+                ),
+                indent=2,
+            )
+        )
+        return
+
+    if not projects_dir_exists:
         typer.echo("No Projects/ directory found in vault.")
         raise typer.Exit(code=0)
 
-    dirs = sorted(p.name for p in projects_dir.iterdir() if p.is_dir())
     if not dirs:
         typer.echo("No project directories found.")
     else:
