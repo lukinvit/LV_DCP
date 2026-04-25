@@ -1,4 +1,5 @@
-"""Tests for the `ctx memory` CLI group."""
+"""Tests for the `ctx memory` CLI group (v0.8.44 list --json,
+v0.8.57 accept --json mutation scriptability)."""
 
 from __future__ import annotations
 
@@ -144,3 +145,128 @@ def test_memory_list_json_composes_with_status_filter(
     )
     assert proposed_after.exit_code == 0, proposed_after.stdout
     assert json.loads(proposed_after.stdout) == []
+
+
+# ---- v0.8.57: ``memory accept --json`` mutation scriptability -------------
+
+
+def test_memory_accept_text_output_unchanged(
+    project_with_memory: tuple[Path, str],
+) -> None:
+    """Default text-mode output must remain bytewise stable: a single
+    `accepted: <id>  <topic>` line. Sanity-checks against an accidental
+    JSON-as-default flip — would break this test instead of silently
+    breaking shell consumers grepping for `accepted:`."""
+    project, mem_id = project_with_memory
+    result = CliRunner().invoke(app, ["memory", "accept", mem_id, "--project", str(project)])
+    assert result.exit_code == 0, result.stdout
+    assert f"accepted: {mem_id}" in result.stdout
+    # Sanity: text mode must not leak JSON syntax.
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(result.stdout)
+
+
+def test_memory_accept_json_emits_well_formed_object(
+    project_with_memory: tuple[Path, str],
+) -> None:
+    """`memory accept --json` emits a single object mirroring the v0.8.44
+    `memory list --json` per-row schema — same `_MEMORY_LIST_JSON_KEYS`
+    frozenset locks the cross-surface invariant. Schema parity between read
+    (`list`) and write (`accept`) sides means a future `Memory` field
+    addition has one schema-lock to bump, not two.
+
+    The post-mutation `status` field round-trips as `"accepted"` — locks
+    the documented "consumer can confirm the state transition landed
+    without a follow-up `list --json` call" contract from the docstring.
+    """
+    project, mem_id = project_with_memory
+    result = CliRunner().invoke(
+        app, ["memory", "accept", mem_id, "--project", str(project), "--json"]
+    )
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+
+    assert isinstance(payload, dict)
+    # Schema lock — reuses the v0.8.44 frozenset; identical contract on both
+    # surfaces. Adding a Memory field requires bumping ONE frozenset.
+    assert set(payload.keys()) == _MEMORY_LIST_JSON_KEYS
+
+    # Locked field invariants for the accepted entry:
+    assert payload["id"] == mem_id
+    # Critical: post-mutation status must round-trip as "accepted" — proves
+    # the mutation landed AND was reflected in the emitted payload (not a
+    # stale read of the pre-mutation state).
+    assert payload["status"] == "accepted"
+    assert payload["topic"] == "Auth flow"
+    assert isinstance(payload["tags"], list)
+    assert payload["path"].endswith(".md")
+
+    # Cross-check via `list --json` — the on-disk state must match the
+    # emitted payload. A regression that emitted "accepted" but failed to
+    # mutate the file would fail this follow-up read.
+    listed = CliRunner().invoke(
+        app, ["memory", "list", "--project", str(project), "--status", "accepted", "--json"]
+    )
+    assert listed.exit_code == 0, listed.stdout
+    assert any(row["id"] == mem_id for row in json.loads(listed.stdout))
+
+
+def test_memory_accept_json_unknown_id_exits_nonzero_no_payload(
+    tmp_path: Path,
+) -> None:
+    """Unknown memory id must exit non-zero in JSON mode (same exit-code 2
+    as text mode — `--json` is a render switch, not a semantic change). No
+    JSON success-shape payload must reach stdout — the error-vs-success
+    boundary stays at the exit-code gate, same v0.8.42-v0.8.56 discipline.
+
+    A regression that swallows `MemoryNotFoundError` into a `{"error": ...}`
+    stdout payload (or that exits 0 with `null` stdout) breaks this test.
+    """
+    result = CliRunner().invoke(
+        app,
+        ["memory", "accept", "mem_unknown_id", "--project", str(tmp_path), "--json"],
+    )
+    assert result.exit_code == 2, result.stdout
+    # Stdout must NOT parse as a success-shape Memory JSON object.
+    if result.stdout.strip():
+        try:
+            parsed = json.loads(result.stdout)
+            # If something parses, it must NOT be a success-shape entry.
+            assert not (isinstance(parsed, dict) and "id" in parsed and "status" in parsed)
+        except json.JSONDecodeError:
+            pass  # Expected — error path went to stderr, stdout has Typer's diagnostic.
+
+
+def test_memory_accept_json_idempotent_re_accept_returns_accepted_entry(
+    project_with_memory: tuple[Path, str],
+) -> None:
+    """Re-accepting an already-accepted memory must succeed (exit 0) and
+    emit the same accepted entry — locks the `accept_memory` library
+    semantic that idempotency is the contract (see store.py — accept_memory
+    just rewrites the status field, not a state-machine guard). A regression
+    that flipped accept_memory into a "must-be-proposed" guard would break
+    this test by raising MemoryNotFoundError-style or exiting non-zero on
+    the second accept."""
+    project, mem_id = project_with_memory
+
+    # First accept — flip the status.
+    first = CliRunner().invoke(
+        app, ["memory", "accept", mem_id, "--project", str(project), "--json"]
+    )
+    assert first.exit_code == 0, first.stdout
+    first_payload = json.loads(first.stdout)
+    assert first_payload["status"] == "accepted"
+
+    # Second accept of the same memory — must succeed and emit the same
+    # entry (still accepted). Idempotency check.
+    second = CliRunner().invoke(
+        app, ["memory", "accept", mem_id, "--project", str(project), "--json"]
+    )
+    assert second.exit_code == 0, second.stdout
+    second_payload = json.loads(second.stdout)
+    assert set(second_payload.keys()) == _MEMORY_LIST_JSON_KEYS
+    assert second_payload["id"] == mem_id
+    assert second_payload["status"] == "accepted"
+    # The path must remain stable across the idempotent re-accept — the
+    # on-disk file is the same one, not a fresh write to a new location.
+    assert second_payload["path"] == first_payload["path"]
