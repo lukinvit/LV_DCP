@@ -78,6 +78,61 @@ def _build_modules(
     return modules
 
 
+def _sync_report_to_json(
+    report: object,
+    *,
+    vault: Path,
+    project: Path,
+) -> dict[str, object]:
+    """Mirror the ``SyncReport`` dataclass schema 1:1 plus the invocation
+    parameters that round-trip what this run actually synced.
+
+    Schema (matches ``libs.obsidian.models.SyncReport``):
+      - ``vault``: absolute path of the Obsidian vault root that was
+        targeted (round-tripped so a script can confirm the run actually
+        targeted the vault it intended without reconstructing it from
+        ``--vault``)
+      - ``project``: absolute path of the project root that was synced
+        (round-tripped for the same reason)
+      - ``project_name``: the basename used as the vault subdirectory —
+        same string that the text view echoes in "Synced X to Y"
+      - ``pages_written``: count of vault pages newly written or
+        rewritten (the canonical "did this sync actually do work"
+        signal — `jq -e '.pages_written > 0'` is the natural CI guard)
+      - ``pages_deleted``: count of vault pages removed because the
+        source files no longer exist (separate from ``pages_written``
+        so dashboards can split "drift cleanup" from "fresh write" load)
+      - ``duration_seconds``: float seconds the publisher ran for —
+        useful for the "did this sync slow down" hygiene track via
+        ``jq '.duration_seconds'``
+      - ``errors``: array of human-readable error messages collected
+        during sync. Empty array (never ``null``) for a clean sync —
+        ``jq -e '.errors == []'`` works as the CI gate without a
+        None-guard. ``len(errors) > 0`` does **not** flip the exit
+        code: the publisher swallows per-page errors into the report
+        rather than crashing, and the JSON contract preserves that
+        semantic so consumers see the partial-success case as
+        ``exit 0`` + non-empty errors array (mirroring ``v0.8.50``
+        ``obsidian status`` "missing Projects/ is exit 0 + structured
+        signal" discipline).
+
+    The ``SyncReport`` dataclass is consumed via ``getattr`` rather
+    than imported so this helper survives a future ``SyncReport`` move
+    or rename without import-graph churn — the helper's sole input
+    contract is "object with the documented fields", same shape
+    discipline as v0.8.45 ``ReconcileReport`` shaping.
+    """
+    return {
+        "vault": str(vault),
+        "project": str(project),
+        "project_name": getattr(report, "project_name", ""),
+        "pages_written": getattr(report, "pages_written", 0),
+        "pages_deleted": getattr(report, "pages_deleted", 0),
+        "duration_seconds": getattr(report, "duration_seconds", 0.0),
+        "errors": list(getattr(report, "errors", []) or []),
+    }
+
+
 @app.command("sync")
 def sync(
     vault: Path = typer.Option(  # noqa: B008
@@ -96,6 +151,19 @@ def sync(
         dir_okay=True,
         resolve_path=True,
         help="Path to the scanned project.",
+    ),
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help=(
+            "Emit a single JSON object mirroring the SyncReport dataclass: "
+            "{vault, project, project_name, pages_written, pages_deleted, "
+            "duration_seconds, errors} instead of the human-readable summary. "
+            "Suppresses all hint text — pure data on stdout. Per-page errors "
+            "still land in the `errors` array (exit 0 — partial success is "
+            "the publisher's documented semantic); `cache.db` missing still "
+            "exits 1 to stderr."
+        ),
     ),
 ) -> None:
     """Sync a scanned project to an Obsidian vault."""
@@ -167,6 +235,18 @@ def sync(
         recent_changes=recent_changes,
         languages=languages,
     )
+
+    if as_json:
+        # JSON path: pure data on stdout, no hint text. Per-page errors land
+        # in the `errors` array (exit 0 — partial success is the publisher's
+        # documented semantic; see _sync_report_to_json docstring).
+        typer.echo(
+            json.dumps(
+                _sync_report_to_json(report, vault=vault, project=project_path),
+                indent=2,
+            )
+        )
+        return
 
     typer.echo(f"Synced {project_name} to {vault}")
     typer.echo(f"  Pages written: {report.pages_written}")
