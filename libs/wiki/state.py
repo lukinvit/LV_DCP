@@ -68,10 +68,26 @@ def get_all_modules(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     ]
 
 
+def wiki_filename(module_path: str) -> str:
+    """Compose the on-disk wiki filename for a module path.
+
+    Strips a trailing ``.md`` from the source module path so docs-only
+    projects (where every "module" is itself a markdown file like
+    ``README.md`` or ``CHANGELOG.md``) don't end up with the cosmetic
+    ``modules/README.md.md`` double-extension that leaked into INDEX.md
+    in v0.8.65 and earlier.
+
+    Path separators are flattened to ``-`` so the wiki dir stays flat.
+    """
+    safe_name = module_path.replace("/", "-").replace("\\", "-")
+    if safe_name.lower().endswith(".md"):
+        safe_name = safe_name[:-3]
+    return f"modules/{safe_name}.md"
+
+
 def mark_dirty(conn: sqlite3.Connection, module_path: str, source_hash: str) -> None:
     """Insert or replace a module as dirty."""
-    safe_name = module_path.replace("/", "-").replace("\\", "-")
-    wiki_file = f"modules/{safe_name}.md"
+    wiki_file = wiki_filename(module_path)
     conn.execute(
         "INSERT OR REPLACE INTO wiki_state (module_path, wiki_file, source_hash, status) "
         "VALUES (?, ?, ?, 'dirty')",
