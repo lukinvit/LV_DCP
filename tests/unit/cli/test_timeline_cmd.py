@@ -40,6 +40,13 @@ _TIMELINE_PRUNE_JSON_KEYS = frozenset(
     {"project_root", "store_path", "older_than_days", "include_live", "deleted"}
 )
 
+# Schema-locked surface for `ctx timeline enable --json` (v0.8.59) — and
+# the future v0.8.60 ``disable --json`` which renders the same shape with
+# ``enabled: false``. Mirror of v0.8.57/v0.8.58 single-object precedent.
+# Adding a key requires bumping this frozenset + ``_flag_to_json`` in
+# ``apps/cli/commands/timeline_cmd.py`` at the same time.
+_TIMELINE_FLAG_JSON_KEYS = frozenset({"project_root", "enabled", "flag_path"})
+
 
 @pytest.fixture
 def timeline_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -444,3 +451,97 @@ def test_prune_json_validation_error_exits_two_no_payload(
             assert not (isinstance(parsed, dict) and "deleted" in parsed)
         except json.JSONDecodeError:
             pass  # Expected — error path went to stderr, stdout has no payload.
+
+
+# ---- v0.8.59: `timeline enable --json` flag-mutation scriptability ---------
+
+
+def test_timeline_enable_text_output_unchanged(tmp_path: Path, timeline_db: Path) -> None:
+    """Default text-mode output must remain bytewise stable: a single
+    ``timeline: enabled for <root>`` line. Sanity-checks against an
+    accidental JSON-as-default flip — would break this test instead of
+    silently breaking shell consumers grepping for ``enabled``."""
+    runner = CliRunner()
+    result = runner.invoke(app, ["timeline", "enable", "--project", str(tmp_path)])
+    assert result.exit_code == 0, result.stdout
+    assert f"timeline: enabled for {tmp_path.resolve()}" in result.stdout
+    # Sanity: text mode must not leak JSON syntax.
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(result.stdout)
+
+
+def test_timeline_enable_json_emits_well_formed_object(tmp_path: Path, timeline_db: Path) -> None:
+    """`timeline enable --json` emits a single object with the schema-locked
+    three-key set. Round-trips ``project_root`` + ``flag_path`` so a script
+    can verify the call without re-deriving from argv, and surfaces the
+    post-mutation ``enabled: true`` for `jq -e '.enabled == true'`
+    confirmation. Cross-checks the on-disk flag file matches the emitted
+    payload — if a future regression decoupled the in-memory state from the
+    actual file write, this test would catch it."""
+    runner = CliRunner()
+    result = runner.invoke(app, ["timeline", "enable", "--project", str(tmp_path), "--json"])
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+
+    assert isinstance(payload, dict)
+    assert set(payload.keys()) == _TIMELINE_FLAG_JSON_KEYS
+
+    # Locked invariants for the post-mutation enable state:
+    assert payload["project_root"] == str(tmp_path.resolve())
+    assert payload["enabled"] is True
+    expected_flag = tmp_path.resolve() / ".context" / "timeline.enabled"
+    assert payload["flag_path"] == str(expected_flag)
+
+    # Cross-check: on-disk flag file matches the emitted state.
+    assert expected_flag.read_text().strip() == "on"
+
+    # Stdout must be valid JSON throughout — no leading/trailing prose.
+    json.loads(result.stdout)  # would raise if there's prose mixed in
+
+
+def test_timeline_enable_json_idempotent_re_enable(tmp_path: Path, timeline_db: Path) -> None:
+    """Calling ``enable --json`` twice emits the same payload both times
+    — there's no state-machine guard on already-enabled, the second call
+    is a no-op-on-state-but-write-on-disk that returns the same shape.
+    Mirrors v0.8.57 ``test_memory_accept_json_idempotent_re_accept``:
+    locks the "render switch, not a semantic change" contract and proves
+    a script can safely re-run ``enable --json`` without branching on
+    "was it already on"."""
+    runner = CliRunner()
+    first = runner.invoke(app, ["timeline", "enable", "--project", str(tmp_path), "--json"])
+    assert first.exit_code == 0
+    payload_first = json.loads(first.stdout)
+
+    second = runner.invoke(app, ["timeline", "enable", "--project", str(tmp_path), "--json"])
+    assert second.exit_code == 0
+    payload_second = json.loads(second.stdout)
+
+    # Identical payloads — same shape, same values, both calls.
+    assert payload_first == payload_second
+    assert payload_second["enabled"] is True
+    assert set(payload_second.keys()) == _TIMELINE_FLAG_JSON_KEYS
+
+
+def test_timeline_enable_json_overrides_disabled_state(tmp_path: Path, timeline_db: Path) -> None:
+    """``disable`` then ``enable --json`` flips the flag cleanly with a
+    stable ``flag_path`` (no fresh file path, just an in-place rewrite).
+    Mirror of v0.8.58 ``test_memory_reject_json_overrides_accepted_status``
+    cross-state flip — proves ``enable`` mutates the existing on-disk
+    marker rather than creating a duplicate, and the JSON payload reflects
+    the post-mutation ``enabled: true`` regardless of prior state."""
+    runner = CliRunner()
+    # Set the flag to off via the existing disable command.
+    disable_result = runner.invoke(app, ["timeline", "disable", "--project", str(tmp_path)])
+    assert disable_result.exit_code == 0
+    flag_path = tmp_path.resolve() / ".context" / "timeline.enabled"
+    assert flag_path.read_text().strip() == "off"
+
+    # Now flip it back via enable --json.
+    enable_result = runner.invoke(app, ["timeline", "enable", "--project", str(tmp_path), "--json"])
+    assert enable_result.exit_code == 0, enable_result.stdout
+    payload = json.loads(enable_result.stdout)
+
+    assert payload["enabled"] is True
+    assert payload["flag_path"] == str(flag_path)
+    # Stable path — same on-disk artifact rewritten in place.
+    assert flag_path.read_text().strip() == "on"

@@ -108,15 +108,66 @@ def _orphaned_count(store: SymbolTimelineStore, *, project_root: str) -> int:
 # ---- commands ---------------------------------------------------------------
 
 
+def _flag_to_json(*, project_root: Path, enabled: bool) -> dict[str, object]:
+    """Build the single-object JSON payload for `ctx timeline enable --json`
+    (and the future v0.8.60 ``disable --json``).
+
+    Schema mirrors the on-disk flag-file state:
+
+    - ``project_root``: absolute project root path (the same string the
+      text view echoes after "timeline: enabled for"). Round-tripped so a
+      script can confirm the call actually targeted the project it
+      intended without re-deriving from argv.
+    - ``enabled``: post-mutation boolean. ``true`` after ``enable``,
+      ``false`` after ``disable`` (when v0.8.60 lands). Lets a script
+      ``jq -e '.enabled == true'`` to confirm the state transition
+      without a follow-up ``status --json`` call.
+    - ``flag_path``: absolute path of the ``.context/timeline.enabled``
+      marker file. Surfaces the actual on-disk artifact the daemon /
+      scanner reads, so a debugging script can `cat $(jq -r .flag_path)`
+      to inspect the raw flag.
+
+    Sister-helper to v0.8.44 ``_memory_to_json`` and v0.8.54
+    ``_project_to_json``: thin pure shaper, no behavior, no state. The
+    same helper renders both ``enable`` and ``disable`` since both write
+    the same flag file with a different value — one helper, two surfaces,
+    one frozenset to bump if a future field appears on the flag.
+    """
+    return {
+        "project_root": str(project_root),
+        "enabled": enabled,
+        "flag_path": str(_flag_file(project_root)),
+    }
+
+
 @app.command("enable")
 def enable_cmd(
     project: Path | None = typer.Option(  # noqa: B008
         None, "--project", "-p", help="Project root (defaults to cwd)."
     ),
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help=(
+            "Emit the post-mutation flag state as a single JSON object "
+            "instead of the human-readable line. Schema: "
+            "`{project_root, enabled, flag_path}`. ``enabled`` always "
+            "``true`` after this call (idempotent re-enable still emits "
+            "the same payload — a script can re-run safely and verify "
+            'the state landed without branching on "was it already on"). '
+            "Same single-object discipline as v0.8.57 `memory accept "
+            "--json` and v0.8.58 `memory reject --json`. Pure data on "
+            "stdout — `structlog` is already routed to `sys.stderr` so "
+            "no logger lines mix into the payload."
+        ),
+    ),
 ) -> None:
     """Enable timeline capture for the project."""
     root = _resolve_project(project)
     _write_flag(root, enabled=True)
+    if as_json:
+        typer.echo(json.dumps(_flag_to_json(project_root=root, enabled=True), indent=2))
+        return
     typer.echo(f"timeline: enabled for {root}")
 
 
