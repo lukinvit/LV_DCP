@@ -15,7 +15,13 @@ from dataclasses import asdict
 
 import typer
 from libs.status.aggregator import resolve_config_path
-from libs.status.registry_audit import ProjectAudit, audit_registry, is_missing, is_stale
+from libs.status.registry_audit import (
+    ProjectAudit,
+    audit_registry,
+    backup_status,
+    is_missing,
+    is_stale,
+)
 from libs.status.registry_prune import PruneResult, RestoreResult, prune_stale, restore_from_backup
 
 app = typer.Typer(help="Audit and clean the LV_DCP project registry (~/.lvdcp/config.yaml).")
@@ -32,6 +38,21 @@ def _format_age(hours: float | None) -> str:
     if hours < 48:
         return f"{hours:.0f}h"
     return f"{hours / 24:.0f}d"
+
+
+def _format_backup_age_seconds(seconds: float) -> str:
+    """Compact "Nh" / "Nd" rendering for the backup-availability footer.
+
+    Mirrors `_format_age`'s shape but takes seconds (since we get mtime
+    deltas, not hours) and uses "<1h" for sub-hour ages — same vocabulary
+    as the table column so the two read consistently in one screen.
+    """
+    if seconds < 3600:
+        return "<1h"
+    hours = seconds / 3600
+    if hours < 48:
+        return f"{int(hours)}h"
+    return f"{int(hours / 24)}d"
 
 
 def _render_text(rows: list[ProjectAudit]) -> str:
@@ -150,13 +171,23 @@ def ls_cmd(
         )
         raise typer.Exit(code=2)
 
-    rows = audit_registry(resolve_config_path())
+    config_path = resolve_config_path()
+    rows = audit_registry(config_path)
     rows = _apply_filters(rows, kind=kind, stale=stale, missing=missing)
 
     if as_json:
         typer.echo(json.dumps([asdict(r) for r in rows], indent=2))
         return
     typer.echo(_render_text(rows))
+    # Surface the prune-undo handle as a one-line footer when a `*.bak`
+    # exists. Keeps `ls` read-only and adds zero rows to the table; pure
+    # discoverability for the v0.8.40 `ctx registry restore` command.
+    backup_path, age_seconds = backup_status(config_path)
+    if backup_path is not None and age_seconds is not None:
+        typer.echo(
+            f"\n(backup: {backup_path} — {_format_backup_age_seconds(age_seconds)} old "
+            "— `ctx registry restore` to undo last prune)"
+        )
 
 
 @app.command("prune")

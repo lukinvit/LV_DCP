@@ -578,3 +578,81 @@ def test_registry_restore_json_yes_applies(restore_cfg: Path) -> None:
     # Live config really changed.
     reloaded = yaml.safe_load(restore_cfg.read_text(encoding="utf-8"))
     assert len(reloaded["projects"]) == 3
+
+
+# ---- v0.8.41: ls backup-availability footer (prune-undo discoverability) --
+
+
+def test_registry_ls_text_no_footer_when_no_bak(cfg: Path) -> None:
+    """No `*.bak` → text output ends with the table, no backup line.
+
+    Default state for fresh users who have never invoked `prune --yes`;
+    we don't want to clutter the `ls` output with absent-recovery hints.
+    """
+    result = CliRunner().invoke(app, ["registry", "ls"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "backup:" not in result.stdout
+    assert "ctx registry restore" not in result.stdout
+
+
+def test_registry_ls_text_shows_backup_footer_when_bak_exists(cfg: Path) -> None:
+    """`*.bak` present → footer surfaces path + age + the restore command.
+
+    The motivating case for v0.8.41: after running `prune --yes`, the
+    user runs `ls` to inspect the result and sees a one-line footer
+    naming the backup and the restore command. No ambient state to chase.
+    """
+    bak = cfg.with_name(cfg.name + ".bak")
+    bak.write_text("projects: []\n", encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["registry", "ls"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "backup:" in result.stdout
+    assert str(bak) in result.stdout
+    assert "ctx registry restore" in result.stdout
+    # The age tag is one of "<1h" / "Nh" / "Nd" — the backup we just
+    # created is sub-hour, so we lock to "<1h".
+    assert "<1h" in result.stdout
+
+
+def test_registry_ls_json_unaffected_by_backup_presence(cfg: Path) -> None:
+    """`--json` stays a bare array of audit rows even when `*.bak` exists.
+
+    Scripting consumers bind to the array shape; the backup footer is a
+    text-mode discoverability nudge, not part of the JSON contract.
+    Backup info is reachable via `restore --json` for scripts (which
+    already returns `backup_path`).
+    """
+    bak = cfg.with_name(cfg.name + ".bak")
+    bak.write_text("projects: []\n", encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["registry", "ls", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    # Bare array, no wrapping object.
+    assert isinstance(payload, list)
+    # No backup-related keys leaked into the row schema.
+    for row in payload:
+        assert "backup_path" not in row
+        assert "backup_age_seconds" not in row
+
+
+def test_registry_ls_footer_composes_with_filters(cfg: Path) -> None:
+    """Footer fires regardless of which `ls --kind/--stale/--missing` filter ran.
+
+    The backup is a property of the live config, not of any particular
+    filter slice — so the footer surfaces on every text-mode `ls`
+    invocation when a backup exists, even if the table itself is empty
+    (e.g. `--missing` with no tombstones).
+    """
+    bak = cfg.with_name(cfg.name + ".bak")
+    bak.write_text("projects: []\n", encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["registry", "ls", "--kind", "real"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "backup:" in result.stdout
+    assert "ctx registry restore" in result.stdout

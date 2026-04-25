@@ -11,7 +11,13 @@ import sqlite3
 from pathlib import Path
 
 import yaml
-from libs.status.registry_audit import audit_registry, is_missing, is_stale, iso_utc
+from libs.status.registry_audit import (
+    audit_registry,
+    backup_status,
+    is_missing,
+    is_stale,
+    iso_utc,
+)
 
 
 def _seed_cache(root: Path, *, packs: list[float]) -> None:
@@ -231,3 +237,84 @@ def test_missing_and_stale_are_independent_predicates(tmp_path: Path) -> None:
     # Ancient tombstone: missing AND stale (40d > 30d, packs_total=0).
     assert is_missing(by_name["ancient_gone"]) is True
     assert is_stale(by_name["ancient_gone"]) is True
+
+
+# ---- v0.8.41: backup_status (prune-undo discoverability) -------------------
+
+
+def test_backup_status_returns_none_when_no_bak(tmp_path: Path) -> None:
+    """Pure read: missing `*.bak` yields ``(None, None)``, not an exception.
+
+    The footer renderer needs a cheap "is there a backup?" check that
+    doesn't raise — `ls` is a hot path that runs even when the user has
+    never invoked `prune --yes`.
+    """
+    cfg = _write_cfg(tmp_path, [])
+
+    backup_path, age_seconds = backup_status(cfg)
+
+    assert backup_path is None
+    assert age_seconds is None
+
+
+def test_backup_status_returns_path_and_age_when_bak_exists(tmp_path: Path) -> None:
+    """Backup present: returns its absolute path and a non-negative age.
+
+    Age is mtime-delta from the injected ``now`` clock, allowing
+    deterministic tests without sleeping.
+    """
+    now = 1_800_000_000.0
+    cfg = _write_cfg(tmp_path, [])
+    bak = cfg.with_name(cfg.name + ".bak")
+    bak.write_text("projects: []\n", encoding="utf-8")
+    # Forge mtime to a known epoch so the age math is deterministic.
+    import os
+
+    os.utime(bak, (now - 7200, now - 7200))  # 2 hours ago
+
+    backup_path, age_seconds = backup_status(cfg, now=now)
+
+    assert backup_path == bak
+    assert age_seconds is not None
+    assert 7199.0 <= age_seconds <= 7201.0  # ~2h, allow filesystem rounding
+
+
+def test_backup_status_clamps_negative_age_to_zero(tmp_path: Path) -> None:
+    """Clock-skew safety: a future-dated backup mtime returns age 0, not negative.
+
+    On systems with clock drift between the file mtime source and
+    ``time.time()`` (e.g., NFS, dual-boot, virtualization), the delta can
+    transiently go negative. The footer formatter rounds to "<1h" anyway,
+    but the contract is non-negative seconds for downstream consumers.
+    """
+    now = 1_800_000_000.0
+    cfg = _write_cfg(tmp_path, [])
+    bak = cfg.with_name(cfg.name + ".bak")
+    bak.write_text("projects: []\n", encoding="utf-8")
+    import os
+
+    os.utime(bak, (now + 60, now + 60))  # 1 minute in the future
+
+    _, age_seconds = backup_status(cfg, now=now)
+
+    assert age_seconds == 0.0
+
+
+def test_backup_status_respects_custom_suffix(tmp_path: Path) -> None:
+    """``backup_suffix`` kwarg lets tests / future flags target a non-default sidecar.
+
+    Default is ``.bak`` (matches `prune_stale` / `restore_from_backup`),
+    but exposing the kwarg keeps the door open for a future
+    ``--backup-suffix`` flag without a library signature change.
+    """
+    cfg = _write_cfg(tmp_path, [])
+    custom_bak = cfg.with_name(cfg.name + ".saved")
+    custom_bak.write_text("projects: []\n", encoding="utf-8")
+
+    # Default suffix → no backup
+    default_path, _ = backup_status(cfg)
+    assert default_path is None
+
+    # Custom suffix → finds the saved file
+    custom_path, _ = backup_status(cfg, backup_suffix=".saved")
+    assert custom_path == custom_bak
