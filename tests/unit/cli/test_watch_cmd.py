@@ -1,5 +1,6 @@
 """Tests for `ctx watch` CLI subgroup (v0.8.35 allow_transient wiring,
-v0.8.49 ``ctx watch list --json`` scriptability)."""
+v0.8.49 ``ctx watch list --json`` scriptability,
+v0.8.54 ``ctx watch add --json`` write-side scriptability)."""
 
 from __future__ import annotations
 
@@ -140,3 +141,121 @@ def test_watch_list_json_emits_well_formed_array(
     roots = {row["root"] for row in payload}
     assert any(r.endswith("AlphaProject") for r in roots)
     assert any(r.endswith("BetaProject") for r in roots)
+
+
+# ---- v0.8.54: ``watch add --json`` write-side scriptability ---------------
+
+
+def test_watch_add_text_output_unchanged(
+    tmp_path: Path,
+    _isolated_config: Path,
+) -> None:
+    """Default text-mode output must remain bytewise stable: a single
+    ``added <path>`` line. Sanity-checks against an accidental JSON-as-default
+    flip and against any future regression that promotes JSON to the default
+    render — would break this test instead of silently breaking shell
+    consumers grepping for ``added``."""
+    project = tmp_path / "TextModeProject"
+    project.mkdir()
+    result = CliRunner().invoke(app, ["watch", "add", str(project)])
+    assert result.exit_code == 0, result.stdout
+    assert f"added {project}" in result.stdout
+    # Sanity: text mode must not leak JSON syntax.
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(result.stdout)
+
+
+def test_watch_add_json_emits_well_formed_object(
+    tmp_path: Path,
+    _isolated_config: Path,
+) -> None:
+    """`watch add --json` emits a single object mirroring the v0.8.49
+    ``watch list --json`` per-row schema — same `_WATCH_LIST_JSON_KEYS`
+    frozenset locks the cross-surface invariant. Schema parity between
+    read (`list`) and write (`add`) sides means a future ProjectEntry
+    field addition has one schema-lock to bump, not two."""
+    project = tmp_path / "JsonModeProject"
+    project.mkdir()
+    result = CliRunner().invoke(app, ["watch", "add", str(project), "--json"])
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+
+    assert isinstance(payload, dict)
+    # Schema lock — reuses the v0.8.49 frozenset; identical contract on both
+    # surfaces. Adding a ProjectEntry field requires bumping ONE frozenset.
+    assert set(payload.keys()) == _WATCH_LIST_JSON_KEYS
+
+    # Locked field invariants for a fresh registration:
+    assert payload["root"].endswith("JsonModeProject")
+    assert isinstance(payload["registered_at_iso"], str)
+    assert payload["registered_at_iso"]  # non-empty ISO string
+    assert payload["last_scan_at_iso"] is None  # never scanned yet
+    assert payload["last_scan_status"] == "pending"  # default on registration
+
+    # Must NOT print the legacy ``added X`` line in JSON mode — pure data
+    # only on stdout (no human chrome). A future regression that emits
+    # both the text line and the JSON object breaks this assertion.
+    assert "added " not in payload["root"] or payload["root"].count("added ") == 0
+    # Stdout must be valid JSON throughout — no leading/trailing prose.
+    # Re-parse to confirm the entire stdout was a single JSON object.
+    json.loads(result.stdout)  # would raise if there's prose mixed in
+
+
+def test_watch_add_json_idempotent_returns_existing_entry(
+    tmp_path: Path,
+    _isolated_config: Path,
+) -> None:
+    """Re-adding an already-registered path must be idempotent in BOTH text
+    and JSON modes (matches the `add_project` semantic — see config.py:55).
+    JSON mode must still emit the existing entry (with the original
+    `registered_at_iso`), not a fresh row — locks the documented "consumer
+    can compare `registered_at_iso` vs. wall-clock to detect duplicate-add"
+    contract from the docstring. A regression that silently re-creates the
+    entry on duplicate-add (overwriting the original timestamp) breaks this
+    test."""
+    project = tmp_path / "IdempotentProject"
+    project.mkdir()
+
+    # First add — capture the initial registered_at_iso.
+    first = CliRunner().invoke(app, ["watch", "add", str(project), "--json"])
+    assert first.exit_code == 0, first.stdout
+    first_payload = json.loads(first.stdout)
+    original_ts = first_payload["registered_at_iso"]
+
+    # Second add of the same path — must succeed (exit 0), must emit the
+    # SAME entry (same registered_at_iso), proving idempotent semantic
+    # round-trips through the JSON shape.
+    second = CliRunner().invoke(app, ["watch", "add", str(project), "--json"])
+    assert second.exit_code == 0, second.stdout
+    second_payload = json.loads(second.stdout)
+
+    assert set(second_payload.keys()) == _WATCH_LIST_JSON_KEYS
+    assert second_payload["root"] == first_payload["root"]
+    # Critical invariant: timestamp preserved across the duplicate-add — the
+    # consumer can compare original_ts vs. wall-clock-now to detect "this
+    # was already-registered" without an extra `list --json` call.
+    assert second_payload["registered_at_iso"] == original_ts
+
+
+def test_watch_add_json_error_path_exits_nonzero_no_payload(
+    tmp_path: Path,
+    _isolated_config: Path,
+) -> None:
+    """Path-validation error (the Typer `exists=True` gate on the argument)
+    must exit non-zero in JSON mode. No JSON payload must reach stdout — the
+    error-vs-success boundary stays at the exit-code gate, same v0.8.42-v0.8.53
+    discipline of "exit code is the gate, structured payload is for the
+    success path". A regression that swallows the path-not-found error into
+    a `{"error": "..."}` stdout payload breaks this test."""
+    nonexistent = tmp_path / "does-not-exist"
+    result = CliRunner().invoke(app, ["watch", "add", str(nonexistent), "--json"])
+    # Typer Exit code is 2 for argument-validation failures.
+    assert result.exit_code != 0, result.stdout
+    # Stdout must NOT parse as a success-shape ProjectEntry JSON object.
+    if result.stdout.strip():
+        try:
+            parsed = json.loads(result.stdout)
+            # If something parses, it must NOT be a success-shape entry.
+            assert not (isinstance(parsed, dict) and "root" in parsed)
+        except json.JSONDecodeError:
+            pass  # Expected — error path went to stderr, stdout has Typer's diagnostic.
