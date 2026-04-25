@@ -14,6 +14,7 @@ from libs.wiki.state import (
     mark_current,
     mark_dirty,
     update_dirty_state,
+    wiki_filename,
 )
 
 
@@ -61,6 +62,36 @@ class TestComputeModuleHash:
         h = compute_module_hash([])
         assert isinstance(h, str)
         assert len(h) == 64  # SHA256 hex length
+
+
+class TestWikiFilename:
+    """v0.8.66 — wiki_filename() centralises module-path → on-disk name."""
+
+    def test_simple_path_flattens_separator(self) -> None:
+        assert wiki_filename("libs/core") == "modules/libs-core.md"
+
+    def test_single_segment(self) -> None:
+        assert wiki_filename("apps") == "modules/apps.md"
+
+    def test_strips_trailing_md_extension(self) -> None:
+        """Source modules that are themselves *.md must not yield .md.md."""
+        assert wiki_filename("README.md") == "modules/README.md"
+        assert wiki_filename("CHANGELOG.md") == "modules/CHANGELOG.md"
+
+    def test_strips_md_case_insensitive(self) -> None:
+        assert wiki_filename("FOO.MD") == "modules/FOO.md"
+
+    def test_does_not_strip_partial_md_match(self) -> None:
+        """A path ending in 'amd' or 'md_X' must not be touched."""
+        assert wiki_filename("schema.amd") == "modules/schema.amd.md"
+        assert wiki_filename("foo.mdx") == "modules/foo.mdx.md"
+
+    def test_mark_dirty_uses_clean_filename_for_md_module(self, conn: sqlite3.Connection) -> None:
+        """mark_dirty must persist wiki_file without the .md.md double-ext."""
+        mark_dirty(conn, "README.md", "hash")
+        conn.commit()
+        rows = get_all_modules(conn)
+        assert rows[0]["wiki_file"] == "modules/README.md"
 
 
 class TestMarkDirty:

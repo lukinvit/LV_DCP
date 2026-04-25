@@ -32,7 +32,12 @@ from libs.scanning.scanner import scan_project
 from libs.status.aggregator import resolve_config_path
 from libs.status.health import build_health_card
 from libs.storage.sqlite_cache import SqliteCache
-from libs.wiki.state import ensure_wiki_table, get_all_modules, get_dirty_modules
+from libs.wiki.state import (
+    ensure_wiki_table,
+    get_all_modules,
+    get_dirty_modules,
+    wiki_filename,
+)
 
 if TYPE_CHECKING:
     from libs.core.projects_config import DaemonConfig
@@ -429,8 +434,8 @@ def _run_wiki_update_in_process(  # noqa: PLR0915 — progress emission + per-mo
                     parts = r.src_ref.split("/")
                     dependents.add("/".join(parts[:2]) if len(parts) >= 2 else parts[0])
 
-            safe_name = module_path.replace("/", "-").replace("\\", "-")
-            article_file = wiki_dir / "modules" / f"{safe_name}.md"
+            wiki_file = wiki_filename(module_path)
+            article_file = wiki_dir / Path(wiki_file)
             existing = article_file.read_text(encoding="utf-8") if article_file.exists() else ""
 
             try:
@@ -444,8 +449,9 @@ def _run_wiki_update_in_process(  # noqa: PLR0915 — progress emission + per-mo
                     dependents=sorted(dependents),
                     existing_article=existing,
                 )
+                article_file.parent.mkdir(parents=True, exist_ok=True)
                 article_file.write_text(article, encoding="utf-8")
-                mark_current(conn, module_path, f"modules/{safe_name}.md", mod["source_hash"])
+                mark_current(conn, module_path, wiki_file, mod["source_hash"])
                 conn.commit()
                 updated += 1
             except Exception as exc:

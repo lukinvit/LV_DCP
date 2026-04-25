@@ -226,6 +226,14 @@ def sync(
 
     config = VaultConfig(vault_path=vault)
     publisher = ObsidianPublisher(config)
+    # If the project has an LLM-generated wiki under .context/wiki/, ask
+    # the publisher to mirror it into <vault>/Projects/<name>/Wiki/. This
+    # is the v0.8.66 surface that makes the per-project wiki visible
+    # inside Obsidian alongside the auto-generated Home/Modules/Tech Debt
+    # pages. The publisher no-ops when the directory is missing (project
+    # never ran `ctx wiki update` or wiki disabled in config), so it's
+    # safe to always pass.
+    wiki_dir = project_path / ".context" / "wiki"
     report = publisher.sync_project(
         project_name=project_name,
         files=files,
@@ -234,6 +242,7 @@ def sync(
         hotspots=hotspots,
         recent_changes=recent_changes,
         languages=languages,
+        wiki_dir=wiki_dir if wiki_dir.exists() else None,
     )
 
     if as_json:

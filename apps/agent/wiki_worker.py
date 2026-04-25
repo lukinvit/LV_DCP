@@ -10,7 +10,7 @@ from pathlib import Path
 from libs.core.projects_config import WikiConfig
 from libs.wiki.generator import generate_wiki_article
 from libs.wiki.index_builder import write_index
-from libs.wiki.state import ensure_wiki_table, get_dirty_modules, mark_current
+from libs.wiki.state import ensure_wiki_table, get_dirty_modules, mark_current, wiki_filename
 
 log = logging.getLogger(__name__)
 
@@ -85,8 +85,8 @@ def _process_module(ctx: _UpdateContext, mod: dict[str, object]) -> None:
     finally:
         conn.close()
 
-    safe_name = module_path.replace("/", "-").replace("\\", "-")
-    article_file = ctx.wiki_dir / "modules" / f"{safe_name}.md"
+    wiki_file = wiki_filename(module_path)
+    article_file = ctx.wiki_dir / Path(wiki_file)
     existing_article = article_file.read_text(encoding="utf-8") if article_file.exists() else ""
 
     article = generate_wiki_article(
@@ -100,11 +100,12 @@ def _process_module(ctx: _UpdateContext, mod: dict[str, object]) -> None:
         existing_article=existing_article,
         max_tokens=ctx.article_max_tokens,
     )
+    article_file.parent.mkdir(parents=True, exist_ok=True)
     article_file.write_text(article, encoding="utf-8")
 
     conn = sqlite3.connect(str(ctx.db_path))
     try:
-        mark_current(conn, module_path, f"modules/{safe_name}.md", source_hash)
+        mark_current(conn, module_path, wiki_file, source_hash)
         conn.commit()
     finally:
         conn.close()

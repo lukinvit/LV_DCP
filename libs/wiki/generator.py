@@ -29,25 +29,40 @@ Write a concise wiki article (max {max_tokens} tokens) in this format:
 # {module_path}
 
 ## Purpose
-One paragraph: what this module does and why it exists.
+One paragraph (3-6 sentences) describing what this module does, what
+problem it solves, and where it sits in the system. Complete sentences,
+not bullets — this is what an LLM reading the wiki later will use to
+decide whether to open the source.
 
 ## Key Components
-Bullet list of main files/classes/functions with one-line descriptions.
+1-2 paragraphs of prose that walk through the main files, classes, and
+functions and how they relate. Reference real names inline (e.g.
+"`Foo.bar` orchestrates X by delegating to `Baz`"). Avoid telegraphic
+bullet lists — the LLM consumer does measurably worse with bullets than
+with connected prose (Karpathy LLM Wiki principle, 2026-04).
 
 ## Dependencies
-What this module depends on and why.
+1-2 sentences naming what this module imports from and why those
+dependencies exist. Mention the runtime / external services it touches.
 
 ## Patterns & Decisions
-Notable architectural patterns, design decisions, or conventions used.
+1-2 sentences naming the notable architectural patterns, design
+decisions, or conventions in this module. If there are none worth
+naming, write "(none worth flagging)" — do not pad.
 
 ## Known Issues
-Any obvious tech debt, missing tests, or potential problems.
+Bulleted list (this is the one section where bullets win — each item is
+an independent observation):
+- one-line tech-debt item
+- another one-line item
+If clean, write "(none observed)".
 
 Rules:
 - Be specific, reference actual file names and function names
 - Update existing content incrementally, don't rewrite from scratch
-- If the module is trivial (< 3 files), write 3-5 sentences total
-- No generic filler text\
+- Prefer connected prose over telegraphic bullets in every section except Known Issues
+- If the module is trivial (< 3 files), collapse Purpose + Key Components into 3-5 sentences total and skip the rest
+- No generic filler text, no "this module provides functionality for"\
 """
 
 

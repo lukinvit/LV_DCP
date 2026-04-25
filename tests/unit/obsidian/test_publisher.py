@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from libs.obsidian.models import VaultConfig
+from libs.obsidian.models import SyncReport, VaultConfig
 from libs.obsidian.publisher import ObsidianPublisher
 
 
@@ -100,3 +100,96 @@ class TestObsidianPublisher:
         content = home.read_text(encoding="utf-8")
         assert "# Proj" in content
         assert "| Files | 1 |" in content
+
+
+def _empty_sync(
+    publisher: ObsidianPublisher,
+    *,
+    project_name: str,
+    wiki_dir: Path | None = None,
+) -> SyncReport:
+    """Invoke ``sync_project`` with empty inputs, optionally a wiki dir.
+
+    Wraps the call so each test stays a one-liner without re-typing the
+    six empty-list arguments and without tripping mypy on a ``**dict``
+    splat into a heterogeneously-typed signature.
+    """
+    return publisher.sync_project(
+        project_name=project_name,
+        files=[],
+        symbols=[],
+        modules={},
+        hotspots=[],
+        recent_changes=[],
+        languages=[],
+        wiki_dir=wiki_dir,
+    )
+
+
+class TestWikiMirror:
+    """v0.8.66 — ObsidianPublisher mirrors .context/wiki/ into <project>/Wiki/."""
+
+    def test_no_wiki_dir_no_wiki_pages(self, tmp_path: Path) -> None:
+        """Publisher must not create Wiki/ when wiki_dir is None — backward
+        compat for existing callers that don't pass it."""
+        config = VaultConfig(vault_path=tmp_path)
+        publisher = ObsidianPublisher(config)
+        report = _empty_sync(publisher, project_name="Proj")
+        assert not (tmp_path / "Projects" / "Proj" / "Wiki").exists()
+        # Same page count as before v0.8.66: Home + Recent Changes + Tech Debt = 3.
+        assert report.pages_written == 3
+
+    def test_missing_wiki_dir_is_silent(self, tmp_path: Path) -> None:
+        """Publisher must not error when wiki_dir points to a missing path."""
+        config = VaultConfig(vault_path=tmp_path)
+        publisher = ObsidianPublisher(config)
+        report = _empty_sync(publisher, project_name="Proj", wiki_dir=tmp_path / "does-not-exist")
+        assert not (tmp_path / "Projects" / "Proj" / "Wiki").exists()
+        assert report.errors == []
+
+    def test_mirrors_index_architecture_and_modules(self, tmp_path: Path) -> None:
+        """Wiki/ inside the vault must contain the full INDEX, architecture,
+        and per-module articles — the same artifacts the daemon writes
+        locally to .context/wiki/."""
+        wiki_src = tmp_path / "wiki-src"
+        (wiki_src / "modules").mkdir(parents=True)
+        (wiki_src / "INDEX.md").write_text("# Wiki Index\n", encoding="utf-8")
+        (wiki_src / "architecture.md").write_text("# Architecture\n", encoding="utf-8")
+        (wiki_src / "modules" / "core.md").write_text("# core\nbody\n", encoding="utf-8")
+        (wiki_src / "modules" / "api.md").write_text("# api\nbody\n", encoding="utf-8")
+
+        config = VaultConfig(vault_path=tmp_path / "vault")
+        publisher = ObsidianPublisher(config)
+        report = _empty_sync(publisher, project_name="Proj", wiki_dir=wiki_src)
+
+        wiki_dst = tmp_path / "vault" / "Projects" / "Proj" / "Wiki"
+        assert (wiki_dst / "INDEX.md").read_text(encoding="utf-8") == "# Wiki Index\n"
+        assert (wiki_dst / "architecture.md").read_text(encoding="utf-8") == "# Architecture\n"
+        assert (wiki_dst / "modules" / "core.md").exists()
+        assert (wiki_dst / "modules" / "api.md").exists()
+        # 3 baseline (Home + Recent Changes + Tech Debt) + 4 wiki = 7 written.
+        assert report.pages_written == 7
+        assert report.errors == []
+
+    def test_drift_cleanup_removes_stale_articles(self, tmp_path: Path) -> None:
+        """A module that disappears from .context/wiki/ must also disappear
+        from the vault on the next sync — the vault must not become an
+        append-only log of every article that ever existed."""
+        wiki_src = tmp_path / "wiki-src"
+        (wiki_src / "modules").mkdir(parents=True)
+        (wiki_src / "INDEX.md").write_text("# Wiki Index\n", encoding="utf-8")
+        (wiki_src / "modules" / "alpha.md").write_text("alpha\n", encoding="utf-8")
+        (wiki_src / "modules" / "beta.md").write_text("beta\n", encoding="utf-8")
+
+        config = VaultConfig(vault_path=tmp_path / "vault")
+        publisher = ObsidianPublisher(config)
+        _empty_sync(publisher, project_name="Proj", wiki_dir=wiki_src)
+
+        # Drop one module and re-sync.
+        (wiki_src / "modules" / "beta.md").unlink()
+        report2 = _empty_sync(publisher, project_name="Proj", wiki_dir=wiki_src)
+
+        wiki_dst = tmp_path / "vault" / "Projects" / "Proj" / "Wiki"
+        assert (wiki_dst / "modules" / "alpha.md").exists()
+        assert not (wiki_dst / "modules" / "beta.md").exists()
+        assert report2.pages_deleted == 1

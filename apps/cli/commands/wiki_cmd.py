@@ -17,6 +17,7 @@ from libs.wiki.state import (
     get_all_modules,
     get_dirty_modules,
     mark_current,
+    wiki_filename,
 )
 
 app = typer.Typer(name="wiki", help="Wiki knowledge module commands")
@@ -101,8 +102,8 @@ def update(  # noqa: PLR0912, PLR0915
                     dependents.add(dep_mod)
 
             # Read existing article
-            safe_name = module_path.replace("/", "-").replace("\\", "-")
-            article_file = wiki_dir / "modules" / f"{safe_name}.md"
+            wiki_file = wiki_filename(module_path)
+            article_file = wiki_dir / Path(wiki_file)
             existing_article = ""
             if article_file.exists():
                 existing_article = article_file.read_text(encoding="utf-8")
@@ -119,9 +120,9 @@ def update(  # noqa: PLR0912, PLR0915
                     existing_article=existing_article,
                 )
 
+                article_file.parent.mkdir(parents=True, exist_ok=True)
                 article_file.write_text(article, encoding="utf-8")
 
-                wiki_file = f"modules/{safe_name}.md"
                 mark_current(conn, module_path, wiki_file, mod["source_hash"])
                 conn.commit()
                 typer.echo(f"    Saved: {article_file.relative_to(project_path)}")

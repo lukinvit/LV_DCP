@@ -46,6 +46,7 @@ class ObsidianPublisher:
         hotspots: list[ObsidianGitInfo],
         recent_changes: list[ObsidianGitInfo],
         languages: list[str],
+        wiki_dir: Path | None = None,
     ) -> SyncReport:
         """Sync project data to Obsidian vault.
 
@@ -66,6 +67,16 @@ class ObsidianPublisher:
             List of change dicts for recent changes page.
         languages:
             List of detected languages.
+        wiki_dir:
+            Optional path to the project's ``.context/wiki/`` directory.
+            When provided, the publisher mirrors the LLM-generated wiki
+            (``INDEX.md``, ``architecture.md``, ``modules/*.md``) into
+            ``<vault>/Projects/<project>/Wiki/`` so the same articles the
+            daemon writes locally are visible inside Obsidian. The mirror
+            is incremental: stale wiki pages whose source was removed get
+            cleaned up so deletions in ``.context/wiki/`` propagate to the
+            vault rather than leaking forever (counted in
+            ``pages_deleted``).
         """
         t0 = time.monotonic()
         report = SyncReport(project_name=project_name)
@@ -138,5 +149,83 @@ class ObsidianPublisher:
         except Exception as exc:
             report.errors.append(f"Tech Debt.md: {exc}")
 
+        # Wiki mirror — copy .context/wiki/ articles into <project>/Wiki/.
+        # Optional: only runs when caller passes a wiki_dir that exists.
+        if wiki_dir is not None and wiki_dir.exists():
+            try:
+                self._mirror_wiki(wiki_dir, project_dir / "Wiki", report)
+            except OSError as exc:
+                report.errors.append(f"Wiki mirror: {exc}")
+
         report.duration_seconds = time.monotonic() - t0
         return report
+
+    def _mirror_wiki(
+        self,
+        src_wiki: Path,
+        dst_wiki: Path,
+        report: SyncReport,
+    ) -> None:
+        """Mirror ``.context/wiki/`` into ``<vault>/Projects/<name>/Wiki/``.
+
+        Files written: ``INDEX.md``, ``architecture.md`` (if present),
+        and every ``modules/*.md``. Files removed from the source since
+        the previous sync get deleted from the destination so vault
+        listings don't leak stale articles forever — this is the
+        Karpathy LLM-Wiki ``lint`` parity for the vault mirror.
+
+        Errors on individual files are appended to ``report.errors`` and
+        the rest of the mirror continues; a single bad file should not
+        wedge the whole sync.
+        """
+        dst_wiki.mkdir(parents=True, exist_ok=True)
+        (dst_wiki / "modules").mkdir(parents=True, exist_ok=True)
+
+        # Track destinations we wrote this pass — anything else under
+        # the destination Wiki/ tree is stale and must be removed.
+        kept: set[Path] = set()
+
+        # INDEX.md
+        index_src = src_wiki / "INDEX.md"
+        if index_src.is_file():
+            try:
+                dst = dst_wiki / "INDEX.md"
+                self._atomic_write(dst, index_src.read_text(encoding="utf-8"))
+                kept.add(dst)
+                report.pages_written += 1
+            except OSError as exc:
+                report.errors.append(f"Wiki INDEX.md: {exc}")
+
+        # architecture.md
+        arch_src = src_wiki / "architecture.md"
+        if arch_src.is_file():
+            try:
+                dst = dst_wiki / "architecture.md"
+                self._atomic_write(dst, arch_src.read_text(encoding="utf-8"))
+                kept.add(dst)
+                report.pages_written += 1
+            except OSError as exc:
+                report.errors.append(f"Wiki architecture.md: {exc}")
+
+        # modules/*.md
+        modules_src = src_wiki / "modules"
+        if modules_src.is_dir():
+            for article in modules_src.glob("*.md"):
+                try:
+                    dst = dst_wiki / "modules" / article.name
+                    self._atomic_write(dst, article.read_text(encoding="utf-8"))
+                    kept.add(dst)
+                    report.pages_written += 1
+                except OSError as exc:
+                    report.errors.append(f"Wiki modules/{article.name}: {exc}")
+
+        # Drift cleanup — remove any *.md under dst_wiki that we did not
+        # just write. Keeps the vault as the second copy of the truth in
+        # ``.context/wiki/``, not an append-only log.
+        for existing in dst_wiki.rglob("*.md"):
+            if existing.is_file() and existing not in kept:
+                try:
+                    existing.unlink()
+                    report.pages_deleted += 1
+                except OSError as exc:
+                    report.errors.append(f"Wiki cleanup {existing.name}: {exc}")
