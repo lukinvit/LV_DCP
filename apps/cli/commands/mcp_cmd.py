@@ -116,8 +116,42 @@ def install(
         "--dry-run",
         help="Print a JSON snippet for manual copy instead of calling claude mcp add",
     ),
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help=(
+            "Emit the install descriptor as a single JSON object: "
+            "`{scope, entry_command, entry_args, claudemd_path, "
+            "config_path, config_created, version, hooks_installed}`. "
+            "Pure data on stdout — suppresses the human "
+            "`lvdcp MCP server registered ... / CLAUDE.md managed "
+            "section: ... / entry point: ... / hook installed: ...` "
+            "chrome. `entry_args` and `hooks_installed` stay JSON arrays "
+            "so consumers can introspect individual elements via "
+            "`jq -r '.entry_args[0]'` for the interpreter or "
+            "`jq -r '.hooks_installed[]'` for each hook script. "
+            "`config_created` is the explicit signal that distinguishes "
+            "a fresh install from a re-install over an existing config. "
+            "Combine with `--dry-run` to emit the planned-config "
+            "snippet alone (no `# Copy the following ...` comment "
+            "header) so the output parses with `jq` as-is. On "
+            "`ClaudeCliError` exit 1 to stderr is preserved with **no** "
+            "payload on stdout — same v0.8.42-v0.8.63 error-vs-success "
+            "boundary."
+        ),
+    ),
 ) -> None:
-    """Install the lvdcp MCP server via `claude mcp add`."""
+    """Install the lvdcp MCP server via `claude mcp add`.
+
+    With ``--json`` the success-side payload includes the resolved
+    `entry_command` (the Python interpreter `claude` will spawn) and
+    `entry_args` so an ops script can verify launchd/Claude received
+    the expected interpreter — catches the same post-`uv sync`
+    interpreter-drift footgun the v0.8.62 install-service descriptor
+    addresses for the launchd surface. The `claudemd_path` and
+    `config_path` round-trip so a follow-up `ctx mcp uninstall` can
+    be scripted from the same payload without re-deriving paths.
+    """
     entry_command = sys.executable
     entry_args = ["-m", "apps.mcp.server"]
 
@@ -128,6 +162,12 @@ def install(
             args=entry_args,
             scope=scope,
         )
+        if as_json:
+            # In JSON mode the snippet is the entire stdout payload. The
+            # `# Copy ...` comment is suppressed so `ctx mcp install
+            # --json --dry-run | jq .` parses without a stripping step.
+            typer.echo(snippet)
+            return
         typer.echo('# Copy the following into ~/.claude.json under "mcpServers":')
         typer.echo(snippet)
         return
@@ -146,14 +186,29 @@ def install(
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
+    # Install hooks (always — same on-disk side effects in both modes)
+    hook_files = _install_hooks()
+
+    if as_json:
+        payload: dict[str, object] = {
+            "scope": result.scope,
+            "entry_command": result.entry_command,
+            "entry_args": list(result.entry_args),
+            "claudemd_path": str(result.claudemd_path),
+            "config_path": str(result.config_path),
+            "config_created": result.config_created,
+            "version": result.version,
+            "hooks_installed": list(hook_files),
+        }
+        typer.echo(json.dumps(payload, indent=2))
+        return
+
     typer.echo(f"lvdcp MCP server registered (scope={result.scope})")
     typer.echo(f"CLAUDE.md managed section: {result.claudemd_path}")
     if result.config_created:
         typer.echo(f"config bootstrapped:       {result.config_path}")
     typer.echo(f"entry point: {result.entry_command} {' '.join(result.entry_args)}")
 
-    # Install hooks
-    hook_files = _install_hooks()
     for hf in hook_files:
         typer.echo(f"hook installed: {hf}")
     typer.echo("hooks: PreToolUse (lvdcp_pack reminder) + PostToolUse (auto-rescan)")
