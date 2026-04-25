@@ -90,8 +90,39 @@ def remove(
         ...,
         resolve_path=True,
     ),
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help=(
+            "Emit the removed ProjectEntry as a single JSON object "
+            "wrapped in `{removed: <entry|null>}` instead of the human "
+            "'removed X' line. Pure data on stdout. The wrapper enables "
+            "`jq -e '.removed != null'` as the natural 'did this remove "
+            "do work' guard — `null` means the path was not registered "
+            "(no-op success, same v0.8.45/v0.8.49/v0.8.55 'no work done "
+            "is still a successful run' discipline). Inner entry mirrors "
+            "the v0.8.49 `watch list --json` row schema 1:1 (root, "
+            "registered_at_iso, last_scan_at_iso, last_scan_status)."
+        ),
+    ),
 ) -> None:
-    """Unregister a project."""
+    """Unregister a project.
+
+    With ``--json``, the entry is captured **before** removal so the consumer
+    sees what was just deleted (a script's "what did I just lose" log line).
+    Capture-then-mutate ordering matters: ``remove_project`` rewrites the
+    config file, after which the entry is gone — read-after-write would
+    always emit ``null`` and lose the audit signal.
+    """
+    if as_json:
+        resolved = path.resolve()
+        existing = next((p for p in list_projects(DEFAULT_CONFIG_PATH) if p.root == resolved), None)
+        remove_project(DEFAULT_CONFIG_PATH, path)
+        payload: dict[str, object] = {
+            "removed": _project_to_json(existing) if existing is not None else None,
+        }
+        typer.echo(json.dumps(payload, indent=2))
+        return
     remove_project(DEFAULT_CONFIG_PATH, path)
     typer.echo(f"removed {path}")
 
