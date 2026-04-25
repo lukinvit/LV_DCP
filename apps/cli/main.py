@@ -2,13 +2,27 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
+import structlog
 import typer
 
-from apps.cli.commands import eval_cmd as eval_module
-from apps.cli.commands import inspect as inspect_module
-from apps.cli.commands import (
+# Route structlog output to stderr so `--json` subcommands can keep stdout pure
+# (e.g. `ctx scan --json | jq`). Without this, structlog defaults to stdout via
+# `PrintLoggerFactory` and timeline / wiki / embedding diagnostics interleave
+# with the JSON payload, breaking downstream parsers. Configured at the CLI
+# entry point so it applies uniformly to every subcommand without each command
+# having to re-route logs itself. MUST run before subcommand modules are
+# imported because their lazy-loaded structlog loggers cache the factory at
+# `get_logger()` time.
+structlog.configure(
+    logger_factory=structlog.WriteLoggerFactory(file=sys.stderr),
+)
+
+from apps.cli.commands import eval_cmd as eval_module  # noqa: E402
+from apps.cli.commands import inspect as inspect_module  # noqa: E402
+from apps.cli.commands import (  # noqa: E402
     mcp_cmd,
     memory_cmd,
     obsidian_cmd,
@@ -18,11 +32,11 @@ from apps.cli.commands import (
     watch_cmd,
     wiki_cmd,
 )
-from apps.cli.commands import pack as pack_module
-from apps.cli.commands import scan as scan_module
-from apps.cli.commands import setup as setup_module
-from apps.cli.commands import summarize as summarize_module
-from apps.cli.commands import ui as ui_module
+from apps.cli.commands import pack as pack_module  # noqa: E402
+from apps.cli.commands import scan as scan_module  # noqa: E402
+from apps.cli.commands import setup as setup_module  # noqa: E402
+from apps.cli.commands import summarize as summarize_module  # noqa: E402
+from apps.cli.commands import ui as ui_module  # noqa: E402
 
 # Create main app
 app = typer.Typer(
@@ -52,9 +66,19 @@ def scan(
         "--full",
         help="Force a full re-parse of every file, ignoring content hashes.",
     ),
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help=(
+            "Emit the scan result as a JSON object instead of human-readable text. "
+            "Schema mirrors `ScanResult` plus `path`, `mode`, and `qdrant_warnings` "
+            "(empty list when none). Suppresses all hint text and stderr advisories — "
+            "pure data. Composes with --full."
+        ),
+    ),
 ) -> None:
     """Scan a project and regenerate .context/*.md artifacts."""
-    scan_module.scan(path, full=full)
+    scan_module.scan(path, full=full, as_json=as_json)
 
 
 @app.command()
