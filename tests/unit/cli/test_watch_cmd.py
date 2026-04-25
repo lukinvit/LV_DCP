@@ -1,6 +1,7 @@
 """Tests for `ctx watch` CLI subgroup (v0.8.35 allow_transient wiring,
 v0.8.49 ``ctx watch list --json`` scriptability,
-v0.8.54 ``ctx watch add --json`` write-side scriptability)."""
+v0.8.54 ``ctx watch add --json`` write-side scriptability,
+v0.8.56 ``ctx watch remove --json`` unregistration scriptability)."""
 
 from __future__ import annotations
 
@@ -16,6 +17,11 @@ from typer.testing import CliRunner
 _WATCH_LIST_JSON_KEYS = frozenset(
     {"root", "registered_at_iso", "last_scan_at_iso", "last_scan_status"}
 )
+
+# v0.8.56 schema lock for `watch remove --json`: a wrapper object whose only
+# top-level key is `removed`; the inner value is either a ProjectEntry-shape
+# dict (path was registered) or null (path was not registered — no-op success).
+_WATCH_REMOVE_JSON_KEYS = frozenset({"removed"})
 
 
 @pytest.fixture
@@ -259,3 +265,123 @@ def test_watch_add_json_error_path_exits_nonzero_no_payload(
             assert not (isinstance(parsed, dict) and "root" in parsed)
         except json.JSONDecodeError:
             pass  # Expected — error path went to stderr, stdout has Typer's diagnostic.
+
+
+# ---- v0.8.56: ``watch remove --json`` unregistration scriptability --------
+
+
+def test_watch_remove_text_output_unchanged(
+    tmp_path: Path,
+    _isolated_config: Path,
+) -> None:
+    """Default text-mode output must remain bytewise stable: a single
+    ``removed <path>`` line. Sanity-checks against an accidental JSON-as-default
+    flip — would break this test instead of silently breaking shell consumers
+    grepping for ``removed``."""
+    project = tmp_path / "TextRemoveProject"
+    project.mkdir()
+    add_result = CliRunner().invoke(app, ["watch", "add", str(project)])
+    assert add_result.exit_code == 0, add_result.stdout
+
+    result = CliRunner().invoke(app, ["watch", "remove", str(project)])
+    assert result.exit_code == 0, result.stdout
+    assert f"removed {project}" in result.stdout
+    # Sanity: text mode must not leak JSON syntax.
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(result.stdout)
+
+
+def test_watch_remove_json_emits_removed_entry(
+    tmp_path: Path,
+    _isolated_config: Path,
+) -> None:
+    """`watch remove --json <registered>` emits `{removed: <entry>}` where
+    the inner entry mirrors the v0.8.49 ``watch list --json`` per-row schema.
+    Captured BEFORE the actual removal (so the consumer can audit exactly what
+    was just deleted) — locks the docstring's "capture-then-mutate ordering
+    matters" contract: a regression that read-after-write would always emit
+    ``removed: null`` and lose the audit signal."""
+    project = tmp_path / "RemoveJsonProject"
+    project.mkdir()
+    add_result = CliRunner().invoke(app, ["watch", "add", str(project)])
+    assert add_result.exit_code == 0, add_result.stdout
+
+    result = CliRunner().invoke(app, ["watch", "remove", str(project), "--json"])
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+
+    # Wrapper schema lock.
+    assert isinstance(payload, dict)
+    assert set(payload.keys()) == _WATCH_REMOVE_JSON_KEYS
+
+    # Inner entry shape — reuses v0.8.49 frozenset; cross-surface schema parity.
+    removed = payload["removed"]
+    assert isinstance(removed, dict)
+    assert set(removed.keys()) == _WATCH_LIST_JSON_KEYS
+    assert removed["root"].endswith("RemoveJsonProject")
+    assert isinstance(removed["registered_at_iso"], str)
+    assert removed["registered_at_iso"]
+    assert removed["last_scan_at_iso"] is None
+    assert removed["last_scan_status"] == "pending"
+
+    # Verify the actual mutation landed: the project must be gone from the
+    # config after the command. JSON mode must perform the same write as text
+    # mode, not just "report what would happen".
+    from libs.core.projects_config import load_config
+
+    cfg = load_config(_isolated_config)
+    assert all(p.root != project.resolve() for p in cfg.projects)
+
+
+def test_watch_remove_json_unregistered_path_emits_null_no_op(
+    tmp_path: Path,
+    _isolated_config: Path,
+) -> None:
+    """Removing a path that was never registered must succeed (exit 0) and
+    emit ``{removed: null}`` — no-op success, same v0.8.45/v0.8.49/v0.8.55
+    "no work done is still a successful run, surface the null/zero rather than
+    erroring out" discipline. The wrapper-with-null shape lets a script use
+    ``jq -e '.removed != null'`` as the natural "did this remove do work"
+    guard, parallel to v0.8.55 prune's ``jq -e '.deleted > 0'``."""
+    never_registered = tmp_path / "NeverRegistered"
+    never_registered.mkdir()
+
+    result = CliRunner().invoke(app, ["watch", "remove", str(never_registered), "--json"])
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+
+    assert set(payload.keys()) == _WATCH_REMOVE_JSON_KEYS
+    assert payload["removed"] is None
+
+
+def test_watch_remove_json_isolated_when_other_projects_present(
+    tmp_path: Path,
+    _isolated_config: Path,
+) -> None:
+    """Removing one project from a multi-project registry must (a) emit only
+    the targeted entry in the payload, (b) leave the other entries intact in
+    the config. Locks the "no fan-out, no collateral damage" invariant: a
+    regression that emitted a bare array of all entries (or accidentally
+    truncated the registry) breaks this test."""
+    keep = tmp_path / "KeepProject"
+    keep.mkdir()
+    drop = tmp_path / "DropProject"
+    drop.mkdir()
+    for path in (keep, drop):
+        add_result = CliRunner().invoke(app, ["watch", "add", str(path)])
+        assert add_result.exit_code == 0, add_result.stdout
+
+    result = CliRunner().invoke(app, ["watch", "remove", str(drop), "--json"])
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+
+    # Only the dropped entry surfaces in the payload.
+    assert payload["removed"] is not None
+    assert payload["removed"]["root"].endswith("DropProject")
+
+    # Kept entry survives in the config — the mutation was scoped to one row.
+    from libs.core.projects_config import load_config
+
+    cfg = load_config(_isolated_config)
+    assert len(cfg.projects) == 1
+    assert cfg.projects[0].root.name == "KeepProject"
