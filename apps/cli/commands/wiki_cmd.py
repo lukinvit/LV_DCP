@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from pathlib import Path
+from typing import Any
 
 import typer
 from libs.storage.sqlite_cache import SqliteCache
@@ -177,6 +179,27 @@ def update(  # noqa: PLR0912, PLR0915
         typer.echo(f"Index rebuilt: {wiki_dir / 'INDEX.md'}")
 
 
+def _module_to_json(mod: dict[str, Any]) -> dict[str, object]:
+    """Build the per-row JSON payload for `ctx wiki status --json`.
+
+    Schema is a pass-through of the keys returned by
+    :func:`libs.wiki.state.get_all_modules`. `last_generated_ts` is the
+    raw POSIX float — the human-readable formatted timestamp the text
+    view shows is trivially recoverable via
+    `jq -r '.[].last_generated_ts | strftime(...)'` or
+    `date -r $(...)`. Keeping the JSON unprocessed lets dashboards do
+    age math (`now - last_generated_ts`) without having to parse a
+    formatted string back to epoch seconds.
+    """
+    return {
+        "module_path": mod["module_path"],
+        "wiki_file": mod["wiki_file"],
+        "status": mod["status"],
+        "last_generated_ts": mod["last_generated_ts"],
+        "source_hash": mod["source_hash"],
+    }
+
+
 @app.command("status")
 def status(
     project_path: Path = typer.Argument(  # noqa: B008
@@ -187,10 +210,29 @@ def status(
         resolve_path=True,
         help="Path to the scanned project.",
     ),
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help=(
+            "Emit a JSON array of wiki module rows instead of the "
+            "human-readable table. Each row mirrors the `wiki_state` "
+            "row schema: `module_path`, `wiki_file`, `status` "
+            "(`dirty` / `current`), `last_generated_ts` (raw POSIX "
+            "float — recoverable to a formatted string via "
+            "`jq -r '.last_generated_ts | strftime(...)'`), "
+            "`source_hash`. Empty list (`[]`) when no modules are "
+            "tracked — never `null` and never the prose marker. "
+            "Missing `cache.db` still surfaces error on stderr + exit "
+            "1 in both modes."
+        ),
+    ),
 ) -> None:
     """Show wiki state per module (dirty/current)."""
     db_path = project_path / ".context" / "cache.db"
     if not db_path.exists():
+        # Discipline shared with v0.8.42-v0.8.45: --json never swallows
+        # the error into a `{"error": "..."}` stdout payload. Scripts
+        # gate on exit code (`set -e`); stderr carries the human msg.
         typer.echo(
             f"error: no cache.db found at {db_path}. Run `ctx scan` first.",
             err=True,
@@ -204,6 +246,10 @@ def status(
         conn.commit()
 
         modules = get_all_modules(conn)
+
+    if as_json:
+        typer.echo(json.dumps([_module_to_json(m) for m in modules], indent=2))
+        return
 
     if not modules:
         typer.echo("No modules tracked.")
