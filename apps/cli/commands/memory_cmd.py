@@ -139,6 +139,23 @@ def reject_cmd(
         "-p",
         help="Project root (defaults to cwd).",
     ),
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help=(
+            "Emit the rejected Memory as a single JSON object instead of "
+            "the human 'rejected: <id>  <topic>' line. Same per-row schema "
+            "as v0.8.44 `memory list --json` and v0.8.57 `memory accept "
+            "--json` (mirrors the `Memory` dataclass minus `body` — "
+            "recoverable via `cat $(jq -r .path)`). Pure data on stdout. "
+            "The post-mutation `status` field round-trips as "
+            '`"rejected"` so a script can confirm the state transition '
+            "landed without a follow-up `list --json` call. Closes the "
+            "memory-review operator surface alongside v0.8.44 (read) and "
+            "v0.8.57 (accept). Same scriptability discipline as v0.8.42-"
+            "v0.8.57."
+        ),
+    ),
 ) -> None:
     """Mark a proposed memory as rejected — it will not surface in retrieval."""
     root = _resolve_project(project)
@@ -147,4 +164,11 @@ def reject_cmd(
     except MemoryNotFoundError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=2) from exc
+    if as_json:
+        # Single-object payload — same shape and discipline as v0.8.57
+        # `memory accept --json`. The `status` field post-mutation is
+        # `"rejected"` (a `MemoryStatus.REJECTED.value` round-trip that
+        # confirms the state transition).
+        typer.echo(json.dumps(_memory_to_json(updated), indent=2))
+        return
     typer.echo(f"rejected: {updated.id}  {updated.topic}")

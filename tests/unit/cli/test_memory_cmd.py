@@ -1,5 +1,6 @@
 """Tests for the `ctx memory` CLI group (v0.8.44 list --json,
-v0.8.57 accept --json mutation scriptability)."""
+v0.8.57 accept --json mutation scriptability,
+v0.8.58 reject --json closes the memory-review operator surface)."""
 
 from __future__ import annotations
 
@@ -270,3 +271,122 @@ def test_memory_accept_json_idempotent_re_accept_returns_accepted_entry(
     # The path must remain stable across the idempotent re-accept — the
     # on-disk file is the same one, not a fresh write to a new location.
     assert second_payload["path"] == first_payload["path"]
+
+
+# ---- v0.8.58: ``memory reject --json`` closes the memory-review surface ---
+
+
+def test_memory_reject_text_output_unchanged(
+    project_with_memory: tuple[Path, str],
+) -> None:
+    """Default text-mode output must remain bytewise stable: a single
+    `rejected: <id>  <topic>` line. Sanity-checks against an accidental
+    JSON-as-default flip — would break this test instead of silently
+    breaking shell consumers grepping for `rejected:`."""
+    project, mem_id = project_with_memory
+    result = CliRunner().invoke(app, ["memory", "reject", mem_id, "--project", str(project)])
+    assert result.exit_code == 0, result.stdout
+    assert f"rejected: {mem_id}" in result.stdout
+    # Sanity: text mode must not leak JSON syntax.
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(result.stdout)
+
+
+def test_memory_reject_json_emits_well_formed_object(
+    project_with_memory: tuple[Path, str],
+) -> None:
+    """`memory reject --json` emits a single object mirroring the v0.8.44
+    `memory list --json` per-row schema and the v0.8.57 `memory accept --json`
+    single-object shape — same `_MEMORY_LIST_JSON_KEYS` frozenset locks the
+    cross-surface invariant across THREE surfaces (list / accept / reject).
+
+    The post-mutation `status` field round-trips as `"rejected"` — locks
+    the symmetric mirror of v0.8.57 accept's `"accepted"` round-trip.
+    """
+    project, mem_id = project_with_memory
+    result = CliRunner().invoke(
+        app, ["memory", "reject", mem_id, "--project", str(project), "--json"]
+    )
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+
+    assert isinstance(payload, dict)
+    # Schema lock — reuses the v0.8.44 frozenset; identical contract on three
+    # surfaces (list rows, accept emission, reject emission). Adding a Memory
+    # field requires bumping ONE frozenset.
+    assert set(payload.keys()) == _MEMORY_LIST_JSON_KEYS
+
+    # Locked field invariants for the rejected entry:
+    assert payload["id"] == mem_id
+    # Critical: post-mutation status must round-trip as "rejected" — proves
+    # the mutation landed AND was reflected in the emitted payload (not a
+    # stale read of the pre-mutation state).
+    assert payload["status"] == "rejected"
+    assert payload["topic"] == "Auth flow"
+    assert isinstance(payload["tags"], list)
+    assert payload["path"].endswith(".md")
+
+    # Cross-check via `list --json` — the on-disk state must match the
+    # emitted payload. A regression that emitted "rejected" but failed to
+    # mutate the file would fail this follow-up read.
+    listed = CliRunner().invoke(
+        app, ["memory", "list", "--project", str(project), "--status", "rejected", "--json"]
+    )
+    assert listed.exit_code == 0, listed.stdout
+    assert any(row["id"] == mem_id for row in json.loads(listed.stdout))
+
+
+def test_memory_reject_json_unknown_id_exits_nonzero_no_payload(
+    tmp_path: Path,
+) -> None:
+    """Unknown memory id must exit non-zero in JSON mode (same exit-code 2
+    as text mode — `--json` is a render switch, not a semantic change). No
+    JSON success-shape payload must reach stdout — the error-vs-success
+    boundary stays at the exit-code gate, same v0.8.42-v0.8.57 discipline."""
+    result = CliRunner().invoke(
+        app,
+        ["memory", "reject", "mem_unknown_id", "--project", str(tmp_path), "--json"],
+    )
+    assert result.exit_code == 2, result.stdout
+    if result.stdout.strip():
+        try:
+            parsed = json.loads(result.stdout)
+            assert not (isinstance(parsed, dict) and "id" in parsed and "status" in parsed)
+        except json.JSONDecodeError:
+            pass  # Expected — error path went to stderr.
+
+
+def test_memory_reject_json_overrides_accepted_status(
+    project_with_memory: tuple[Path, str],
+) -> None:
+    """Rejecting an already-accepted memory must succeed and flip the status
+    to "rejected" — locks the `reject_memory` library semantic that there
+    is no state-machine guard (rejection is a status overwrite, not a
+    proposed-only operation). Mirrors v0.8.57's idempotent re-accept lock
+    but cross-state: accept-then-reject must land cleanly. A regression
+    that gated reject behind "must-be-proposed" would break this test by
+    raising MemoryNotFoundError-style or exiting non-zero on the reject."""
+    project, mem_id = project_with_memory
+
+    # First flip to accepted.
+    accept_result = CliRunner().invoke(
+        app, ["memory", "accept", mem_id, "--project", str(project), "--json"]
+    )
+    assert accept_result.exit_code == 0, accept_result.stdout
+    accepted_payload = json.loads(accept_result.stdout)
+    assert accepted_payload["status"] == "accepted"
+
+    # Now reject the already-accepted memory — must succeed and emit
+    # `status: "rejected"` with the SAME path (no fresh on-disk write).
+    reject_result = CliRunner().invoke(
+        app, ["memory", "reject", mem_id, "--project", str(project), "--json"]
+    )
+    assert reject_result.exit_code == 0, reject_result.stdout
+    rejected_payload = json.loads(reject_result.stdout)
+
+    assert set(rejected_payload.keys()) == _MEMORY_LIST_JSON_KEYS
+    assert rejected_payload["id"] == mem_id
+    assert rejected_payload["status"] == "rejected"
+    # Path stable across the cross-state flip — the on-disk file is the
+    # same one, not a fresh write.
+    assert rejected_payload["path"] == accepted_payload["path"]
