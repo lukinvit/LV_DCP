@@ -142,3 +142,32 @@ def is_missing(row: ProjectAudit) -> bool:
 def iso_utc(ts: float) -> str:
     """Helper for tests: epoch → ISO-8601 with trailing Z."""
     return datetime.fromtimestamp(ts, tz=UTC).isoformat().replace("+00:00", "Z")
+
+
+def backup_status(
+    config_path: Path,
+    *,
+    backup_suffix: str = ".bak",
+    now: float | None = None,
+) -> tuple[Path | None, float | None]:
+    """Return ``(backup_path, age_seconds)`` for the prune-undo sidecar.
+
+    `prune --yes` writes a sibling ``<config>.bak`` snapshot of the
+    pre-mutation registry; `restore` reads it back. This helper lets the
+    `ls` text renderer surface the backup's existence + age as a footer,
+    making the `restore` recovery handle discoverable without forcing
+    users to read `prune --yes` output.
+
+    Returns ``(None, None)`` when no backup exists. ``age_seconds`` is
+    ``mtime`` delta from ``now`` (or ``time.time()`` when ``now`` is
+    omitted), clamped to non-negative for clock-skew safety.
+
+    Pure read — never mutates either file. ``now`` is injectable for
+    deterministic tests.
+    """
+    backup_path = config_path.with_name(config_path.name + backup_suffix)
+    if not backup_path.exists():
+        return None, None
+    current = now if now is not None else time.time()
+    age = max(0.0, current - backup_path.stat().st_mtime)
+    return backup_path, age
