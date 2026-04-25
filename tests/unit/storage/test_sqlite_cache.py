@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 from libs.core.entities import File, Relation, RelationType, Symbol, SymbolType
-from libs.storage.sqlite_cache import SqliteCache
+from libs.storage.sqlite_cache import CacheCorruptError, SqliteCache
 
 
 @pytest.fixture
@@ -225,6 +225,53 @@ def test_put_file_persists_has_secrets_flag(cache: SqliteCache) -> None:
     got = cache.get_file("config/production.yaml")
     assert got is not None
     assert got.has_secrets is True
+
+
+def test_migrate_raises_cache_corrupt_on_garbage_file(tmp_path: Path) -> None:
+    """A non-SQLite file at db_path triggers ``CacheCorruptError`` from quick_check.
+
+    Reproduces the X5_BM symptom class where ``PRAGMA quick_check`` itself
+    fails (sqlite3.DatabaseError → CacheCorruptError with recovery hint).
+    """
+    db_path = tmp_path / "cache.db"
+    db_path.write_bytes(b"not a sqlite database, just garbage bytes" * 16)
+
+    cache = SqliteCache(db_path)
+    with pytest.raises(CacheCorruptError) as excinfo:
+        cache.migrate()
+
+    msg = str(excinfo.value)
+    assert str(db_path) in msg
+    assert "ctx scan" in msg  # recovery hint present
+    cache.close()
+
+
+def test_check_integrity_raises_on_non_ok_row(tmp_path: Path) -> None:
+    """A non-``ok`` row from quick_check (e.g. ``invalid page number ...``)
+    must raise ``CacheCorruptError``, not silently propagate garbage rows.
+
+    Simulates SQLite's behavior on a damaged B-tree page (the X5_BM
+    "147306 is not a valid SymbolType" symptom) by stubbing the
+    connection passed to ``_check_integrity``. ``sqlite3.Connection`` is
+    an immutable C type so we can't monkeypatch its methods — using a
+    duck-typed stub is the only ergonomic option.
+    """
+
+    class _StubCursor:
+        def fetchone(self) -> tuple[str]:
+            return ("invalid page number 8073",)
+
+    class _StubConn:
+        def execute(self, sql: str, *args: object) -> _StubCursor:
+            assert sql == "PRAGMA quick_check"
+            return _StubCursor()
+
+    cache = SqliteCache(tmp_path / "cache.db")
+    with pytest.raises(CacheCorruptError) as excinfo:
+        cache._check_integrity(_StubConn())  # type: ignore[arg-type]
+    assert "invalid page number 8073" in str(excinfo.value)
+    assert "ctx scan" in str(excinfo.value)
+    cache.close()
 
 
 def test_retrieval_traces_table_exists(cache: SqliteCache) -> None:

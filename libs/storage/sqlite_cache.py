@@ -5,6 +5,7 @@ Single-writer (the CLI process). Schema is versioned via PRAGMA user_version.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 from collections.abc import Iterable, Iterator
@@ -17,6 +18,24 @@ from libs.gitintel.models import GitFileStats
 # Phase 1 has no formal migration path; bumping this constant is advisory.
 # ADR-002 Phase 2 will introduce proper migration dispatch (see review issue I2).
 SCHEMA_VERSION = 4
+
+
+class CacheCorruptError(RuntimeError):
+    """Raised when SQLite reports the cache database is physically corrupt.
+
+    Distinct from a stale-schema error: the file is intact at the schema
+    layer (PRAGMA user_version reads) but B-tree pages are damaged, so
+    SELECT returns garbage that crashes downstream Pydantic validation
+    with cryptic errors like ``147306 is not a valid SymbolType`` or
+    ``size_bytes='class', role=3279``.
+
+    Recovery: delete the project's ``.context/`` directory (cache.db +
+    fts.db + symbol_index.md + project.md) and re-run ``ctx scan
+    <project_root>`` to rebuild from source. The daemon quarantines a
+    project that raises this until the daemon is restarted, so a single
+    corrupt cache cannot keep crashing on every edit-block.
+    """
+
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS files (
@@ -98,7 +117,14 @@ class SqliteCache:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
             self._conn = sqlite3.connect(self.db_path)
             self._conn.execute("PRAGMA foreign_keys = ON")
-            self._conn.execute("PRAGMA journal_mode = WAL")
+            # journal_mode is a write-PRAGMA — on a corrupt or non-SQLite
+            # file it raises ``sqlite3.DatabaseError("file is not a
+            # database")`` before quick_check ever runs. Swallow it here
+            # so ``migrate()._check_integrity`` becomes the single,
+            # typed entry point for corruption detection (raises
+            # ``CacheCorruptError`` with recovery hint).
+            with contextlib.suppress(sqlite3.DatabaseError):
+                self._conn.execute("PRAGMA journal_mode = WAL")
         return self._conn
 
     def __enter__(self) -> SqliteCache:
@@ -119,6 +145,16 @@ class SqliteCache:
 
     def migrate(self) -> None:
         conn = self._connect()
+
+        # Detect physical corruption before touching schema. ``quick_check``
+        # is the cheap variant of ``integrity_check`` — it catches B-tree
+        # page damage (the failure mode that produces garbage SELECT rows
+        # and the cascading ``not a valid SymbolType`` / ``size_bytes='class'``
+        # crashes in the daemon retry loop) without scanning every index.
+        # Cost is dominated by page count, ~tens of ms even on multi-MB
+        # caches; well worth it on the once-per-ProjectIndex.open() path.
+        self._check_integrity(conn)
+
         current_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
 
         if current_version == 0:
@@ -169,6 +205,30 @@ class SqliteCache:
             f"but this binary expects {SCHEMA_VERSION}. "
             f"Delete {self.db_path.parent} and re-run `ctx scan` to rebuild."
         )
+
+    def _check_integrity(self, conn: sqlite3.Connection) -> None:
+        """Run ``PRAGMA quick_check`` and raise ``CacheCorruptError`` if not ok.
+
+        ``quick_check`` returns a single row containing the literal string
+        ``"ok"`` for an intact database, or one or more rows describing
+        the first detected fault (``invalid page number ...``, ``Child
+        page depth differs``, ``Rowid ... out of order``). Both legacy
+        empty rows and ``DatabaseError`` from the PRAGMA itself count
+        as corruption — the cache is unusable either way.
+        """
+        try:
+            row = conn.execute("PRAGMA quick_check").fetchone()
+        except sqlite3.DatabaseError as exc:
+            raise CacheCorruptError(
+                f"SqliteCache at {self.db_path} failed quick_check: {exc}. "
+                f"Delete {self.db_path.parent} and re-run `ctx scan` to rebuild."
+            ) from exc
+        if row is None or row[0] != "ok":
+            detail = "no rows returned" if row is None else row[0]
+            raise CacheCorruptError(
+                f"SqliteCache at {self.db_path} failed quick_check: {detail}. "
+                f"Delete {self.db_path.parent} and re-run `ctx scan` to rebuild."
+            )
 
     def _migrate_v3_to_v4(self, conn: sqlite3.Connection) -> None:
         conn.executescript("""
