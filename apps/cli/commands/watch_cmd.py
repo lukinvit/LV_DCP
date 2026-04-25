@@ -180,17 +180,42 @@ def start() -> None:
 
 
 @app.command("install-service")
-def install_service() -> None:
-    """Install LV_DCP agent as a launchd LaunchAgent (persistent background service)."""
+def install_service(
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help=(
+            "Emit the installed launchd service descriptor as a single JSON "
+            "object: `{label, plist_path, uid, program_arguments, log_dir, "
+            "bootstrapped}`. Pure data on stdout — suppresses the human "
+            "`plist written: ... / launchctl bootstrap ... succeeded` lines. "
+            "`bootstrapped: true` is the explicit success signal "
+            "(`jq -e '.bootstrapped'` is the natural 'did launchctl really "
+            "happen' gate). On `LaunchctlError` exit 3 to stderr is "
+            "preserved with **no** payload on stdout — same v0.8.42-v0.8.61 "
+            "error-vs-success boundary."
+        ),
+    ),
+) -> None:
+    """Install LV_DCP agent as a launchd LaunchAgent (persistent background service).
+
+    With ``--json`` the success-side payload includes `program_arguments`
+    so an ops script can verify that launchd received the expected Python
+    interpreter (catches the ``uv sync``-after-Python-upgrade footgun where
+    the recorded interpreter no longer exists). The plist path round-trips
+    so a follow-up ``ctx watch uninstall-service`` can be scripted from the
+    same payload without re-deriving the path.
+    """
     plist_path = LAUNCH_AGENT_DIR / f"{LAUNCH_AGENT_LABEL}.plist"
     program_arguments = [sys.executable, "-m", "apps.agent.daemon"]
+    uid = os.getuid()
     write_plist(
         target_path=plist_path,
         program_arguments=program_arguments,
         log_dir=AGENT_LOG_DIR,
     )
     try:
-        bootstrap_agent(plist_path=plist_path, uid=os.getuid())
+        bootstrap_agent(plist_path=plist_path, uid=uid)
     except LaunchctlError as exc:
         typer.echo(f"error: {exc}", err=True)
         typer.echo(
@@ -199,8 +224,19 @@ def install_service() -> None:
             err=True,
         )
         raise typer.Exit(code=3) from exc
+    if as_json:
+        payload: dict[str, object] = {
+            "label": LAUNCH_AGENT_LABEL,
+            "plist_path": str(plist_path),
+            "uid": uid,
+            "program_arguments": list(program_arguments),
+            "log_dir": str(AGENT_LOG_DIR),
+            "bootstrapped": True,
+        }
+        typer.echo(json.dumps(payload, indent=2))
+        return
     typer.echo(f"plist written: {plist_path}")
-    typer.echo(f"launchctl bootstrap gui/{os.getuid()} succeeded")
+    typer.echo(f"launchctl bootstrap gui/{uid} succeeded")
 
 
 @app.command("uninstall-service")

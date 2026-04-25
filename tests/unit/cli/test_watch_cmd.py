@@ -1,7 +1,8 @@
 """Tests for `ctx watch` CLI subgroup (v0.8.35 allow_transient wiring,
 v0.8.49 ``ctx watch list --json`` scriptability,
 v0.8.54 ``ctx watch add --json`` write-side scriptability,
-v0.8.56 ``ctx watch remove --json`` unregistration scriptability)."""
+v0.8.56 ``ctx watch remove --json`` unregistration scriptability,
+v0.8.62 ``ctx watch install-service --json`` daemon-service scriptability)."""
 
 from __future__ import annotations
 
@@ -22,6 +23,14 @@ _WATCH_LIST_JSON_KEYS = frozenset(
 # top-level key is `removed`; the inner value is either a ProjectEntry-shape
 # dict (path was registered) or null (path was not registered — no-op success).
 _WATCH_REMOVE_JSON_KEYS = frozenset({"removed"})
+
+# v0.8.62 schema lock for `watch install-service --json`: six top-level keys
+# describing the just-installed launchd LaunchAgent. Locked here so any
+# evolution of the descriptor (e.g. a future `keep_alive` toggle) becomes a
+# reviewed schema change rather than a silent payload drift.
+_WATCH_INSTALL_SERVICE_JSON_KEYS = frozenset(
+    {"label", "plist_path", "uid", "program_arguments", "log_dir", "bootstrapped"}
+)
 
 
 @pytest.fixture
@@ -385,3 +394,158 @@ def test_watch_remove_json_isolated_when_other_projects_present(
     cfg = load_config(_isolated_config)
     assert len(cfg.projects) == 1
     assert cfg.projects[0].root.name == "KeepProject"
+
+
+# ----------------------------------------------------------------------------
+# v0.8.62 — `ctx watch install-service --json`
+# ----------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _isolated_launch_agent_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Path, Path]:
+    """Redirect LAUNCH_AGENT_DIR + AGENT_LOG_DIR so install-service writes
+    its plist into a tmp tree instead of the user's `~/Library/LaunchAgents`.
+    Returns the (launch_agent_dir, agent_log_dir) pair so tests can assert
+    on the resulting plist path."""
+    launch_agent_dir = tmp_path / "LaunchAgents"
+    agent_log_dir = tmp_path / "Logs" / "lvdcp-agent"
+    monkeypatch.setattr("apps.cli.commands.watch_cmd.LAUNCH_AGENT_DIR", launch_agent_dir)
+    monkeypatch.setattr("apps.cli.commands.watch_cmd.AGENT_LOG_DIR", agent_log_dir)
+    return launch_agent_dir, agent_log_dir
+
+
+def test_install_service_text_output_unchanged(
+    _isolated_launch_agent_paths: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Default (no `--json`) install-service output stays bytewise stable —
+    the legacy `plist written: ... / launchctl bootstrap gui/<uid> succeeded`
+    chrome is the contract for any pre-existing automation that already greps
+    these lines. Locks the no-flag path so the JSON branch landing in v0.8.62
+    cannot perturb the text rendering."""
+    launch_agent_dir, _ = _isolated_launch_agent_paths
+    monkeypatch.setattr(
+        "apps.cli.commands.watch_cmd.bootstrap_agent",
+        lambda *, plist_path, uid: None,
+    )
+
+    result = CliRunner().invoke(app, ["watch", "install-service"])
+    assert result.exit_code == 0, result.stdout
+
+    plist_path = launch_agent_dir / "tech.lvdcp.agent.plist"
+    expected_lines = [
+        f"plist written: {plist_path}",
+        f"launchctl bootstrap gui/{__import__('os').getuid()} succeeded",
+    ]
+    # Strict equality on the rendered lines — guards against accidental JSON
+    # leakage or rewording of the legacy chrome.
+    assert result.stdout.strip().splitlines() == expected_lines
+
+    # Verify no JSON snuck onto stdout (consumers piping through `jq` would
+    # silently start parsing prose otherwise).
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(result.stdout)
+
+
+def test_install_service_json_emits_schema_locked_descriptor(
+    _isolated_launch_agent_paths: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`watch install-service --json` returns a six-key object describing the
+    just-installed launchd LaunchAgent. Locks the schema and asserts every
+    field round-trips: `label` matches the constant, `plist_path` points at
+    the file actually written, `uid` matches the invoking user, and
+    `program_arguments[0]` is `sys.executable` so an ops script can verify
+    launchd will run the expected interpreter (catches the post-`uv sync`
+    Python-upgrade footgun)."""
+    import os
+    import sys
+
+    launch_agent_dir, agent_log_dir = _isolated_launch_agent_paths
+    monkeypatch.setattr(
+        "apps.cli.commands.watch_cmd.bootstrap_agent",
+        lambda *, plist_path, uid: None,
+    )
+
+    result = CliRunner().invoke(app, ["watch", "install-service", "--json"])
+    assert result.exit_code == 0, result.stdout
+
+    payload = json.loads(result.stdout)
+    assert isinstance(payload, dict)
+    assert set(payload.keys()) == _WATCH_INSTALL_SERVICE_JSON_KEYS
+
+    # Field-by-field round-trip.
+    assert payload["label"] == "tech.lvdcp.agent"
+    assert payload["plist_path"] == str(launch_agent_dir / "tech.lvdcp.agent.plist")
+    assert payload["uid"] == os.getuid()
+    assert payload["program_arguments"] == [sys.executable, "-m", "apps.agent.daemon"]
+    assert payload["log_dir"] == str(agent_log_dir)
+    assert payload["bootstrapped"] is True
+
+    # The plist file actually exists on disk — `bootstrapped: true` would lie
+    # otherwise. (write_plist runs before bootstrap_agent in the command, so
+    # the artifact is materialized regardless of the launchctl mock.)
+    assert (launch_agent_dir / "tech.lvdcp.agent.plist").is_file()
+
+    # JSON path must NOT emit the human chrome lines — pure data on stdout.
+    assert "plist written:" not in result.stdout
+    assert "launchctl bootstrap" not in result.stdout
+
+
+def test_install_service_json_program_arguments_round_trip(
+    _isolated_launch_agent_paths: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`program_arguments` round-trips so an ops script can verify the
+    Python interpreter that launchd will invoke. The argv stays a
+    JSON array (not a flattened string) so the consumer can introspect
+    individual elements (`jq -r '.program_arguments[0]'` for the
+    interpreter path)."""
+    import sys
+
+    monkeypatch.setattr(
+        "apps.cli.commands.watch_cmd.bootstrap_agent",
+        lambda *, plist_path, uid: None,
+    )
+    result = CliRunner().invoke(app, ["watch", "install-service", "--json"])
+    assert result.exit_code == 0, result.stdout
+
+    payload = json.loads(result.stdout)
+    args = payload["program_arguments"]
+    assert isinstance(args, list)
+    assert len(args) == 3
+    assert args[0] == sys.executable
+    assert args[1] == "-m"
+    assert args[2] == "apps.agent.daemon"
+
+
+def test_install_service_json_launchctl_failure_exits_3_no_payload(
+    _isolated_launch_agent_paths: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When `launchctl bootstrap` fails (`LaunchctlError`), the JSON path
+    preserves the existing exit-3-to-stderr contract and emits **no** JSON
+    payload on stdout. Same v0.8.42-v0.8.61 error-vs-success boundary —
+    failures never produce a parseable success-shape payload, so a script
+    chaining `--json | jq ...` will hard-fail rather than silently
+    interpret an error as success."""
+    from libs.mcp_ops.launchd import LaunchctlError
+
+    def _raise(*, plist_path: Path, uid: int) -> None:
+        raise LaunchctlError("launchctl bootstrap failed (exit 5): Input/output error")
+
+    monkeypatch.setattr("apps.cli.commands.watch_cmd.bootstrap_agent", _raise)
+
+    result = CliRunner().invoke(app, ["watch", "install-service", "--json"])
+    assert result.exit_code == 3, result.stdout
+
+    # No success-shape JSON on stdout — error must not look like success.
+    if result.stdout.strip():
+        with pytest.raises(json.JSONDecodeError):
+            json.loads(result.stdout)
+
+    # Error chrome lands on stderr per v0.8.42 structlog discipline.
+    combined = (result.stdout or "") + (result.stderr or "")
+    assert "launchctl bootstrap failed" in combined or "error:" in combined
