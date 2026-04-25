@@ -87,3 +87,37 @@ class TestRenderModulePage:
         )
         assert "`ClassA`" in result
         assert "`func_b`" in result
+
+    def test_links_to_wiki_index(self) -> None:
+        """v0.8.67 — every Modules/<name>.md must point at the wiki INDEX
+        so the user can pivot from structural stats to the LLM-generated
+        prose articles for that module."""
+        result = render_module_page(
+            module_name="apps",
+            project_name="LV_DCP",
+            file_count=1,
+            symbol_count=1,
+            top_symbols=[],
+            dependencies=[],
+            dependents=[],
+            scan_date="2026-04-13",
+        )
+        assert "## Wiki articles" in result
+        assert "[[Projects/LV_DCP/Wiki/INDEX|wiki index]]" in result
+        # The hint mentions the slug prefix so the user knows what to
+        # search for in the index.
+        assert "`apps-*`" in result
+
+
+class TestRenderHomePageWikiLink:
+    def test_home_links_to_wiki_index(self) -> None:
+        """v0.8.67 — the project Home must surface the wiki entry point
+        in its navigation block, alongside Recent Changes / Tech Debt."""
+        result = render_home_page(
+            project_name="LV_DCP",
+            languages=["python"],
+            file_count=10,
+            symbol_count=20,
+            scan_date="2026-04-13",
+        )
+        assert "[[Wiki/INDEX|Wiki index]]" in result

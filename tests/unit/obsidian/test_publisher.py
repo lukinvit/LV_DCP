@@ -150,7 +150,13 @@ class TestWikiMirror:
     def test_mirrors_index_architecture_and_modules(self, tmp_path: Path) -> None:
         """Wiki/ inside the vault must contain the full INDEX, architecture,
         and per-module articles — the same artifacts the daemon writes
-        locally to .context/wiki/."""
+        locally to .context/wiki/.
+
+        Since v0.8.67 the body is wrapped with a navigation header
+        (INDEX.md) or a ``## See also`` footer (everything else), so we
+        check for substring presence of the original body rather than
+        byte-for-byte equality.
+        """
         wiki_src = tmp_path / "wiki-src"
         (wiki_src / "modules").mkdir(parents=True)
         (wiki_src / "INDEX.md").write_text("# Wiki Index\n", encoding="utf-8")
@@ -163,13 +169,93 @@ class TestWikiMirror:
         report = _empty_sync(publisher, project_name="Proj", wiki_dir=wiki_src)
 
         wiki_dst = tmp_path / "vault" / "Projects" / "Proj" / "Wiki"
-        assert (wiki_dst / "INDEX.md").read_text(encoding="utf-8") == "# Wiki Index\n"
-        assert (wiki_dst / "architecture.md").read_text(encoding="utf-8") == "# Architecture\n"
+        index_body = (wiki_dst / "INDEX.md").read_text(encoding="utf-8")
+        assert "# Wiki Index" in index_body
+        arch_body = (wiki_dst / "architecture.md").read_text(encoding="utf-8")
+        assert "# Architecture" in arch_body
         assert (wiki_dst / "modules" / "core.md").exists()
         assert (wiki_dst / "modules" / "api.md").exists()
         # 3 baseline (Home + Recent Changes + Tech Debt) + 4 wiki = 7 written.
         assert report.pages_written == 7
         assert report.errors == []
+
+    def test_index_links_converted_to_wikilinks(self, tmp_path: Path) -> None:
+        """v0.8.67 — INDEX.md mirrored into vault has its markdown links
+        rewritten to Obsidian ``[[wikilinks]]`` so the graph view lights up."""
+        wiki_src = tmp_path / "wiki-src"
+        (wiki_src / "modules").mkdir(parents=True)
+        (wiki_src / "INDEX.md").write_text(
+            "# Wiki Index\n\n- [apps-cli](modules/apps-cli.md)\n",
+            encoding="utf-8",
+        )
+        (wiki_src / "modules" / "apps-cli.md").write_text("# apps-cli\n", encoding="utf-8")
+
+        config = VaultConfig(vault_path=tmp_path / "vault")
+        publisher = ObsidianPublisher(config)
+        _empty_sync(publisher, project_name="LV_DCP", wiki_dir=wiki_src)
+
+        index_body = (tmp_path / "vault" / "Projects" / "LV_DCP" / "Wiki" / "INDEX.md").read_text(
+            encoding="utf-8"
+        )
+        assert "[[modules/apps-cli|apps-cli]]" in index_body
+        # Original markdown form must be gone — proves the rewrite ran.
+        assert "[apps-cli](modules/apps-cli.md)" not in index_body
+
+    def test_index_gets_navigation_header(self, tmp_path: Path) -> None:
+        """v0.8.67 — the mirrored INDEX.md is prepended with a nav blockquote
+        linking to Home / Modules / Recent Changes inside the same project."""
+        wiki_src = tmp_path / "wiki-src"
+        (wiki_src / "modules").mkdir(parents=True)
+        (wiki_src / "INDEX.md").write_text("# Wiki Index\n", encoding="utf-8")
+
+        config = VaultConfig(vault_path=tmp_path / "vault")
+        publisher = ObsidianPublisher(config)
+        _empty_sync(publisher, project_name="LV_DCP", wiki_dir=wiki_src)
+
+        index_body = (tmp_path / "vault" / "Projects" / "LV_DCP" / "Wiki" / "INDEX.md").read_text(
+            encoding="utf-8"
+        )
+        assert "[[Projects/LV_DCP/Home|Project home]]" in index_body
+        assert "[[Projects/LV_DCP/Modules|Modules]]" in index_body
+
+    def test_module_article_gets_see_also_footer(self, tmp_path: Path) -> None:
+        """v0.8.67 — every modules/<slug>.md mirrored into the vault must
+        end with a ``## See also`` block linking back to Home, the wiki
+        index, and (when the slug has a dash) the auto-generated
+        ``Modules/<short>`` stats page."""
+        wiki_src = tmp_path / "wiki-src"
+        (wiki_src / "modules").mkdir(parents=True)
+        (wiki_src / "modules" / "apps-cli.md").write_text("# apps-cli\nbody\n", encoding="utf-8")
+
+        config = VaultConfig(vault_path=tmp_path / "vault")
+        publisher = ObsidianPublisher(config)
+        _empty_sync(publisher, project_name="LV_DCP", wiki_dir=wiki_src)
+
+        body = (
+            tmp_path / "vault" / "Projects" / "LV_DCP" / "Wiki" / "modules" / "apps-cli.md"
+        ).read_text(encoding="utf-8")
+        assert "## See also" in body
+        assert "[[Projects/LV_DCP/Home|Project home]]" in body
+        assert "[[Projects/LV_DCP/Wiki/INDEX|Wiki index]]" in body
+        assert "[[Projects/LV_DCP/Modules/apps|Module stats: apps]]" in body
+
+    def test_module_article_without_dash_omits_modules_link(self, tmp_path: Path) -> None:
+        """A slug without a dash (e.g. ``README``) has no first-segment
+        fallback, so the Modules stats link must be omitted from the
+        footer rather than pointing at a nonsense target."""
+        wiki_src = tmp_path / "wiki-src"
+        (wiki_src / "modules").mkdir(parents=True)
+        (wiki_src / "modules" / "README.md").write_text("# readme\n", encoding="utf-8")
+
+        config = VaultConfig(vault_path=tmp_path / "vault")
+        publisher = ObsidianPublisher(config)
+        _empty_sync(publisher, project_name="LV_DCP", wiki_dir=wiki_src)
+
+        body = (
+            tmp_path / "vault" / "Projects" / "LV_DCP" / "Wiki" / "modules" / "README.md"
+        ).read_text(encoding="utf-8")
+        assert "Module stats:" not in body
+        assert "[[Projects/LV_DCP/Wiki/INDEX|Wiki index]]" in body
 
     def test_drift_cleanup_removes_stale_articles(self, tmp_path: Path) -> None:
         """A module that disappears from .context/wiki/ must also disappear

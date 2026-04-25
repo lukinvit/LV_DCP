@@ -54,6 +54,7 @@ See the [[Modules]] folder for per-module breakdowns.
 
 - [[Recent Changes]]
 - [[Tech Debt]]
+- [[Wiki/INDEX|Wiki index]] — LLM-generated prose articles per module
 """
     return f"{fm}\n\n{body}"
 
@@ -93,6 +94,20 @@ def render_module_page(  # noqa: PLR0913
         items = "\n".join(f"- [[{d}]]" for d in dependents)
         dependents_section = f"\n## Dependents\n\n{items}\n"
 
+    # Cross-link to the LLM-generated wiki for this top-level module.
+    # The Wiki/ tree (mirrored from ``.context/wiki/``) is keyed by the
+    # full source path slug — the simple module name we have here is
+    # the first segment, so we link to the wiki INDEX which lists every
+    # ``<module_name>-*`` article. If the project never ran ``ctx wiki
+    # update`` the link still resolves to a non-existent note (Obsidian
+    # renders this as a creatable stub, no error), which is preferable
+    # to silently omitting the cross-reference.
+    wiki_link = (
+        f"\n## Wiki articles\n\n"
+        f"See the [[Projects/{project_name}/Wiki/INDEX|wiki index]] for "
+        f"prose articles starting with `{module_name}-*`.\n"
+    )
+
     body = f"""# {module_name}
 
 | Metric | Value |
@@ -101,7 +116,7 @@ def render_module_page(  # noqa: PLR0913
 | Symbols | {symbol_count} |
 | Project | [[{project_name}]] |
 | Last scan | {scan_date} |
-{symbols_section}{deps_section}{dependents_section}"""
+{symbols_section}{deps_section}{dependents_section}{wiki_link}"""
     return f"{fm}\n\n{body}"
 
 

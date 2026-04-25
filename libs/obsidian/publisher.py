@@ -22,6 +22,11 @@ from libs.obsidian.templates import (
     render_recent_changes,
     render_tech_debt,
 )
+from libs.obsidian.wikilinks import (
+    convert_md_links_to_wikilinks,
+    make_index_header,
+    make_wiki_footer,
+)
 
 
 class ObsidianPublisher:
@@ -153,7 +158,12 @@ class ObsidianPublisher:
         # Optional: only runs when caller passes a wiki_dir that exists.
         if wiki_dir is not None and wiki_dir.exists():
             try:
-                self._mirror_wiki(wiki_dir, project_dir / "Wiki", report)
+                self._mirror_wiki(
+                    wiki_dir,
+                    project_dir / "Wiki",
+                    report,
+                    project_name=project_name,
+                )
             except OSError as exc:
                 report.errors.append(f"Wiki mirror: {exc}")
 
@@ -165,6 +175,8 @@ class ObsidianPublisher:
         src_wiki: Path,
         dst_wiki: Path,
         report: SyncReport,
+        *,
+        project_name: str,
     ) -> None:
         """Mirror ``.context/wiki/`` into ``<vault>/Projects/<name>/Wiki/``.
 
@@ -173,6 +185,17 @@ class ObsidianPublisher:
         the previous sync get deleted from the destination so vault
         listings don't leak stale articles forever — this is the
         Karpathy LLM-Wiki ``lint`` parity for the vault mirror.
+
+        On the way through, every mirrored file is re-rendered for
+        Obsidian: plain markdown links (``[text](modules/foo.md)``) are
+        converted to wikilinks (``[[modules/foo|text]]``) so Obsidian's
+        graph view and backlink pane light up, and a ``## See also``
+        cross-link footer is appended to each article (and a navigation
+        header prepended to ``INDEX.md``) so the user can pivot between
+        the prose wiki, the project ``Home``, and the auto-generated
+        ``Modules/`` tree without leaving the vault. The source under
+        ``.context/wiki/`` keeps the portable markdown form — wikilinks
+        only ever live in the vault copy.
 
         Errors on individual files are appended to ``report.errors`` and
         the rest of the mirror continues; a single bad file should not
@@ -185,35 +208,49 @@ class ObsidianPublisher:
         # the destination Wiki/ tree is stale and must be removed.
         kept: set[Path] = set()
 
-        # INDEX.md
+        # INDEX.md — convert links + prepend the navigation header so
+        # the wiki's landing page links out to Home / Modules / Recent
+        # Changes inside the same Obsidian project.
         index_src = src_wiki / "INDEX.md"
         if index_src.is_file():
             try:
                 dst = dst_wiki / "INDEX.md"
-                self._atomic_write(dst, index_src.read_text(encoding="utf-8"))
+                source = index_src.read_text(encoding="utf-8")
+                converted = convert_md_links_to_wikilinks(source)
+                header = make_index_header(project_name=project_name)
+                self._atomic_write(dst, header + converted)
                 kept.add(dst)
                 report.pages_written += 1
             except OSError as exc:
                 report.errors.append(f"Wiki INDEX.md: {exc}")
 
-        # architecture.md
+        # architecture.md — wikilink-converted, footer appended.
         arch_src = src_wiki / "architecture.md"
         if arch_src.is_file():
             try:
                 dst = dst_wiki / "architecture.md"
-                self._atomic_write(dst, arch_src.read_text(encoding="utf-8"))
+                source = arch_src.read_text(encoding="utf-8")
+                converted = convert_md_links_to_wikilinks(source)
+                footer = make_wiki_footer(project_name=project_name, module_short=None)
+                self._atomic_write(dst, converted + footer)
                 kept.add(dst)
                 report.pages_written += 1
             except OSError as exc:
                 report.errors.append(f"Wiki architecture.md: {exc}")
 
-        # modules/*.md
+        # modules/*.md — wikilink-converted, footer linking back to the
+        # auto-generated ``Modules/<short>`` page when the slug starts
+        # with a known top-level segment (``apps-cli`` → ``apps``).
         modules_src = src_wiki / "modules"
         if modules_src.is_dir():
             for article in modules_src.glob("*.md"):
                 try:
                     dst = dst_wiki / "modules" / article.name
-                    self._atomic_write(dst, article.read_text(encoding="utf-8"))
+                    source = article.read_text(encoding="utf-8")
+                    converted = convert_md_links_to_wikilinks(source)
+                    short = _short_module_for(article.stem)
+                    footer = make_wiki_footer(project_name=project_name, module_short=short)
+                    self._atomic_write(dst, converted + footer)
                     kept.add(dst)
                     report.pages_written += 1
                 except OSError as exc:
@@ -229,3 +266,19 @@ class ObsidianPublisher:
                     report.pages_deleted += 1
                 except OSError as exc:
                     report.errors.append(f"Wiki cleanup {existing.name}: {exc}")
+
+
+def _short_module_for(article_stem: str) -> str | None:
+    """Return the auto-generated ``Modules/<short>.md`` slug for a wiki article.
+
+    The wiki uses ``apps-cli`` / ``libs-wiki`` (first two source path
+    segments dash-joined, see :func:`libs.wiki.state.wiki_filename`) but
+    the publisher's ``Modules/`` tree slugs at the first segment only
+    (``apps`` / ``libs``). This helper picks the first dash-separated
+    chunk so the cross-link footer can target a real auto-generated
+    page; returns ``None`` for slugs without a dash (e.g. ``README``)
+    where there's no useful first-segment fallback to link to.
+    """
+    if "-" not in article_stem:
+        return None
+    return article_stem.split("-", 1)[0]
