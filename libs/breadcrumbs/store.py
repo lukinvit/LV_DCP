@@ -37,7 +37,7 @@ class BreadcrumbStore:
         self.db_path = db_path
         self._conn: sqlite3.Connection | None = None
 
-    def _connect(self) -> sqlite3.Connection:
+    def connect(self) -> sqlite3.Connection:
         if self._conn is None:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
             self._conn = sqlite3.connect(self.db_path)
@@ -45,7 +45,7 @@ class BreadcrumbStore:
         return self._conn
 
     def migrate(self) -> None:
-        conn = self._connect()
+        conn = self.connect()
         conn.executescript(_SCHEMA)
         conn.commit()
 
