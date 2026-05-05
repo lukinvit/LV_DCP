@@ -1,0 +1,15 @@
+{
+  "_meta": {
+    "generated": "2026-05-04",
+    "scenarios_run": 11,
+    "note": "Baseline established from initial Phase 7 implementation. Tighten in 0.7.x patches."
+  },
+  "resume_recall_at_5": 0.95,
+  "resume_p50_latency_ms": 180,
+  "resume_p95_latency_ms": 420,
+  "inject_p95_latency_ms": 350,
+  "pack_size_bytes_p50": 1800,
+  "pack_size_bytes_p95": 4200,
+  "secret_leak_count": 0,
+  "cross_user_leak_count": 0
+}

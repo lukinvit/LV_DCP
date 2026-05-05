@@ -1,4 +1,4 @@
-.PHONY: help install lint format typecheck test eval clean docker-up docker-down docker-logs
+.PHONY: help install lint format typecheck test eval eval-resume eval-resume-update clean docker-up docker-down docker-logs
 
 DOCKER_CTX ?= docker-vm
 COMPOSE    := DOCKER_CONTEXT=$(DOCKER_CTX) docker compose -f deploy/docker-compose/dev.yml
@@ -44,6 +44,13 @@ docker-down:
 
 docker-logs:
 	$(COMPOSE) logs -f --tail=100
+
+eval-resume:
+	uv run pytest -q -m eval tests/eval/resume
+
+eval-resume-update:
+	@echo "Re-record baseline.json after intentional improvement (manual step)"
+	@echo "Edit tests/eval/resume/baseline.json and commit with rationale"
 
 clean:
 	rm -rf .mypy_cache .ruff_cache .pytest_cache .coverage htmlcov dist build
