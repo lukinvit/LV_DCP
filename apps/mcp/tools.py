@@ -9,6 +9,7 @@ from __future__ import annotations
 import dataclasses
 import getpass
 import logging
+import os
 import time
 from collections import Counter
 from pathlib import Path
@@ -1358,6 +1359,10 @@ def lvdcp_resume(
 
 def _record_status_breadcrumb(*, project_root: str) -> None:
     """Fire-and-forget status breadcrumb. Never raises."""
+    if not project_root:
+        return
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return
     try:
         from libs.breadcrumbs.store import BreadcrumbStore  # noqa: PLC0415
         from libs.breadcrumbs.writer import write_status_event  # noqa: PLC0415
@@ -1385,6 +1390,8 @@ def _record_pack_breadcrumb(
     retrieved_files: list[str],
 ) -> None:
     """Fire-and-forget breadcrumb write. Never raises."""
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return
     try:
         from libs.breadcrumbs.store import BreadcrumbStore  # noqa: PLC0415
         from libs.breadcrumbs.writer import write_pack_event  # noqa: PLC0415

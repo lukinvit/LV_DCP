@@ -8,6 +8,7 @@ def test_status_writes_breadcrumb(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     db = tmp_path / "bc.db"
     monkeypatch.setattr("libs.breadcrumbs.store.DEFAULT_STORE_PATH", db)
     monkeypatch.setattr("apps.mcp.tools.DEFAULT_STORE_PATH", db)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
     from apps.mcp.tools import _record_status_breadcrumb
 
     _record_status_breadcrumb(project_root=str(tmp_path))

@@ -12,6 +12,7 @@ def test_pack_writes_breadcrumb_side_effect(
     db = tmp_path / "bc.db"
     monkeypatch.setattr("libs.breadcrumbs.store.DEFAULT_STORE_PATH", db)
     monkeypatch.setattr("apps.mcp.tools.DEFAULT_STORE_PATH", db)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
     # Simulate a successful pack call by invoking the helper directly
     from apps.mcp.tools import _record_pack_breadcrumb
 
@@ -40,6 +41,7 @@ def test_pack_breadcrumb_helper_swallows_exception(
         "apps.mcp.tools.DEFAULT_STORE_PATH",
         tmp_path / "no" / "such" / "dir" / "bc.db",
     )
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
     from apps.mcp.tools import _record_pack_breadcrumb
 
     # must not raise
