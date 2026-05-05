@@ -523,6 +523,12 @@ def lvdcp_pack(
             exc_info=True,
         )
 
+    _record_pack_breadcrumb(
+        project_root=str(root),
+        query=query,
+        mode=mode,
+        retrieved_files=list(result.files),
+    )
     return PackResult(
         markdown=final_markdown,
         trace_id=result.trace.trace_id,
@@ -1346,3 +1352,33 @@ def lvdcp_resume(
         )
     finally:
         store.close()
+
+
+def _record_pack_breadcrumb(
+    *,
+    project_root: str,
+    query: str | None,
+    mode: str | None,
+    retrieved_files: list[str],
+) -> None:
+    """Fire-and-forget breadcrumb write. Never raises."""
+    try:
+        from libs.breadcrumbs.store import BreadcrumbStore  # noqa: PLC0415
+        from libs.breadcrumbs.writer import write_pack_event  # noqa: PLC0415
+
+        store = BreadcrumbStore(db_path=DEFAULT_STORE_PATH)
+        store.migrate()
+        try:
+            write_pack_event(
+                store=store,
+                project_root=project_root,
+                os_user=getpass.getuser(),
+                query=query,
+                mode=mode,
+                paths_touched=retrieved_files,
+                cc_account_email=resolve_cc_account_email(),
+            )
+        finally:
+            store.close()
+    except Exception:
+        log.exception("breadcrumb side-effect (pack) failed (suppressed)")
