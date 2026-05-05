@@ -7,11 +7,17 @@ FastMCP wrapper in `apps/mcp/server.py` decorates these with `@mcp.tool()`.
 from __future__ import annotations
 
 import dataclasses
+import getpass
 import logging
+import time
 from collections import Counter
 from pathlib import Path
 from typing import Literal
 
+from libs.breadcrumbs.cc_identity import resolve_cc_account_email
+from libs.breadcrumbs.renderer import render_cross_project, render_project_pack
+from libs.breadcrumbs.store import DEFAULT_STORE_PATH, BreadcrumbStore
+from libs.breadcrumbs.views import build_cross_project_resume_pack, build_project_resume_pack
 from libs.context_pack.builder import build_edit_pack, build_navigate_pack
 from libs.core.projects_config import load_config
 from libs.project_index.index import ProjectIndex, ProjectNotIndexedError
@@ -1268,3 +1274,75 @@ def lvdcp_memory_list(
         status_filter=status,
         memories=[_memory_to_entry(m) for m in memories],
     )
+
+
+class ResumeResult(BaseModel):
+    scope: Literal["project", "cross_project"]
+    markdown: str = Field(description="Rendered resume pack")
+    breadcrumbs_empty: bool = Field(description="True when no breadcrumbs in window")
+    project_root: str | None = Field(default=None)
+
+
+_RESUME_WINDOW_SECONDS = 12 * 3600
+
+
+def lvdcp_resume(
+    path: str | None = None,
+    scope: Literal["auto", "project", "cross_project"] = "auto",
+    limit: int = 10,
+    format: Literal["markdown", "json"] = "markdown",
+) -> ResumeResult:
+    """Resume engineering context for a previously active session.
+
+    CALL THIS WHEN:
+    - Starting a new session and want to know where you left off
+    - The user asks "what was I working on?" or "resume my context"
+    - You need the last query, hot files, git state, and open questions
+
+    DO NOT CALL FOR:
+    - Full project code context — use lvdcp_pack instead
+    - Querying which symbols changed — use lvdcp_removed_since or lvdcp_diff
+
+    path=None auto-detects from cwd (or falls back to cross_project digest).
+    Limit applies to breadcrumbs (project scope) or projects (cross_project).
+    format="json" is reserved for future use — only "markdown" is wired today.
+    """
+    del format  # reserved for future JSON output
+
+    os_user = getpass.getuser()
+    cc_email = resolve_cc_account_email()
+    since_ts = time.time() - _RESUME_WINDOW_SECONDS
+    store = BreadcrumbStore(db_path=DEFAULT_STORE_PATH)
+    store.migrate()
+    try:
+        if scope == "cross_project" or (scope == "auto" and not path):
+            pack = build_cross_project_resume_pack(
+                store=store,
+                os_user=os_user,
+                since_ts=since_ts,
+                limit=limit,
+            )
+            md = render_cross_project(pack)
+            return ResumeResult(
+                scope="cross_project",
+                markdown=md,
+                breadcrumbs_empty=not pack.digest,
+            )
+        target = Path(path) if path else Path.cwd()
+        ppack = build_project_resume_pack(
+            store=store,
+            project_root=target,
+            os_user=os_user,
+            cc_account_email=cc_email,
+            since_ts=since_ts,
+            limit=limit,
+        )
+        md = render_project_pack(ppack)
+        return ResumeResult(
+            scope="project",
+            markdown=md,
+            breadcrumbs_empty=ppack.breadcrumbs_empty,
+            project_root=str(target),
+        )
+    finally:
+        store.close()

@@ -21,6 +21,7 @@ def test_server_exposes_all_registered_tools() -> None:
         "lvdcp_regressions",
         "lvdcp_memory_propose",
         "lvdcp_memory_list",
+        "lvdcp_resume",
     }
 
 
