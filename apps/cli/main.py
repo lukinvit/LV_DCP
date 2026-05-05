@@ -37,6 +37,7 @@ from apps.cli.commands import scan as scan_module  # noqa: E402
 from apps.cli.commands import setup as setup_module  # noqa: E402
 from apps.cli.commands import summarize as summarize_module  # noqa: E402
 from apps.cli.commands import ui as ui_module  # noqa: E402
+from apps.cli.commands.breadcrumb_cmd import app as breadcrumb_app  # noqa: E402
 
 # Create main app
 app = typer.Typer(
@@ -120,3 +121,4 @@ app.add_typer(memory_cmd.app, name="memory")
 app.add_typer(timeline_cmd.app, name="timeline")
 app.add_typer(project_cmd.app, name="project")
 app.add_typer(registry_cmd.app, name="registry")
+app.add_typer(breadcrumb_app, name="breadcrumb")
