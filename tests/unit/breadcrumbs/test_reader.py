@@ -34,9 +34,7 @@ def test_load_recent_filters_by_user(tmp_path: Path) -> None:
         mode="navigate",
         paths_touched=[],
     )
-    rows = load_recent(
-        store=s, project_root="/x", os_user="alice", since_ts=0, limit=100
-    )
+    rows = load_recent(store=s, project_root="/x", os_user="alice", since_ts=0, limit=100)
     assert len(rows) == 1
     assert rows[0].os_user == "alice"
 
@@ -52,9 +50,7 @@ def test_load_recent_window(tmp_path: Path) -> None:
         paths_touched=[],
     )
     cutoff = time.time() + 10  # future cutoff → nothing returned
-    rows = load_recent(
-        store=s, project_root="/x", os_user="alice", since_ts=cutoff, limit=100
-    )
+    rows = load_recent(store=s, project_root="/x", os_user="alice", since_ts=cutoff, limit=100)
     assert rows == []
 
 

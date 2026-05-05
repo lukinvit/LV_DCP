@@ -37,9 +37,7 @@ def _render_activity_section(pack: ProjectResumePack, lines: list[str]) -> None:
     """
     if not pack.breadcrumbs_empty:
         last_age = _humanize_age(pack.recent_breadcrumbs[0].timestamp)
-        sessions = len(
-            {bc.cc_session_id for bc in pack.recent_breadcrumbs if bc.cc_session_id}
-        )
+        sessions = len({bc.cc_session_id for bc in pack.recent_breadcrumbs if bc.cc_session_id})
         lines.append(
             f"**Last activity:** {last_age} · {sessions} sessions · "
             f"{len(pack.recent_breadcrumbs)} breadcrumbs in window"
@@ -71,9 +69,7 @@ def _render_fs_section(pack: ProjectResumePack, lines: list[str]) -> None:
     if g.branch:
         lines.append(f"- Branch: {g.branch}")
         if g.upstream:
-            lines.append(
-                f"- Upstream: {g.upstream} ({g.ahead} ahead, {g.behind} behind)"
-            )
+            lines.append(f"- Upstream: {g.upstream} ({g.ahead} ahead, {g.behind} behind)")
         if g.dirty_files:
             sample = ", ".join(f.path for f in g.dirty_files[:5])
             lines.append(f"- Dirty: {len(g.dirty_files)} files ({sample})")
@@ -191,12 +187,8 @@ def render_cross_project(pack: ResumePack) -> str:
     lines = ["## Resume: cross-project digest", ""]
     for entry in pack.digest:
         age = _humanize_age(entry.last_ts)
-        lines.append(
-            f"- **{entry.project_root}** ({entry.count} events, last {age})"
-        )
+        lines.append(f"- **{entry.project_root}** ({entry.count} events, last {age})")
         if entry.last_query:
-            lines.append(
-                f'  - last: "{entry.last_query}" [{entry.last_mode or "?"}]'
-            )
+            lines.append(f'  - last: "{entry.last_query}" [{entry.last_mode or "?"}]')
 
     return "\n".join(lines).rstrip() + "\n"

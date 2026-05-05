@@ -3,11 +3,12 @@
 from pathlib import Path
 
 import pytest
-
 from libs.breadcrumbs.store import BreadcrumbStore
 
 
-def test_pack_writes_breadcrumb_side_effect(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pack_writes_breadcrumb_side_effect(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     db = tmp_path / "bc.db"
     monkeypatch.setattr("libs.breadcrumbs.store.DEFAULT_STORE_PATH", db)
     monkeypatch.setattr("apps.mcp.tools.DEFAULT_STORE_PATH", db)
@@ -28,7 +29,9 @@ def test_pack_writes_breadcrumb_side_effect(tmp_path: Path, monkeypatch: pytest.
     assert rows[0] == ("pack", "how does X work")
 
 
-def test_pack_breadcrumb_helper_swallows_exception(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pack_breadcrumb_helper_swallows_exception(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(
         "libs.breadcrumbs.store.DEFAULT_STORE_PATH",
         tmp_path / "no" / "such" / "dir" / "bc.db",

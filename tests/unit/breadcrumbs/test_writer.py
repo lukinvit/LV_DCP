@@ -40,9 +40,7 @@ def test_write_pack_event_persists_row(tmp_path: Path) -> None:
         cc_account_email="alice@example.com",
     )
     rows = list(
-        s.connect().execute(
-            "SELECT source, query, paths_touched, cc_session_id FROM breadcrumbs"
-        )
+        s.connect().execute("SELECT source, query, paths_touched, cc_session_id FROM breadcrumbs")
     )
     assert len(rows) == 1
     assert rows[0][0] == "pack"

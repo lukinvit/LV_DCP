@@ -6,7 +6,7 @@ import enum
 from dataclasses import dataclass, field
 
 
-class BreadcrumbSource(str, enum.Enum):
+class BreadcrumbSource(enum.StrEnum):
     PACK = "pack"
     STATUS = "status"
     HOOK_STOP = "hook_stop"

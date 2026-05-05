@@ -91,8 +91,7 @@ def _open_questions_from(breadcrumbs: list[BreadcrumbView]) -> list[str]:
     questions: list[str] = []
     for bc in breadcrumbs:
         if bc.turn_summary and (
-            "error" in bc.turn_summary.lower()
-            or "fail" in bc.turn_summary.lower()
+            "error" in bc.turn_summary.lower() or "fail" in bc.turn_summary.lower()
         ):
             questions.append(bc.turn_summary[:200])
     return questions[:5]
@@ -156,9 +155,7 @@ def build_cross_project_resume_pack(
     Returns:
         ResumePack with cross_project scope and per-project digest.
     """
-    digest = load_cross_project(
-        store=store, os_user=os_user, since_ts=since_ts, limit=limit
-    )
+    digest = load_cross_project(store=store, os_user=os_user, since_ts=since_ts, limit=limit)
     return ResumePack(
         generated_at=datetime.now(UTC),
         scope="cross_project",

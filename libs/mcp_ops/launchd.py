@@ -78,7 +78,9 @@ BREADCRUMB_PRUNE_LABEL = "com.lukinvit.lvdcp.breadcrumb-prune"
 
 _BREADCRUMB_PRUNE_TMPL = (
     Path(__file__).resolve().parents[2]
-    / "deploy" / "launchd" / "com.lukinvit.lvdcp.breadcrumb-prune.plist.tmpl"
+    / "deploy"
+    / "launchd"
+    / "com.lukinvit.lvdcp.breadcrumb-prune.plist.tmpl"
 )
 
 

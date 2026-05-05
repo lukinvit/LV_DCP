@@ -78,9 +78,7 @@ def test_cross_project_resume_orders_by_recency(tmp_path: Path) -> None:
         mode="edit",
         paths_touched=[],
     )
-    pack = build_cross_project_resume_pack(
-        store=s, os_user="alice", since_ts=0.0, limit=10
-    )
+    pack = build_cross_project_resume_pack(store=s, os_user="alice", since_ts=0.0, limit=10)
     assert pack.scope == "cross_project"
     assert pack.digest is not None
     assert [d.project_root for d in pack.digest] == ["/b", "/a"]

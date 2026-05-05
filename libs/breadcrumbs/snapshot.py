@@ -41,8 +41,11 @@ def _git(root: Path, *args: str, timeout: float = 2.0) -> str:
     try:
         out = subprocess.run(  # noqa: S603
             ["git", *args],  # noqa: S607
-            cwd=root, capture_output=True, text=True,
-            timeout=timeout, check=False,
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
         )
         if out.returncode != 0:
             return ""
@@ -53,8 +56,13 @@ def _git(root: Path, *args: str, timeout: float = 2.0) -> str:
 
 def _empty_git_state() -> GitState:
     return GitState(
-        branch="", upstream=None, ahead=0, behind=0,
-        last_commits=[], dirty_files=[], staged_files=[],
+        branch="",
+        upstream=None,
+        ahead=0,
+        behind=0,
+        last_commits=[],
+        dirty_files=[],
+        staged_files=[],
     )
 
 
@@ -92,8 +100,13 @@ def collect_git_state(*, project_root: Path) -> GitState:
         if work != " ":
             dirty.append(FileChange(path=path, status=work if work != " " else idx))
     return GitState(
-        branch=branch, upstream=upstream, ahead=ahead, behind=behind,
-        last_commits=last_commits, dirty_files=dirty, staged_files=staged,
+        branch=branch,
+        upstream=upstream,
+        ahead=ahead,
+        behind=behind,
+        last_commits=last_commits,
+        dirty_files=dirty,
+        staged_files=staged,
     )
 
 
@@ -181,8 +194,10 @@ def collect_last_scan(*, project_root: Path) -> ScanSummary | None:
             return None
         ev = events[-1]
         return ScanSummary(
-            timestamp=ev.timestamp, files_scanned=ev.files_scanned,
-            files_reparsed=ev.files_reparsed, duration_ms=ev.duration_ms,
+            timestamp=ev.timestamp,
+            files_scanned=ev.files_scanned,
+            files_reparsed=ev.files_reparsed,
+            duration_ms=ev.duration_ms,
             status=ev.status,
         )
 
