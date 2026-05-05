@@ -591,7 +591,9 @@ def lvdcp_status(path: str | None = None) -> StatusResponse:
     config = load_config(resolve_config_path())
     budget = compute_budget_status(config.llm)
     if path is None:
+        _record_status_breadcrumb(project_root="")
         return StatusResponse(workspace=build_workspace_status(), budget=budget)
+    _record_status_breadcrumb(project_root=str(Path(path).resolve()))
     return StatusResponse(
         project=build_project_status(Path(path).resolve()),
         budget=budget,
@@ -1352,6 +1354,27 @@ def lvdcp_resume(
         )
     finally:
         store.close()
+
+
+def _record_status_breadcrumb(*, project_root: str) -> None:
+    """Fire-and-forget status breadcrumb. Never raises."""
+    try:
+        from libs.breadcrumbs.store import BreadcrumbStore  # noqa: PLC0415
+        from libs.breadcrumbs.writer import write_status_event  # noqa: PLC0415
+
+        store = BreadcrumbStore(db_path=DEFAULT_STORE_PATH)
+        store.migrate()
+        try:
+            write_status_event(
+                store=store,
+                project_root=project_root,
+                os_user=getpass.getuser(),
+                cc_account_email=resolve_cc_account_email(),
+            )
+        finally:
+            store.close()
+    except Exception:
+        log.exception("breadcrumb side-effect (status) failed (suppressed)")
 
 
 def _record_pack_breadcrumb(
