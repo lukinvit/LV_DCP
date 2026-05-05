@@ -38,6 +38,9 @@ from apps.mcp.tools import (
     lvdcp_removed_since as _lvdcp_removed_since,
 )
 from apps.mcp.tools import (
+    lvdcp_resume as _lvdcp_resume,
+)
+from apps.mcp.tools import (
     lvdcp_scan as _lvdcp_scan,
 )
 from apps.mcp.tools import (
@@ -75,6 +78,7 @@ mcp.tool()(_lvdcp_diff)
 mcp.tool()(_lvdcp_regressions)
 mcp.tool()(_lvdcp_memory_propose)
 mcp.tool()(_lvdcp_memory_list)
+mcp.tool()(_lvdcp_resume)
 
 
 def run_stdio() -> None:

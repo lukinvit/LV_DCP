@@ -7,7 +7,10 @@ session because gui/<uid> is not reachable from headless SSH.
 
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 # Layering exception: libs/ normally does not depend on apps/. We reuse the
@@ -69,3 +72,43 @@ def bootout_agent(*, uid: int) -> None:
         raise LaunchctlError(
             f"launchctl bootout failed (exit {proc.returncode}): {proc.stderr.strip()}"
         )
+
+
+BREADCRUMB_PRUNE_LABEL = "com.lukinvit.lvdcp.breadcrumb-prune"
+
+_BREADCRUMB_PRUNE_TMPL = (
+    Path(__file__).resolve().parents[2]
+    / "deploy"
+    / "launchd"
+    / "com.lukinvit.lvdcp.breadcrumb-prune.plist.tmpl"
+)
+
+
+def write_breadcrumb_prune_plist(*, plist_path: Path, ctx_path: Path) -> Path:
+    """Render and write the breadcrumb-prune launchd plist."""
+    log_dir = Path.home() / "Library" / "Logs" / "lvdcp"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    template = _BREADCRUMB_PRUNE_TMPL.read_text(encoding="utf-8")
+    rendered = template.replace("{{CTX_PATH}}", str(ctx_path)).replace("{{LOG_DIR}}", str(log_dir))
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
+    plist_path.write_text(rendered, encoding="utf-8")
+    return plist_path
+
+
+def bootstrap_breadcrumb_prune() -> None:
+    """Install + load the breadcrumb-prune launchd entry for the current GUI user."""
+    plist_path = Path.home() / "Library" / "LaunchAgents" / f"{BREADCRUMB_PRUNE_LABEL}.plist"
+    ctx_path_str = shutil.which("ctx") or sys.executable
+    write_breadcrumb_prune_plist(plist_path=plist_path, ctx_path=Path(ctx_path_str))
+    uid = os.getuid()
+    subprocess.run(["launchctl", "bootstrap", f"gui/{uid}", str(plist_path)], check=False)  # noqa: S603 S607
+
+
+def bootout_breadcrumb_prune() -> None:
+    """Unload and remove the breadcrumb-prune launchd entry (idempotent)."""
+    plist_path = Path.home() / "Library" / "LaunchAgents" / f"{BREADCRUMB_PRUNE_LABEL}.plist"
+    if not plist_path.exists():
+        return
+    uid = os.getuid()
+    subprocess.run(["launchctl", "bootout", f"gui/{uid}", str(plist_path)], check=False)  # noqa: S603 S607
+    plist_path.unlink(missing_ok=True)

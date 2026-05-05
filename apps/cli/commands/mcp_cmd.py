@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import shutil
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import typer
 from libs.core.version import LVDCP_VERSION
@@ -98,6 +99,110 @@ def _install_hooks() -> list[str]:
     return installed
 
 
+_RESUME_HOOK_SRC = Path(__file__).resolve().parents[2] / "mcp" / "hooks"
+
+_RESUME_HOOK_CONFIGS = {
+    "Stop": [
+        {
+            "matcher": "lvdcp-resume",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": "$HOME/.claude/hooks/lvdcp/lvdcp-resume-stop.sh",
+                    "timeout": 5,
+                }
+            ],
+        }
+    ],
+    "PreCompact": [
+        {
+            "matcher": "lvdcp-resume",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": "$HOME/.claude/hooks/lvdcp/lvdcp-resume-precompact.sh",
+                    "timeout": 5,
+                }
+            ],
+        }
+    ],
+    "SubagentStop": [
+        {
+            "matcher": "lvdcp-resume",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": "$HOME/.claude/hooks/lvdcp/lvdcp-resume-subagent-stop.sh",
+                    "timeout": 5,
+                }
+            ],
+        }
+    ],
+    "SessionStart": [
+        {
+            "matcher": "lvdcp-resume",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": "$HOME/.claude/hooks/lvdcp/lvdcp-resume-sessionstart.sh",
+                    "timeout": 5,
+                }
+            ],
+        }
+    ],
+}
+
+
+@dataclass(frozen=True)
+class ResumeHooksInstallResult:
+    events_added: list[str] = field(default_factory=list)
+    files_copied: list[str] = field(default_factory=list)
+
+
+def _install_resume_hooks(
+    *, include_inject: bool, include_schedule: bool
+) -> ResumeHooksInstallResult:
+    """Copy resume hook scripts and merge their config into ~/.claude/settings.json."""
+    resume_hook_dst = Path.home() / ".claude" / "hooks" / "lvdcp"
+    resume_hook_dst.mkdir(parents=True, exist_ok=True)
+    files_copied: list[str] = []
+    for src in _RESUME_HOOK_SRC.glob("lvdcp-resume-*.sh"):
+        if not include_inject and src.name.endswith("-sessionstart.sh"):
+            continue
+        dst = resume_hook_dst / src.name
+        shutil.copy2(src, dst)
+        dst.chmod(0o755)
+        files_copied.append(str(dst))
+
+    settings_path = Path.home() / ".claude" / "settings.json"
+    settings: dict[str, Any] = {}
+    if settings_path.exists():
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    hooks = settings.setdefault("hooks", {})
+    events_added: list[str] = []
+    for event, entries in _RESUME_HOOK_CONFIGS.items():
+        if not include_inject and event == "SessionStart":
+            continue
+        existing = hooks.get(event, [])
+        existing_matchers = {e.get("matcher") for e in existing}
+        for entry in entries:
+            if entry["matcher"] not in existing_matchers:
+                existing.append(entry)
+                events_added.append(event)
+        hooks[event] = existing
+    settings_path.write_text(json.dumps(settings, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    if include_schedule:
+        from libs.mcp_ops.launchd import bootstrap_breadcrumb_prune  # noqa: PLC0415
+
+        bootstrap_breadcrumb_prune()
+
+    return ResumeHooksInstallResult(
+        events_added=events_added,
+        files_copied=files_copied,
+    )
+
+
 @app.command("serve")
 def serve() -> None:
     """Run the MCP server via stdio (called by MCP clients, not humans)."""
@@ -140,6 +245,16 @@ def install(
             "boundary."
         ),
     ),
+    hooks: Annotated[
+        str | None,
+        typer.Option(
+            "--hooks",
+            help=(
+                'Optional hook bundle. Use "resume" to install resume hooks. '
+                'Suffixes ":no-inject" / ":no-schedule" disable parts.'
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Install the lvdcp MCP server via `claude mcp add`.
 
@@ -188,6 +303,19 @@ def install(
 
     # Install hooks (always — same on-disk side effects in both modes)
     hook_files = _install_hooks()
+
+    # Optional resume hook bundle — runs before any early return so both
+    # --json and text modes pick it up.
+    if hooks:
+        parts = hooks.split(":")
+        if parts[0] != "resume":
+            typer.echo(f"unknown --hooks value: {hooks}", err=True)
+            raise typer.Exit(code=2)
+        suffixes = set(parts[1:])
+        _install_resume_hooks(
+            include_inject="no-inject" not in suffixes,
+            include_schedule="no-schedule" not in suffixes,
+        )
 
     if as_json:
         payload: dict[str, object] = {
